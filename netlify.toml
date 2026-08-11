@@ -1,0 +1,19 @@
+# Netlify deployment configuration for CampusRun
+# Publish from the repo root so all assets (css, js, images) are accessible.
+# The root index.html redirects to the app entry point at assets/html/index.html.
+
+[build]
+  publish = "."
+
+# Serve the app entry point for the site root.
+[[redirects]]
+  from = "/"
+  to = "/assets/html/index.html"
+  status = 200
+
+# SPA fallback: any unmatched path serves the app entry point so
+# hash-based routing (e.g. #/browse, #/cart) works on refresh.
+[[redirects]]
+  from = "/*"
+  to = "/assets/html/index.html"
+  status = 200
