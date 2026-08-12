@@ -340,7 +340,7 @@ function renderLogin() {
             </div>
             <button class="btn btn--block btn--lg" type="submit">Access Admin Panel</button>
           </form>
-          <p class="form-note mt-2 mb-0">Demo credentials: admin@abuad.edu.ng / admin123</p>
+          <p class="form-note mt-2 mb-0">Demo credentials: admin@abuad.edu.ng / moyin123</p>
         </div>
       </div>
     </section>
