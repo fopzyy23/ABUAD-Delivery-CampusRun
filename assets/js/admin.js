@@ -5,7 +5,7 @@
 // Admin credentials (in production, use server-side validation)
 const ADMIN_CREDENTIALS = {
   email: 'admin@abuad.edu.ng',
-  password: 'moyin123'
+  password: 'Moyin123.'
 };
 
 // State management
@@ -340,7 +340,6 @@ function renderLogin() {
             </div>
             <button class="btn btn--block btn--lg" type="submit">Access Admin Panel</button>
           </form>
-          <p class="form-note mt-2 mb-0">Demo credentials: admin@abuad.edu.ng / moyin123</p>
         </div>
       </div>
     </section>
