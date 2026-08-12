@@ -5,7 +5,7 @@
 // Admin credentials (in production, use server-side validation)
 const ADMIN_CREDENTIALS = {
   email: 'admin@abuad.edu.ng',
-  password: 'Moyin123.'
+password: 'Moyin123'
 };
 
 // State management
