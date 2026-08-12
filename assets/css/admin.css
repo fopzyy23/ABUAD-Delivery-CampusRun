@@ -95,6 +95,7 @@
   gap: 14px;
   grid-template-columns: 1fr 1fr;
 }
+.form-grid > * { min-width: 0; }
 
 .form-grid .col-2 {
   grid-column: 1 / -1;
@@ -210,6 +211,7 @@
   grid-template-columns: 1fr 1fr;
   align-items: start;
 }
+.split > * { min-width: 0; }
 
 @media (max-width: 900px) {
   .split {
@@ -396,23 +398,59 @@ html[data-theme="dark"] .badge--brand {
 
 /* ---------------------------------- RESPONSIVE ---------------------------- */
 @media (max-width: 780px) {
+  .admin-header { padding: 10px 0; }
   .admin-header__inner {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
 
   .admin-header__actions {
-    justify-content: center;
+    justify-content: flex-end;
+    gap: 6px;
   }
 
+  .admin-header .btn {
+    padding: 6px 10px;
+    font-size: .78rem;
+  }
+
+  .admin-header .badge { display: none; }
+
   .auth-wrap {
-    margin: 34px auto;
+    margin: 22px auto;
   }
 
   .card {
-    padding: 15px;
+    padding: 14px;
     border-radius: var(--r);
   }
+
+  .admin-main { padding: 20px 0; }
+
+  .grid--stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .card__head { flex-wrap: wrap; }
+  .table-wrap { max-width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .admin-header__inner { flex-direction: column; align-items: flex-start; }
+  .admin-header__actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .admin-header .btn { flex: 1; text-align: center; white-space: nowrap; }
+  .admin-header .btn--ghost { flex: 0 0 auto; }
+  .admin-main { padding: 16px 0; }
+  .card { padding: 12px; }
+  .stat { padding: 12px; }
+  .stat__value { font-size: 1.3rem; }
+  .page-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .page-head .btn { width: 100%; }
+  .grid--stats { grid-template-columns: 1fr; }
+  .admin-header__actions .btn { flex: 1 1 100%; }
 }
 
 /* ---------------------------------- TOAST --------------------------------- */
@@ -525,7 +563,7 @@ html[data-theme="dark"] .badge--brand {
   width: 100%;
   max-width: var(--maxw);
   margin-inline: auto;
-  padding-inline: 18px;
+  padding-inline: var(--container-pad, 20px);
 }
 
 /* ---------------------------------- SECTION ------------------------------- */
