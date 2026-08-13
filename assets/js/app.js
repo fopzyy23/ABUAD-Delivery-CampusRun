@@ -293,7 +293,7 @@ document.addEventListener('click', e=>{
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.orders.find(x=>x.id===accept.dataset.accept); if(o){o.status='Rider assigned'; save(); addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);} toast('Delivery added to your rider queue'); render();}
   const pickup=e.target.closest('[data-pickup]'); if(pickup){const o=state.orders.find(x=>x.id===pickup.dataset.pickup); if(o){o.status='Picked up'; save(); addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`);} toast('Order marked as picked up'); render();}
   const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.orders.find(x=>x.id===delivered.dataset.delivered); if(o){o.status='Delivered'; save(); addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`);} toast('Delivery completed — earnings added!'); render();}
-  if(e.target.id==='logoutBtn'){state.user=null; save(); location.hash='#/'; toast('Signed out','info');}
+  if(e.target.id==='logoutBtn'){state.user=null; save(); location.hash='#/'; toast('Signed out','info'); supabase.auth.signOut().catch(()=>{});}
 });
 
 document.addEventListener('submit', e=>{
@@ -331,17 +331,34 @@ document.addEventListener('submit', e=>{
               .insert({ id: data.user.id, email, full_name, phone, hostel });
             if(profileError){ console.error('Profile insert error:', profileError); }
           }
-          state.user={name:full_name||email.split('@')[0],email,role:'user'};
-          save();
-          addNotification('You\'re signed in','Start exploring what\'s available around campus.');
-          location.hash='#/';
-          toast('Welcome to CampusRun!');
+          if(data.session){
+            // Email confirmation is disabled — sign the user in immediately.
+            state.user={name:full_name||email.split('@')[0],email,role:'user'};
+            save();
+            addNotification('You\'re signed in','Start exploring what\'s available around campus.');
+            location.hash='#/';
+            toast('Welcome to CampusRun!');
+          } else {
+            // Email confirmation is required — the account is created but not
+            // yet active, so ask the user to confirm before signing in.
+            toast('Account created! Check your email to confirm your account.','info');
+            location.hash='#/login';
+          }
         });
     } else {
       supabase.auth.signInWithPassword({ email, password })
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if(error){ toast(error.message,'error'); return; }
-          state.user={name:email.split('@')[0],email,role:'user'};
+          let name=email.split('@')[0];
+          if(data.user){
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', data.user.id)
+              .single();
+            if(profile && profile.full_name) name=profile.full_name;
+          }
+          state.user={name,email,role:'user'};
           save();
           addNotification('You\'re signed in','Start exploring what\'s available around campus.');
           location.hash='#/';
@@ -374,4 +391,22 @@ document.addEventListener('visibilitychange', () => {
 });
 
 document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear(); window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
+
+// Session persistence: restore the Supabase session on load so a page refresh
+// keeps the user signed in (and restores their profile name).
+supabase.auth.getSession().then(({ data: { session } }) => {
+  if(session && session.user){
+    supabase.from('profiles').select('full_name').eq('id', session.user.id).single()
+      .then(({ data: profile }) => {
+        state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:'user'};
+        save();
+        render();
+      })
+      .catch(()=>{
+        state.user={name:session.user.email.split('@')[0],email:session.user.email,role:'user'};
+        save();
+        render();
+      });
+  }
+});
 

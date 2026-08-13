@@ -220,7 +220,6 @@ async function login(email, password) {
     supabaseAdminUser = data.user;
     await fetchAdminProfile();
     state.isAuthenticated = true;
-    save();
     return true;
   } catch (err) {
     toast('Authentication failed: ' + (err.message || 'Invalid credentials'), 'error');
@@ -231,13 +230,13 @@ async function login(email, password) {
 function logout() {
   state.isAuthenticated = false;
   supabaseAdminUser = null;
-  // Clear Supabase session
-  supabase.auth.signOut().then(() => {
-    localStorage.removeItem('campusrun_admin_session');
+  // Clear localStorage fallback
+  localStorage.removeItem('campusrun_admin_session');
+  // Clear Supabase session and return to the login screen regardless of
+  // whether signOut succeeds or fails.
+  supabase.auth.signOut().finally(() => {
     renderLogin();
   });
-  // Also clear localStorage fallback
-  localStorage.removeItem('campusrun_admin_session');
 }
 
 // ============================================
