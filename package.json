@@ -1,0 +1,12 @@
+{
+  "name": "abuad-delivery",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ABUAD Delivery (CampusRun) — catalog seed tooling",
+  "scripts": {
+    "seed:catalog": "node scripts/seed_catalog.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0"
+  }
+}

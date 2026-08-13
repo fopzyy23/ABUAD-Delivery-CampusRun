@@ -156,6 +156,29 @@ const data = () => {
   return state.catalog;
 };
 
+// Load the catalog from Supabase (vendors + products). This is the source of
+// truth for the customer-facing catalog. If the request fails, we keep the
+// existing localStorage catalog as a temporary fallback.
+async function loadCatalogFromSupabase() {
+  try {
+    const [vendorsRes, productsRes] = await Promise.all([
+      supabase.from('vendors').select('*'),
+      supabase.from('products').select('*')
+    ]);
+    if (vendorsRes.error) throw vendorsRes.error;
+    if (productsRes.error) throw productsRes.error;
+    // Map Supabase rows back to the frontend catalog shape. products.vendor_id
+    // becomes the existing `vendor` field used throughout the UI.
+    const vendors = vendorsRes.data.map(v => ({ id: v.id, name: v.name, icon: v.icon, type: v.type, rating: v.rating, time: v.time, cover: v.cover, open: v.open }));
+    const products = productsRes.data.map(p => ({ id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc, price: p.price, icon: p.icon, category: p.category }));
+    state.catalog = { vendors, products };
+    store('catalog_v3', state.catalog);
+    render();
+  } catch (err) {
+    console.error('Supabase catalog load failed — using localStorage fallback:', err);
+  }
+}
+
 function vendor(id) { return data().vendors.find(v => v.id === id); }
 function product(id) { return data().products.find(p => p.id === Number(id)); }
 
@@ -391,6 +414,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear(); window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
+
+// Load the catalog from Supabase (falls back to localStorage on failure).
+loadCatalogFromSupabase();
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
