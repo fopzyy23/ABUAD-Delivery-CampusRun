@@ -234,6 +234,7 @@ function cart() {
 
 // Get the current Supabase user id (or null if not signed in via Supabase).
 async function getSupabaseUserId() {
+  console.log('[TEST] getSupabaseUserId() is running');
   // DIAGNOSTIC: Check if the Supabase client is available
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('[CHECKOUT-DIAG] Supabase client is MISSING — `supabase` is undefined or null. Check that config.js loaded correctly after the Supabase CDN script.');
@@ -249,7 +250,7 @@ async function getSupabaseUserId() {
       console.error('[CHECKOUT-DIAG] No authenticated Supabase session found. The user is NOT signed in via Supabase auth. state.user exists but there is no Supabase session — the user may have logged in via demo mode (hardcoded credentials) instead of Supabase auth.');
       return null;
     }
-    console.log('[CHECKOUT-DIAG] Supabase session found. user_id =', session.user.id);
+    console.log('[TEST] getSupabaseUserId() returned user_id =', session.user.id);
     return session.user.id;
   } catch (err) {
     console.error('[CHECKOUT-DIAG] Unexpected error getting Supabase session:', err);
@@ -259,6 +260,7 @@ async function getSupabaseUserId() {
 
 // Save an order to Supabase (orders + order_items). Returns the order row or null on failure.
 async function saveOrderToSupabase(order) {
+  console.log('[TEST] saveOrderToSupabase() is running. Order =', order.id, '| user_id =', order.user_id);
   // DIAGNOSTIC: Check if the Supabase client is available
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('[CHECKOUT-DIAG] Supabase client is MISSING in saveOrderToSupabase — cannot insert order.');
@@ -276,6 +278,7 @@ async function saveOrderToSupabase(order) {
   });
 
   // 1. Insert the order
+  console.log('[TEST] BEFORE orders insert');
   const { data: orderData, error: orderError } = await supabase
     .from('orders')
     .insert({
@@ -288,6 +291,7 @@ async function saveOrderToSupabase(order) {
     })
     .select()
     .single();
+  console.log('[TEST] AFTER orders insert. orderError =', orderError ? orderError.message : 'null', '| orderData =', orderData ? JSON.stringify(orderData) : 'null');
 
   if (orderError) {
     console.error('[CHECKOUT-DIAG] ORDERS INSERT FAILED:', orderError);
@@ -311,9 +315,11 @@ async function saveOrderToSupabase(order) {
   // DIAGNOSTIC: Log the order_items payload being sent
   console.log('[CHECKOUT-DIAG] Attempting to insert', orderItems.length, 'items into public.order_items:', orderItems);
 
+  console.log('[TEST] BEFORE order_items insert');
   const { error: itemsError } = await supabase
     .from('order_items')
     .insert(orderItems);
+  console.log('[TEST] AFTER order_items insert. itemsError =', itemsError ? itemsError.message : 'null');
 
   if (itemsError) {
     console.error('[CHECKOUT-DIAG] ORDER_ITEMS INSERT FAILED:', itemsError);
@@ -496,6 +502,7 @@ document.addEventListener('submit', e=>{
   }
   if(e.target.id==='checkoutForm'){
     e.preventDefault();
+    console.log('[TEST] Checkout submit handler started');
     // Require the user to be logged in before placing an order
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
     const f=new FormData(e.target), total=cartTotal()+500;
