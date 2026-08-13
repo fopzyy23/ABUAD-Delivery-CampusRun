@@ -32,6 +32,138 @@ const load = (key, fallback) => {
 };
 const clone = value => JSON.parse(JSON.stringify(value));
 
+// ============================================
+// Supabase Sync Helpers
+// ============================================
+// Check if Supabase is available and configured.
+function supabaseAvailable() {
+  return typeof supabase !== 'undefined' && supabase;
+}
+
+// Map a frontend vendor object to the Supabase vendors table row shape.
+function vendorToRow(v) {
+  return {
+    id: v.id,
+    name: v.name,
+    icon: v.icon,
+    type: v.type,
+    rating: v.rating,
+    time: v.time,
+    cover: v.cover,
+    open: v.open
+  };
+}
+
+// Map a frontend product object to the Supabase products table row shape.
+// The frontend uses `vendor` for the vendor id; Supabase uses `vendor_id`.
+function productToRow(p) {
+  return {
+    id: p.id,
+    vendor_id: p.vendor,
+    name: p.name,
+    desc: p.desc,
+    price: p.price,
+    icon: p.icon,
+    category: p.category,
+    active: true
+  };
+}
+
+// Upsert a vendor into Supabase. Returns true on success, false on failure.
+async function syncVendorToSupabase(vendor) {
+  if (!supabaseAvailable()) return false;
+  try {
+    const { error } = await supabase
+      .from('vendors')
+      .upsert(vendorToRow(vendor), { onConflict: 'id' });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Supabase vendor sync failed:', err);
+    return false;
+  }
+}
+
+// Upsert a product into Supabase. Returns true on success, false on failure.
+async function syncProductToSupabase(product) {
+  if (!supabaseAvailable()) return false;
+  try {
+    const { error } = await supabase
+      .from('products')
+      .upsert(productToRow(product), { onConflict: 'id' });
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Supabase product sync failed:', err);
+    return false;
+  }
+}
+
+// Delete a vendor and all its products from Supabase.
+async function deleteVendorFromSupabase(vendorId) {
+  if (!supabaseAvailable()) return false;
+  try {
+    // Delete products belonging to this vendor first (FK constraint)
+    const { error: productError } = await supabase
+      .from('products')
+      .delete()
+      .eq('vendor_id', vendorId);
+    if (productError) throw productError;
+    
+    const { error: vendorError } = await supabase
+      .from('vendors')
+      .delete()
+      .eq('id', vendorId);
+    if (vendorError) throw vendorError;
+    return true;
+  } catch (err) {
+    console.error('Supabase vendor delete failed:', err);
+    return false;
+  }
+}
+
+// Deactivate a product in Supabase (set active = false) instead of hard-deleting.
+async function deactivateProductInSupabase(productId) {
+  if (!supabaseAvailable()) return false;
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ active: false })
+      .eq('id', productId);
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error('Supabase product deactivate failed:', err);
+    return false;
+  }
+}
+
+// Load the catalog from Supabase. Returns the catalog object or null on failure.
+async function loadCatalogFromSupabase() {
+  if (!supabaseAvailable()) return null;
+  try {
+    const [vendorsRes, productsRes] = await Promise.all([
+      supabase.from('vendors').select('*'),
+      supabase.from('products').select('*').eq('active', true)
+    ]);
+    if (vendorsRes.error) throw vendorsRes.error;
+    if (productsRes.error) throw productsRes.error;
+    
+    const vendors = vendorsRes.data.map(v => ({
+      id: v.id, name: v.name, icon: v.icon, type: v.type,
+      rating: v.rating, time: v.time, cover: v.cover, open: v.open
+    }));
+    const products = productsRes.data.map(p => ({
+      id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc,
+      price: p.price, icon: p.icon, category: p.category
+    }));
+    return { vendors, products };
+  } catch (err) {
+    console.error('Supabase catalog load failed:', err);
+    return null;
+  }
+}
+
 // Seed data (same as main app)
 const SEED_DATA = {
   vendors: [
@@ -168,13 +300,19 @@ function toast(message, kind = 'success') {
 // ============================================
 async function checkAuth() {
   // Check if we have a Supabase session
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session && session.user) {
-    supabaseAdminUser = session.user;
-    state.isAuthenticated = true;
-    // Fetch user profile
-    await fetchAdminProfile();
-    return true;
+  if (supabaseAvailable()) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user) {
+        supabaseAdminUser = session.user;
+        state.isAuthenticated = true;
+        // Fetch user profile
+        await fetchAdminProfile();
+        return true;
+      }
+    } catch (err) {
+      console.error('Supabase session check failed:', err);
+    }
   }
   // Fall back to localStorage if Supabase not available
   const adminSession = load('admin_session', null);
@@ -203,6 +341,18 @@ async function fetchAdminProfile() {
 }
 
 async function login(email, password) {
+  // If Supabase is unavailable, fall back to hardcoded credentials
+  if (!supabaseAvailable()) {
+    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
+      state.isAuthenticated = true;
+      supabaseAdminUser = null; // Mark as legacy auth
+      store('admin_session', { isAuthenticated: true, email, loginTime: Date.now() });
+      return true;
+    }
+    toast('Invalid credentials', 'error');
+    return false;
+  }
+  
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     
@@ -234,9 +384,13 @@ function logout() {
   localStorage.removeItem('campusrun_admin_session');
   // Clear Supabase session and return to the login screen regardless of
   // whether signOut succeeds or fails.
-  supabase.auth.signOut().finally(() => {
+  if (supabaseAvailable()) {
+    supabase.auth.signOut().finally(() => {
+      renderLogin();
+    });
+  } else {
     renderLogin();
-  });
+  }
 }
 
 // ============================================
@@ -258,7 +412,15 @@ function mergeSeedIntoStored(cat) {
   return cat;
 }
 
-function loadCatalog() {
+async function loadCatalog() {
+  // Try to load from Supabase first (source of truth)
+  const supabaseCatalog = await loadCatalogFromSupabase();
+  if (supabaseCatalog) {
+    state.catalog = supabaseCatalog;
+    store('catalog_v3', state.catalog);
+    return;
+  }
+  // Fall back to localStorage if Supabase is unavailable
   state.catalog = mergeSeedIntoStored(load('catalog_v3', clone(SEED_DATA)));
 }
 
@@ -269,19 +431,41 @@ function saveCatalog() {
   store('catalog_v3', state.catalog);
 }
 
-function resetCatalog() {
+async function resetCatalog() {
   if (confirm('Restore the original demo catalog? All changes will be lost.')) {
     state.catalog = clone(SEED_DATA);
     saveCatalog();
+    
+    // Sync the restored catalog back to Supabase
+    if (supabaseAvailable()) {
+      try {
+        // Upsert all seed vendors
+        const { error: vendorError } = await supabase
+          .from('vendors')
+          .upsert(state.catalog.vendors.map(vendorToRow), { onConflict: 'id' });
+        if (vendorError) throw vendorError;
+        
+        // Upsert all seed products
+        const { error: productError } = await supabase
+          .from('products')
+          .upsert(state.catalog.products.map(productToRow), { onConflict: 'id' });
+        if (productError) throw productError;
+        
+        toast('Catalog restored and synced to Supabase');
+      } catch (err) {
+        console.error('Supabase catalog reset sync failed:', err);
+        toast('Catalog restored locally (Supabase sync failed)', 'error');
+      }
+    }
+    
     renderAdminWorkspace();
-    toast('Catalog restored to default');
   }
 }
 
 // ============================================
 // Vendor Management
 // ============================================
-function addVendor(formData) {
+async function addVendor(formData) {
   const vendor = {
     id: formData.get('id') || `${formData.get('name').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`,
     name: formData.get('name').trim(),
@@ -300,12 +484,21 @@ function addVendor(formData) {
     state.catalog.vendors.push(vendor);
   }
   
+  // Save to localStorage (fallback)
   saveCatalog();
+  
+  // Sync to Supabase
+  const synced = await syncVendorToSupabase(vendor);
+  if (!synced) {
+    toast('Vendor saved locally (Supabase sync failed)', 'error');
+  } else {
+    toast('Vendor saved successfully');
+  }
+  
   renderAdminWorkspace();
-  toast('Vendor saved successfully');
 }
 
-function deleteVendor(vendorId) {
+async function deleteVendor(vendorId) {
   if (confirm('Delete this vendor and all its products?')) {
     const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
     state.catalog.vendors = state.catalog.vendors.filter(v => v.id !== vendorId);
@@ -313,26 +506,46 @@ function deleteVendor(vendorId) {
     // Remove any cart entries that referenced the deleted vendor's products
     const cart = load('cart', []);
     store('cart', cart.filter(x => !vendorProductIds.includes(x.id)));
+    
+    // Save to localStorage (fallback)
     saveCatalog();
+    
+    // Sync to Supabase
+    const synced = await deleteVendorFromSupabase(vendorId);
+    if (!synced) {
+      toast('Vendor deleted locally (Supabase sync failed)', 'error');
+    } else {
+      toast('Vendor deleted');
+    }
+    
     renderAdminWorkspace();
-    toast('Vendor deleted');
   }
 }
 
-function toggleVendor(vendorId) {
+async function toggleVendor(vendorId) {
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   if (vendor) {
     vendor.open = !vendor.open;
+    
+    // Save to localStorage (fallback)
     saveCatalog();
+    
+    // Sync to Supabase
+    const synced = await syncVendorToSupabase(vendor);
+    if (!synced) {
+      toast(`Vendor ${vendor.open ? 'opened' : 'closed'} locally (Supabase sync failed)`, 'error');
+    } else {
+      toast(`Vendor ${vendor.open ? 'opened' : 'closed'}`);
+    }
+    
     renderAdminWorkspace();
-    toast(`Vendor ${vendor.open ? 'opened' : 'closed'}`);
   }
 }
 
 // ============================================
 // Product Management
 // ============================================
-function addProduct(formData) {
+async function addProduct(formData) {
   const product = {
     id: formData.get('id') ? Number(formData.get('id')) : Math.max(0, ...state.catalog.products.map(p => p.id)) + 1,
     vendor: formData.get('vendor'),
@@ -350,20 +563,39 @@ function addProduct(formData) {
     state.catalog.products.push(product);
   }
   
+  // Save to localStorage (fallback)
   saveCatalog();
+  
+  // Sync to Supabase
+  const synced = await syncProductToSupabase(product);
+  if (!synced) {
+    toast('Product saved locally (Supabase sync failed)', 'error');
+  } else {
+    toast('Product saved successfully');
+  }
+  
   renderAdminWorkspace();
-  toast('Product saved successfully');
 }
 
-function deleteProduct(productId) {
+async function deleteProduct(productId) {
   if (confirm('Delete this product?')) {
     state.catalog.products = state.catalog.products.filter(p => p.id !== Number(productId));
     // Remove any cart entries that referenced the deleted product
     const cart = load('cart', []);
     store('cart', cart.filter(x => x.id !== Number(productId)));
+    
+    // Save to localStorage (fallback)
     saveCatalog();
+    
+    // Deactivate in Supabase (soft delete — keeps FK integrity)
+    const synced = await deactivateProductInSupabase(Number(productId));
+    if (!synced) {
+      toast('Product deleted locally (Supabase sync failed)', 'error');
+    } else {
+      toast('Product deleted');
+    }
+    
     renderAdminWorkspace();
-    toast('Product deleted');
   }
 }
 
@@ -403,10 +635,10 @@ function renderLogin() {
     const email = formData.get('email');
     const password = formData.get('password');
     
-    login(email, password).then(isValid => {
+    login(email, password).then(async isValid => {
       if (isValid) {
         toast('Admin access granted');
-        loadCatalog();
+        await loadCatalog();
         renderAdminWorkspace();
       } else {
         toast('Invalid credentials', 'error');
@@ -707,20 +939,19 @@ document.addEventListener('click', (e) => {
   }
 });
 
-function init() {
+async function init() {
   // Check authentication
-  checkAuth().then(isAuthenticated => {
-    if (!isAuthenticated) {
-      renderLogin();
-      return;
-    }
-    
-    // Load catalog data
-    loadCatalog();
-    
-    // Render admin workspace
-    renderAdminWorkspace();
-  });
+  const isAuthenticated = await checkAuth();
+  if (!isAuthenticated) {
+    renderLogin();
+    return;
+  }
+  
+  // Load catalog data (from Supabase, falling back to localStorage)
+  await loadCatalog();
+  
+  // Render admin workspace
+  renderAdminWorkspace();
 }
 
 // Start the app when DOM is ready
