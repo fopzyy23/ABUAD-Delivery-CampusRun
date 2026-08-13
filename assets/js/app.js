@@ -1,3 +1,5 @@
+console.log("[TEST] app.js is running");
+
 const SEED_DATA = {
   vendors: [
     { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true },
