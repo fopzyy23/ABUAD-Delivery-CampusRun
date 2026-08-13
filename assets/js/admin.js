@@ -11,7 +11,8 @@ password: 'Moyin123'
 // State management
 let state = {
   isAuthenticated: false,
-  catalog: null
+  catalog: null,
+  orders: []
 };
 
 // Supabase authentication tracking
@@ -639,6 +640,7 @@ function renderLogin() {
       if (isValid) {
         toast('Admin access granted');
         await loadCatalog();
+        await loadOrders();
         renderAdminWorkspace();
       } else {
         toast('Invalid credentials', 'error');
@@ -650,6 +652,7 @@ function renderLogin() {
 function renderAdminWorkspace() {
   const vendors = state.catalog.vendors;
   const products = state.catalog.products;
+  const orders = state.orders;
   
   const app = $('#app');
   app.innerHTML = `
@@ -833,6 +836,44 @@ function renderAdminWorkspace() {
           </table>
         </div>
       </div>
+
+      <!-- Orders Table -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Orders</h3>
+          <span class="muted small">${orders.length} order${orders.length === 1 ? '' : 's'}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Items</th>
+                <th>Delivery</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${orders.length ? orders.map(order => `
+                <tr>
+                  <td><b>#${order.id}</b></td>
+                  <td>${order.items.map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
+                  <td>${order.spot || '—'}</td>
+                  <td>${money(order.total)}</td>
+                  <td>
+                    <select class="select" data-order-status="${order.id}">
+                      ${['Order confirmed', 'Rider assigned', 'Picked up', 'Delivered'].map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
+                    </select>
+                  </td>
+                  <td><button class="link-btn" data-save-order-status="${order.id}">Save</button></td>
+                </tr>
+              `).join('') : '<tr><td colspan="6" class="muted center">No orders yet.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   `;
   
@@ -888,6 +929,13 @@ function attachAdminEventListeners() {
   
   document.querySelectorAll('[data-delete-product]').forEach(btn => {
     btn.addEventListener('click', () => deleteProduct(btn.dataset.deleteProduct));
+  });
+
+  document.querySelectorAll('[data-save-order-status]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const status = document.querySelector(`[data-order-status="${btn.dataset.saveOrderStatus}"]`).value;
+      updateOrderStatus(btn.dataset.saveOrderStatus, status);
+    });
   });
 }
 
@@ -949,6 +997,7 @@ async function init() {
   
   // Load catalog data (from Supabase, falling back to localStorage)
   await loadCatalog();
+  await loadOrders();
   
   // Render admin workspace
   renderAdminWorkspace();
@@ -959,4 +1008,95 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
+}
+
+// Load all orders and their items for the admin workspace. The public order
+// number is kept for display, while the database id is retained for updates.
+async function loadOrdersFromSupabase() {
+  if (!supabaseAvailable()) return null;
+  try {
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (ordersError) throw ordersError;
+
+    let orderItemsData = [];
+    if (ordersData.length) {
+      const { data, error } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', ordersData.map(order => order.id));
+      if (error) throw error;
+      orderItemsData = data || [];
+    }
+
+    const itemsByOrder = {};
+    orderItemsData.forEach(item => {
+      if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+      itemsByOrder[item.order_id].push({
+        id: item.product_id,
+        vendor: item.vendor_id,
+        name: item.name,
+        price: item.price,
+        icon: item.icon,
+        qty: item.qty
+      });
+    });
+
+    return ordersData.map(order => ({
+      id: order.order_number,
+      dbId: order.id,
+      items: itemsByOrder[order.id] || [],
+      total: order.total,
+      fee: order.fee || 500,
+      status: order.status || 'Order confirmed',
+      spot: order.spot || '',
+      created: order.created_at
+    }));
+  } catch (err) {
+    console.error('Supabase orders load failed:', err);
+    return null;
+  }
+}
+
+async function loadOrders() {
+  const localOrders = load('orders', []);
+  const supabaseOrders = await loadOrdersFromSupabase();
+  if (!supabaseOrders) {
+    state.orders = localOrders;
+    return;
+  }
+
+  const remoteOrderNumbers = new Set(supabaseOrders.map(order => order.id));
+  state.orders = [...supabaseOrders, ...localOrders.filter(order => !remoteOrderNumbers.has(order.id))];
+  store('orders', state.orders);
+}
+
+async function updateOrderStatus(orderId, status) {
+  const order = state.orders.find(item => item.id === orderId);
+  if (!order) return;
+
+  order.status = status;
+  store('orders', state.orders);
+
+  if (!order.dbId || !supabaseAvailable()) {
+    toast('Order status saved locally');
+    renderAdminWorkspace();
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status })
+      .eq('id', order.dbId);
+    if (error) throw error;
+    toast('Order status updated');
+  } catch (err) {
+    console.error('Supabase order status update failed:', err);
+    toast('Order status saved locally (Supabase sync failed)', 'error');
+  }
+
+  renderAdminWorkspace();
 }
