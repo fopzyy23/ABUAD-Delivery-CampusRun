@@ -303,18 +303,51 @@ document.addEventListener('submit', e=>{
     e.preventDefault();
     const f=new FormData(e.target);
     const isAdmin=location.hash==='#/admin/login';
+    const isRegister=location.hash==='#/register';
     if(isAdmin){
       const email=f.get('email'), password=f.get('password');
       if(email!==ADMIN_CREDENTIALS.email || password!==ADMIN_CREDENTIALS.password){
         toast('Invalid admin credentials','error');
         return;
       }
+      state.user={name:email.split('@')[0],email,role:'admin'};
+      save();
+      addNotification('Admin access granted','Welcome to the admin dashboard.');
+      location.hash='#/admin';
+      toast('Admin access granted');
+      return;
     }
-    state.user={name:f.get('name')||f.get('email').split('@')[0],email:f.get('email'),role:isAdmin?'admin':'user'};
-    save();
-    addNotification(isAdmin?'Admin access granted':'You\'re signed in',isAdmin?'Welcome to the admin dashboard.':'Start exploring what\'s available around campus.');
-    location.hash=isAdmin?'#/admin':'#/';
-    toast(isAdmin?'Admin access granted':'Welcome to CampusRun!');
+    const email=f.get('email'), password=f.get('password');
+    if(isRegister){
+      const full_name=f.get('name')||'';
+      const phone=f.get('phone')||'';
+      const hostel=f.get('hostel')||'';
+      supabase.auth.signUp({ email, password, options: { data: { full_name, phone, hostel } } })
+        .then(async ({ data, error }) => {
+          if(error){ toast(error.message,'error'); return; }
+          if(data.user){
+            const { error: profileError } = await supabase
+              .from('profiles')
+              .insert({ id: data.user.id, email, full_name, phone, hostel });
+            if(profileError){ console.error('Profile insert error:', profileError); }
+          }
+          state.user={name:full_name||email.split('@')[0],email,role:'user'};
+          save();
+          addNotification('You\'re signed in','Start exploring what\'s available around campus.');
+          location.hash='#/';
+          toast('Welcome to CampusRun!');
+        });
+    } else {
+      supabase.auth.signInWithPassword({ email, password })
+        .then(({ data, error }) => {
+          if(error){ toast(error.message,'error'); return; }
+          state.user={name:email.split('@')[0],email,role:'user'};
+          save();
+          addNotification('You\'re signed in','Start exploring what\'s available around campus.');
+          location.hash='#/';
+          toast('Welcome to CampusRun!');
+        });
+    }
   }
   if(e.target.id==='checkoutForm'){e.preventDefault(); const f=new FormData(e.target), total=cartTotal()+500; const order={id:`CR-${Math.floor(1000+Math.random()*8999)}`,items:cartItems(),total,fee:500,status:'Order confirmed',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now'}; state.orders.unshift(order); state.cart=[]; addNotification('Order confirmed',`Your order #${order.id} is being matched with a rider.`); save(); location.hash=`#/track/${order.id}`; toast('Order placed successfully!');}
   if(e.target.id==='riderForm'){e.preventDefault(); toast('Application submitted! We\'ll review your details shortly.'); location.hash='#/rider';}
