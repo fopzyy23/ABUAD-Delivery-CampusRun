@@ -199,6 +199,119 @@ function addCart(id) { const p = product(id); const line = state.cart.find(x => 
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
 
+// ============================================
+// Orders from Supabase
+// ============================================
+// Tracks whether the current user's orders have been loaded from Supabase.
+state.ordersLoadedFromSupabase = false;
+
+// Format a Supabase created_at timestamp into the same "Just now" style
+// used by the existing order UI.
+function formatOrderCreated(createdAt) {
+  if (!createdAt) return 'Just now';
+  const date = new Date(createdAt);
+  if (isNaN(date.getTime())) return 'Just now';
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs} hr${diffHrs > 1 ? 's' : ''} ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Load the authenticated user's orders from Supabase (orders + order_items)
+// and map them into the existing frontend order shape. Falls back to
+// localStorage if Supabase is unavailable.
+async function loadOrdersFromSupabase() {
+  if (typeof supabase === 'undefined' || !supabase) {
+    console.error('Supabase client is missing — using localStorage orders fallback');
+    state.ordersLoadedFromSupabase = true;
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      // No authenticated session — keep localStorage orders
+      state.ordersLoadedFromSupabase = true;
+      return false;
+    }
+    const userId = session.user.id;
+
+    // 1. Fetch the user's orders from Supabase
+    const { data: ordersData, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', userId);
+    if (ordersError) throw ordersError;
+
+    // 2. Fetch order_items for all the user's orders
+    let orderItemsData = [];
+    if (ordersData && ordersData.length > 0) {
+      const orderIds = ordersData.map(o => o.id);
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+      if (itemsError) throw itemsError;
+      orderItemsData = itemsData || [];
+    }
+
+    // 3. Group order_items by order_id
+    const itemsByOrder = {};
+    orderItemsData.forEach(item => {
+      if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+      itemsByOrder[item.order_id].push({
+        id: item.product_id,
+        vendor: item.vendor_id,
+        name: item.name,
+        price: item.price,
+        icon: item.icon,
+        desc: '',
+        category: '',
+        qty: item.qty
+      });
+    });
+
+    // 4. Map Supabase orders into the existing frontend order shape
+    const supabaseOrders = (ordersData || []).map(o => ({
+      id: o.order_number,
+      items: itemsByOrder[o.id] || [],
+      total: o.total,
+      fee: o.fee || 500,
+      status: o.status || 'Order confirmed',
+      spot: o.spot || '',
+      created: formatOrderCreated(o.created_at)
+    }));
+
+    // 5. Merge with existing localStorage orders (e.g. ones just placed in this
+    //    session that may not be in Supabase yet). Avoid duplicates by id.
+    const existingIds = new Set(state.orders.map(x => x.id));
+    const newOrders = supabaseOrders.filter(o => !existingIds.has(o.id));
+    if (newOrders.length > 0) {
+      state.orders = [...newOrders, ...state.orders];
+      store('orders', state.orders);
+    }
+
+    state.ordersLoadedFromSupabase = true;
+    return true;
+  } catch (err) {
+    console.error('Supabase orders load failed — using localStorage fallback:', err);
+    state.ordersLoadedFromSupabase = true;
+    return false;
+  }
+}
+
+// Ensure orders have been loaded from Supabase at least once before rendering.
+async function ensureOrdersLoaded() {
+  if (!state.ordersLoadedFromSupabase) {
+    await loadOrdersFromSupabase();
+  }
+}
+
 function productCard(p) { return `<article class="pcard"><div class="pcard__thumb">${p.icon}</div><div class="pcard__name">${p.name}</div><div class="pcard__desc">${p.desc}</div><div class="pcard__foot"><span class="price">${money(p.price)}</span><button class="btn btn--soft btn--sm" data-add="${p.id}">Add +</button></div></article>`; }
 function vendorCard(v) { return `<a class="vcard" href="#/vendor/${v.id}"><div class="vcard__cover" style="background:${v.cover}">${v.icon}<span class="badge badge--brand">${v.type}</span>${v.open?'':'<span class="vcard__closed">Closed</span>'}</div><div class="vcard__body"><h3>${v.name}</h3><div class="vcard__meta"><span class="stars">★★★★★</span><b>${v.rating}</b><span>• ${v.time}</span></div></div></a>`; }
 function empty(icon, title, copy, action = '') { return `<div class="empty"><div class="empty__icon">${icon}</div><b>${title}</b><span>${copy}</span>${action}</div>`; }
@@ -343,8 +456,18 @@ function checkout() {
   return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">Demo payment — no money will be charged.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${x.icon}</span><span class="line__main"><b>${x.name}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>₦500</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
-function orders() { return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${!state.orders.length ? empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>') : `<div class="stack">${state.orders.map(o=>`<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${o.created}</p></div><div class="right"><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/track/${o.id}">Track order →</a></div></div></article>`).join('')}</div>`}</section>`; }
-function track(id) { const o = state.orders.find(x=>x.id===id); if (!o) return notFound(); const stages = ['Order confirmed','Rider assigned','Picked up','Delivered']; const current = o.status==='Delivered'?3:o.status==='Picked up'?2:o.status==='Rider assigned'?1:0; return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--info">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">Delivering to ${o.spot}</p><div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div></div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">A</span><div><b>Amara Okoye</b><div><span class="stars">★★★★★</span> <span class="small">4.9 · 126 deliveries</span></div></div></div><div class="divider"></div><p class="small muted">Estimated arrival</p><b>About 12 minutes</b><button class="btn btn--ghost btn--block mt-2" onclick="toast('Rider call is simulated in this demo','info')">📞 Contact rider</button></aside></div></section>`; }
+async function orders() {
+  await ensureOrdersLoaded();
+  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${!state.orders.length ? empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>') : `<div class="stack">${state.orders.map(o=>`<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${o.created}</p></div><div class="right"><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/track/${o.id}">Track order →</a></div></div></article>`).join('')}</div>`}</section>`;
+}
+async function track(id) {
+  await ensureOrdersLoaded();
+  const o = state.orders.find(x=>x.id===id);
+  if (!o) return notFound();
+  const stages = ['Order confirmed','Rider assigned','Picked up','Delivered'];
+  const current = o.status==='Delivered'?3:o.status==='Picked up'?2:o.status==='Rider assigned'?1:0;
+  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--info">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">Delivering to ${o.spot}</p><div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div></div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">A</span><div><b>Amara Okoye</b><div><span class="stars">★★★★★</span> <span class="small">4.9 · 126 deliveries</span></div></div></div><div class="divider"></div><p class="small muted">Estimated arrival</p><b>About 12 minutes</b><button class="btn btn--ghost btn--block mt-2" onclick="toast('Rider call is simulated in this demo','info')">📞 Contact rider</button></aside></div></section>`;
+}
 
 function auth(kind) { const login = kind==='login'; const admin = kind==='admin'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${admin?'Admin access':'Welcome back'}</h1><p class="muted">${admin?'Enter admin credentials to continue.':'Sign in to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2">${admin?'<div class="field"><label>Admin email</label><input required class="input" type="email" name="email" placeholder="admin@abuad.edu.ng"></div><div class="field"><label>Admin password</label><input required class="input" type="password" name="password" placeholder="Enter admin password"></div>':`<div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@abuad.edu.ng"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>`}<button class="btn btn--block btn--lg" type="submit">${admin?'Access admin panel':login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${!admin?(login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'):'<a class="link-btn" href="#/login">Back to student login</a>'}</p><p class="form-note mt-2 mb-0">${admin?'':(login?'Demo mode: enter any email and password to continue.':'Demo mode: enter any details to continue.')}</p></div></div></section>`; }
 
@@ -394,7 +517,7 @@ function notFound() { return `<section class="section container">${empty('🧭',
 
 function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; $('#notifDot').hidden=!state.notifications.some(n=>n.unread); $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${state.user.name}</b><br><span class="muted small">${state.user.email}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=state.notifications.map(n=>`<div class="notif ${n.unread?'notif--unread':''}"><span>🔔</span><div><div class="notif__title">${n.title}</div><div class="notif__body">${n.body}</div><div class="notif__time">${n.time}</div></div></div>`).join(''); }
 
-function render() {
+async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
   let view;
@@ -404,8 +527,8 @@ function render() {
   else if (parts[0]==='vendor' && parts[1]) view = vendorView(parts[1]);
   else if (parts[0]==='cart') view = cart();
   else if (parts[0]==='checkout') view = checkout();
-  else if (parts[0]==='orders') view = orders();
-  else if (parts[0]==='track') view = track(parts[1]);
+  else if (parts[0]==='orders') view = await orders();
+  else if (parts[0]==='track') view = await track(parts[1]);
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
@@ -572,6 +695,9 @@ document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
 loadCatalogFromSupabase();
+
+// Load the authenticated user's orders from Supabase (falls back to localStorage).
+loadOrdersFromSupabase();
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
