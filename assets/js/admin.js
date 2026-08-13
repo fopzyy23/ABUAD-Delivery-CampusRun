@@ -14,6 +14,9 @@ let state = {
   catalog: null
 };
 
+// Supabase authentication tracking
+let supabaseAdminUser = null;
+
 // ============================================
 // Utility Functions
 // ============================================
@@ -163,7 +166,17 @@ function toast(message, kind = 'success') {
 // ============================================
 // Authentication
 // ============================================
-function checkAuth() {
+async function checkAuth() {
+  // Check if we have a Supabase session
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session && session.user) {
+    supabaseAdminUser = session.user;
+    state.isAuthenticated = true;
+    // Fetch user profile
+    await fetchAdminProfile();
+    return true;
+  }
+  // Fall back to localStorage if Supabase not available
   const adminSession = load('admin_session', null);
   if (adminSession && adminSession.isAuthenticated) {
     state.isAuthenticated = true;
@@ -172,19 +185,59 @@ function checkAuth() {
   return false;
 }
 
-function login(email, password) {
-  if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-    state.isAuthenticated = true;
-    store('admin_session', { isAuthenticated: true, email, loginTime: Date.now() });
-    return true;
+async function fetchAdminProfile() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('email', supabaseAdminUser.email)
+    .single();
+  
+  if (data) {
+    state.user = {
+      id: data.id,
+      name: data.full_name || supabaseAdminUser.email.split('@')[0],
+      email: data.email,
+      role: data.role || 'admin'
+    };
   }
-  return false;
+}
+
+async function login(email, password) {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    
+    if (error) {
+      // If Supabase auth fails, fall back to hardcoded credentials for backward compatibility
+      if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
+        state.isAuthenticated = true;
+        supabaseAdminUser = null; // Mark as legacy auth
+        store('admin_session', { isAuthenticated: true, email, loginTime: Date.now() });
+        return true;
+      }
+      throw error;
+    }
+    
+    supabaseAdminUser = data.user;
+    await fetchAdminProfile();
+    state.isAuthenticated = true;
+    save();
+    return true;
+  } catch (err) {
+    toast('Authentication failed: ' + (err.message || 'Invalid credentials'), 'error');
+    return false;
+  }
 }
 
 function logout() {
   state.isAuthenticated = false;
+  supabaseAdminUser = null;
+  // Clear Supabase session
+  supabase.auth.signOut().then(() => {
+    localStorage.removeItem('campusrun_admin_session');
+    renderLogin();
+  });
+  // Also clear localStorage fallback
   localStorage.removeItem('campusrun_admin_session');
-  renderLogin();
 }
 
 // ============================================
@@ -351,13 +404,15 @@ function renderLogin() {
     const email = formData.get('email');
     const password = formData.get('password');
     
-    if (login(email, password)) {
-      toast('Admin access granted');
-      loadCatalog();
-      renderAdminWorkspace();
-    } else {
-      toast('Invalid credentials', 'error');
-    }
+    login(email, password).then(isValid => {
+      if (isValid) {
+        toast('Admin access granted');
+        loadCatalog();
+        renderAdminWorkspace();
+      } else {
+        toast('Invalid credentials', 'error');
+      }
+    });
   });
 }
 
@@ -655,16 +710,18 @@ document.addEventListener('click', (e) => {
 
 function init() {
   // Check authentication
-  if (!checkAuth()) {
-    renderLogin();
-    return;
-  }
-  
-  // Load catalog data
-  loadCatalog();
-  
-  // Render admin workspace
-  renderAdminWorkspace();
+  checkAuth().then(isAuthenticated => {
+    if (!isAuthenticated) {
+      renderLogin();
+      return;
+    }
+    
+    // Load catalog data
+    loadCatalog();
+    
+    // Render admin workspace
+    renderAdminWorkspace();
+  });
 }
 
 // Start the app when DOM is ready
