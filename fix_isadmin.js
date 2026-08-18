@@ -1,4 +1,4 @@
-l const fs = require('fs');
+const fs = require('fs');
 const filePath = 'assets/js/app.js';
 let c = fs.readFileSync(filePath, 'utf8');
 
