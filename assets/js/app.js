@@ -515,7 +515,13 @@ function adminWorkspace() {
 }
 function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; $('#notifDot').hidden=!state.notifications.some(n=>n.unread); $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${state.user.name}</b><br><span class="muted small">${state.user.email}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=state.notifications.map(n=>`<div class="notif ${n.unread?'notif--unread':''}"><span>🔔</span><div><div class="notif__title">${n.title}</div><div class="notif__body">${n.body}</div><div class="notif__time">${n.time}</div></div></div>`).join(''); }
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; $('#notifDot').hidden=!state.notifications.some(n=>n.unread); $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${state.user.name}</b><br><span class="muted small">${state.user.email}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=state.notifications.map(n=>`<div class="notif ${n.unread?'notif--unread':''}"><span>🔔</span><div><div class="notif__title">${n.title}</div><div class="notif__body">${n.body}</div><div class="notif__time">${n.time}</div></div></div>`).join(''); 
+  // Show/hide Admin link based on user role (profiles.role === 'admin')
+  const adminLink = document.getElementById('adminLink');
+  if (adminLink) {
+    adminLink.hidden = !(state.user && state.user.role === 'admin');
+  }
+}
 
 async function render() {
   const [path] = location.hash.slice(1).split('?');
@@ -705,7 +711,8 @@ supabase.auth.getSession().then(({ data: { session } }) => {
   if(session && session.user){
     supabase.from('profiles').select('full_name').eq('id', session.user.id).single()
       .then(({ data: profile }) => {
-        state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:'user'};
+        const userRole = (profile && profile.role) || 'user';
+    state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole};
         save();
         render();
       })

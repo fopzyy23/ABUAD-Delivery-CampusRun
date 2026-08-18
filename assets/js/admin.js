@@ -2,17 +2,12 @@
 // CampusRun Admin Panel
 // ============================================
 
-// Admin credentials (in production, use server-side validation)
-const ADMIN_CREDENTIALS = {
-  email: 'admin@abuad.edu.ng',
-password: 'Moyin123'
-};
-
 // State management
 let state = {
   isAuthenticated: false,
   catalog: null,
-  orders: []
+  orders: [],
+  riders: []
 };
 
 // Supabase authentication tracking
@@ -51,7 +46,8 @@ function vendorToRow(v) {
     rating: v.rating,
     time: v.time,
     cover: v.cover,
-    open: v.open
+    open: v.open,
+    delivery_method: v.delivery_method || 'rider'
   };
 }
 
@@ -152,7 +148,8 @@ async function loadCatalogFromSupabase() {
     
     const vendors = vendorsRes.data.map(v => ({
       id: v.id, name: v.name, icon: v.icon, type: v.type,
-      rating: v.rating, time: v.time, cover: v.cover, open: v.open
+      rating: v.rating, time: v.time, cover: v.cover, open: v.open,
+      delivery_method: v.delivery_method || 'rider'
     }));
     const products = productsRes.data.map(p => ({
       id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc,
@@ -168,17 +165,17 @@ async function loadCatalogFromSupabase() {
 // Seed data (same as main app)
 const SEED_DATA = {
   vendors: [
-    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true },
-    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true },
-    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true },
-    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true },
-    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true },
-    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true },
-    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true },
-    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true },
-    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true },
-    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true }
+    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, delivery_method: 'rider' },
+    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, delivery_method: 'rider' },
+    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, delivery_method: 'rider' },
+    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, delivery_method: 'rider' },
+    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, delivery_method: 'rider' },
+    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, delivery_method: 'rider' },
+    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider' },
+    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider' },
+    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider' },
+    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider' },
+    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider' }
   ],
   products: [
     { id: 1, vendor: 'caf-1', name: 'Jollof Rice', desc: 'Caf 1 serving.', price: 400, icon: '🍛', category: 'Food' },
@@ -297,79 +294,99 @@ function toast(message, kind = 'success') {
 }
 
 // ============================================
-// Authentication
+// Authentication (Supabase Auth only)
 // ============================================
-async function checkAuth() {
-  // Check if we have a Supabase session
-  if (supabaseAvailable()) {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && session.user) {
-        supabaseAdminUser = session.user;
-        state.isAuthenticated = true;
-        // Fetch user profile
-        await fetchAdminProfile();
-        return true;
-      }
-    } catch (err) {
-      console.error('Supabase session check failed:', err);
-    }
-  }
-  // Fall back to localStorage if Supabase not available
-  const adminSession = load('admin_session', null);
-  if (adminSession && adminSession.isAuthenticated) {
-    state.isAuthenticated = true;
-    return true;
-  }
-  return false;
-}
+// Admin authentication is strictly Supabase Auth based. There are NO hardcoded
+// credentials and NO localStorage fallback. A user is only granted admin access
+// when ALL of the following are true:
+//   1. Supabase is available and configured.
+//   2. There is a valid Supabase session (auth.getSession() returns a user).
+//   3. The authenticated user's profile row has role === 'admin'.
+// If Supabase authentication is unavailable, admin login is denied.
 
+// Fetch the authenticated user's profile using their auth.uid() (user id).
+// Returns the profile row or null. Never defaults a missing/unknown role.
 async function fetchAdminProfile() {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('email', supabaseAdminUser.email)
-    .single();
-  
-  if (data) {
+  if (!supabaseAvailable() || !supabaseAdminUser) return null;
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', supabaseAdminUser.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
     state.user = {
       id: data.id,
       name: data.full_name || supabaseAdminUser.email.split('@')[0],
       email: data.email,
-      role: data.role || 'admin'
+      role: data.role
     };
+    return data;
+  } catch (err) {
+    console.error('Failed to fetch admin profile:', err);
+    return null;
   }
 }
 
-async function login(email, password) {
-  // If Supabase is unavailable, fall back to hardcoded credentials
+// Verify the current Supabase session belongs to a user whose profile role is
+// exactly 'admin'. Returns true only when the session is valid AND the role
+// check passes. A forged localStorage value can never grant admin access.
+async function checkAuth() {
+  // Admin access requires Supabase. If it is unavailable, deny access.
   if (!supabaseAvailable()) {
-    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-      state.isAuthenticated = true;
-      supabaseAdminUser = null; // Mark as legacy auth
-      store('admin_session', { isAuthenticated: true, email, loginTime: Date.now() });
-      return true;
+    console.error('Admin auth denied: Supabase is not available.');
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      console.error('Admin auth denied: no valid Supabase session.');
+      return false;
     }
-    toast('Invalid credentials', 'error');
+    supabaseAdminUser = session.user;
+    const profile = await fetchAdminProfile();
+    if (!profile || profile.role !== 'admin') {
+      console.error('Admin auth denied: profile role is not exactly "admin".');
+      state.isAuthenticated = false;
+      supabaseAdminUser = null;
+      return false;
+    }
+    state.isAuthenticated = true;
+    return true;
+  } catch (err) {
+    console.error('Supabase session check failed:', err);
+    state.isAuthenticated = false;
+    supabaseAdminUser = null;
+    return false;
+  }
+}
+
+// Sign in via Supabase Auth only. If Supabase is unavailable or signInWithPassword
+// fails, admin login is denied — there is no fallback.
+async function login(email, password) {
+  // Admin login requires Supabase. If it is unavailable, deny login.
+  if (!supabaseAvailable()) {
+    toast('Admin login unavailable: Supabase authentication is not configured.', 'error');
     return false;
   }
   
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    
-    if (error) {
-      // If Supabase auth fails, fall back to hardcoded credentials for backward compatibility
-      if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-        state.isAuthenticated = true;
-        supabaseAdminUser = null; // Mark as legacy auth
-        store('admin_session', { isAuthenticated: true, email, loginTime: Date.now() });
-        return true;
-      }
-      throw error;
-    }
+    if (error) throw error;
+    if (!data.user) throw new Error('No user returned from Supabase authentication.');
     
     supabaseAdminUser = data.user;
-    await fetchAdminProfile();
+    const profile = await fetchAdminProfile();
+    if (!profile || profile.role !== 'admin') {
+      // The user authenticated with Supabase but is not an admin — deny access.
+      await supabase.auth.signOut().catch(() => {});
+      state.isAuthenticated = false;
+      supabaseAdminUser = null;
+      toast('Access denied: this account does not have admin privileges.', 'error');
+      return false;
+    }
+    
     state.isAuthenticated = true;
     return true;
   } catch (err) {
@@ -381,8 +398,6 @@ async function login(email, password) {
 function logout() {
   state.isAuthenticated = false;
   supabaseAdminUser = null;
-  // Clear localStorage fallback
-  localStorage.removeItem('campusrun_admin_session');
   // Clear Supabase session and return to the login screen regardless of
   // whether signOut succeeds or fails.
   if (supabaseAvailable()) {
@@ -475,7 +490,8 @@ async function addVendor(formData) {
     time: formData.get('time').trim() || '15–25 min',
     rating: formData.get('rating') || '4.5',
     cover: formData.get('cover') || '#d9f5e9',
-    open: formData.get('open') === 'on'
+    open: formData.get('open') === 'on',
+    delivery_method: formData.get('delivery_method') || 'rider'
   };
   
   const existingIndex = state.catalog.vendors.findIndex(v => v.id === vendor.id);
@@ -641,6 +657,7 @@ function renderLogin() {
         toast('Admin access granted');
         await loadCatalog();
         await loadOrders();
+        await loadRiders();
         renderAdminWorkspace();
       } else {
         toast('Invalid credentials', 'error');
@@ -718,6 +735,14 @@ function renderAdminWorkspace() {
               <label>Cover Colour</label>
               <input class="input" name="cover" value="#d9f5e9" pattern="#[0-9a-fA-F]{6}">
             </div>
+            <div class="field">
+              <label>Delivery Method</label>
+              <select class="select" name="delivery_method">
+                <option value="rider">Rider (rider collects & delivers)</option>
+                <option value="vendor_self">Vendor self-delivery</option>
+                <option value="both">Both (vendor can choose)</option>
+              </select>
+            </div>
           </div>
           <label class="radio-card">
             <input name="open" type="checkbox" checked> Open for orders
@@ -777,6 +802,7 @@ function renderAdminWorkspace() {
                 <th>Vendor</th>
                 <th>Type</th>
                 <th>Time</th>
+                <th>Delivery</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -787,6 +813,7 @@ function renderAdminWorkspace() {
                   <td>${v.icon} <b>${v.name}</b></td>
                   <td>${v.type}</td>
                   <td>${v.time}</td>
+                  <td>${v.delivery_method || 'rider'}</td>
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
                   <td>
                     <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> · 
@@ -859,7 +886,7 @@ function renderAdminWorkspace() {
               ${orders.length ? orders.map(order => `
                 <tr>
                   <td><b>#${order.id}</b></td>
-                  <td>${order.items.map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
+                  <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
                   <td>${order.spot || '—'}</td>
                   <td>${money(order.total)}</td>
                   <td>
@@ -870,6 +897,81 @@ function renderAdminWorkspace() {
                   <td><button class="link-btn" data-save-order-status="${order.id}">Save</button></td>
                 </tr>
               `).join('') : '<tr><td colspan="6" class="muted center">No orders yet.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Rider Applications Section -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Rider Applications</h3>
+          <span class="muted small">Pending riders awaiting approval</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Matric Number</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Applied</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${state.riders.length ? state.riders.map(rider => {
+                // Show only pending riders
+                if (rider.status !== 'pending') return '';
+                return `
+                <tr>
+                  <td>${rider.matric_number || '—'}</td>
+                  <td>${rider.phone || '—'}</td>
+                  <td><span class="status--pending">Pending</span></td>
+                  <td>${rider.created_at ? rider.created_at.substring(0, 10) : '—'}</td>
+                  <td>
+                    <button class="link-btn btn--danger" data-approve-rider="${rider.id}">Approve</button>
+                    <button class="link-btn btn--danger" data-reject-rider="${rider.id}">Reject</button>
+                  </td>
+                </tr>
+                `;
+              }).join('') : '<tr><td colspan="5" class="muted center">No pending rider applications.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Active Riders Section (approved) -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Active Riders</h3>
+          <span class="muted small">Approved riders currently eligible to deliver — you can suspend one</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Matric Number</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${state.riders.length ? state.riders.map(rider => {
+                // Show only approved riders
+                if (rider.status !== 'approved') return '';
+                return `
+                <tr>
+                  <td>${rider.matric_number || '—'}</td>
+                  <td>${rider.phone || '—'}</td>
+                  <td><span class="status--approved">Approved</span></td>
+                  <td>
+                    <button class="link-btn btn--danger" data-suspend-rider="${rider.id}">Suspend</button>
+                  </td>
+                </tr>
+                `;
+              }).join('') : '<tr><td colspan="4" class="muted center">No approved riders.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -937,6 +1039,26 @@ function attachAdminEventListeners() {
       updateOrderStatus(btn.dataset.saveOrderStatus, status);
     });
   });
+
+  // Approve/Reject Rider Applications
+  document.querySelectorAll('[data-approve-rider]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      approveRider(btn.dataset.approveRider);
+    });
+  });
+
+  document.querySelectorAll('[data-reject-rider]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rejectRider(btn.dataset.rejectRider);
+    });
+  });
+
+  // Suspend an approved rider
+  document.querySelectorAll('[data-suspend-rider]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      suspendRider(btn.dataset.suspendRider);
+    });
+  });
 }
 
 function editVendor(vendorId) {
@@ -951,6 +1073,7 @@ function editVendor(vendorId) {
   form.querySelector('input[name="time"]').value = vendor.time;
   form.querySelector('input[name="rating"]').value = vendor.rating;
   form.querySelector('input[name="cover"]').value = vendor.cover;
+  form.querySelector('select[name="delivery_method"]').value = vendor.delivery_method || 'rider';
   form.querySelector('input[name="open"]').checked = vendor.open;
   $('#vendorFormTitle').textContent = 'Edit Vendor';
   form.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -998,6 +1121,7 @@ async function init() {
   // Load catalog data (from Supabase, falling back to localStorage)
   await loadCatalog();
   await loadOrders();
+  await loadRiders();
   
   // Render admin workspace
   renderAdminWorkspace();
@@ -1096,6 +1220,133 @@ async function updateOrderStatus(orderId, status) {
   } catch (err) {
     console.error('Supabase order status update failed:', err);
     toast('Order status saved locally (Supabase sync failed)', 'error');
+  }
+
+  renderAdminWorkspace();
+}
+
+// Load all rider applications from Supabase.
+async function loadRidersFromSupabase() {
+  if (!supabaseAvailable()) return null;
+  try {
+    const { data: ridersData, error: ridersError } = await supabase
+      .from('riders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (ridersError) throw ridersError;
+
+    return ridersData.map(rider => ({
+      id: rider.id,
+      dbId: rider.id,
+      matric_number: rider.matric_number || '',
+      phone: rider.phone || '',
+      status: rider.status || 'pending',
+      created_at: rider.created_at
+    }));
+  } catch (err) {
+    console.error('Supabase riders load failed:', err);
+    return null;
+  }
+}
+
+async function loadRiders() {
+  const localRiders = load('riders', []);
+  const supabaseRiders = await loadRidersFromSupabase();
+  if (!supabaseRiders) {
+    state.riders = localRiders;
+    return;
+  }
+
+  const remoteRiderIds = new Set(supabaseRiders.map(rider => rider.id));
+  state.riders = [...supabaseRiders, ...localRiders.filter(rider => !remoteRiderIds.has(rider.id))];
+  store('riders', state.riders);
+}
+
+async function approveRider(riderId) {
+  const rider = state.riders.find(item => item.id === riderId);
+  if (!rider) return;
+
+  rider.status = 'approved';
+  rider.available = true;
+  store('riders', state.riders);
+
+  if (!rider.dbId || !supabaseAvailable()) {
+    toast('Rider approved (status updated locally)');
+    renderAdminWorkspace();
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('riders')
+      .update({ status: 'approved', available: true })
+      .eq('id', rider.dbId);
+    if (error) throw error;
+    toast('Rider approved');
+  } catch (err) {
+    console.error('Supabase rider approval failed:', err);
+    toast('Rider approved locally (Supabase sync failed)', 'error');
+  }
+
+  renderAdminWorkspace();
+}
+
+async function rejectRider(riderId) {
+  const rider = state.riders.find(item => item.id === riderId);
+  if (!rider) return;
+
+  rider.status = 'rejected';
+  rider.available = false;
+  store('riders', state.riders);
+
+  if (!rider.dbId || !supabaseAvailable()) {
+    toast('Rider rejected (status updated locally)');
+    renderAdminWorkspace();
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('riders')
+      .update({ status: 'rejected', available: false })
+      .eq('id', rider.dbId);
+    if (error) throw error;
+    toast('Rider rejected');
+  } catch (err) {
+    console.error('Supabase rider rejection failed:', err);
+    toast('Rider rejected locally (Supabase sync failed)', 'error');
+  }
+
+  renderAdminWorkspace();
+}
+
+// Suspend an approved rider. Sets status to 'suspended' and available to false
+// so the rider is no longer treated as an approved/active rider. Mirrors the
+// existing approve/reject flow (local state + Supabase + re-render + toast).
+async function suspendRider(riderId) {
+  const rider = state.riders.find(item => item.id === riderId);
+  if (!rider) return;
+
+  rider.status = 'suspended';
+  rider.available = false;
+  store('riders', state.riders);
+
+  if (!rider.dbId || !supabaseAvailable()) {
+    toast('Rider suspended (status updated locally)');
+    renderAdminWorkspace();
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('riders')
+      .update({ status: 'suspended', available: false })
+      .eq('id', rider.dbId);
+    if (error) throw error;
+    toast('Rider suspended');
+  } catch (err) {
+    console.error('Supabase rider suspension failed:', err);
+    toast('Rider suspended locally (Supabase sync failed)', 'error');
   }
 
   renderAdminWorkspace();
