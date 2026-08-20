@@ -1,7 +1,7 @@
 -- ============================================================
 -- PRE-FIX RLS POLICY BACKUP — VERIFIED FROM pg_policies
 -- ============================================================
--- Database: CampusRun (Supabase)
+-- Database: Dropzyy (Supabase)
 -- Verified: 2026-08-15 (authenticated user's confirmation)
 --
 -- IMPORTANT:

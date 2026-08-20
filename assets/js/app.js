@@ -124,7 +124,7 @@ const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
 const store = (key, value) => localStorage.setItem(`campusrun_${key}`, JSON.stringify(value));
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(`campusrun_${key}`)) ?? fallback; } catch { return fallback; } };
 const clone = value => JSON.parse(JSON.stringify(value));
-const state = { cart: load('cart', []), orders: load('orders', []), user: load('user', null), notifications: load('notifications', [{ title: 'Welcome to CampusRun', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), catalog: load('catalog_v3', clone(SEED_DATA)) };
+const state = { cart: load('cart', []), orders: load('orders', []), user: load('user', null), notifications: load('notifications', [{ title: 'Welcome to CampusRun', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), catalog: load('catalog_v3', clone(SEED_DATA)), rider: load('rider', null), riderRatings: load('rider_ratings', []), riderPool: load('rider_pool', []), vendorOrders: load('vendor_orders', []), vendorProducts: load('vendor_products', []), vendorLoaded: false };
 
 // Merge any missing seed vendors/products into the loaded catalog. This repairs
 // stale localStorage data that predates new catalog entries (e.g. the drinks and
@@ -188,7 +188,7 @@ function product(id) { return data().products.find(p => p.id === Number(id)); }
 // The admin panel writes the same 'catalog_v3' key; if a customer action wrote a
 // stale in-memory copy of the catalog here, it would silently revert the admin's
 // changes — that was the root cause of the admin-to-main-site sync bug.
-function save() { store('cart', state.cart); store('orders', state.orders); store('user', state.user); store('notifications', state.notifications); updateChrome(); }
+function save() { store('cart', state.cart); store('orders', state.orders); store('user', state.user); store('notifications', state.notifications); store('rider', state.rider); store('rider_ratings', state.riderRatings); store('rider_pool', state.riderPool); store('vendor_orders', state.vendorOrders); store('vendor_products', state.vendorProducts); updateChrome(); }
 
 // Admin-facing persistence: persist the catalog AND the rest of state.
 function saveCatalog() { store('catalog_v3', state.catalog); save(); }
@@ -198,6 +198,118 @@ function toast(message, kind = 'success') { const el = document.createElement('d
 function addCart(id) { const p = product(id); const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
+
+// ============================================
+// Rider Hub: load rider application status from Supabase
+// ============================================
+async function loadRiderFromSupabase() {
+  if (typeof supabase === 'undefined' || !supabase) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) return;
+    const { data, error } = await supabase
+      .from('riders')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      state.rider = data;
+      save();
+    }
+    const { data: ratings, error: ratingsError } = await supabase
+      .from('rider_ratings')
+      .select('*')
+      .eq('reviewer_id', session.user.id);
+    if (!ratingsError && ratings) {
+      state.riderRatings = ratings;
+      save();
+    }
+  } catch (err) {
+    console.error('Failed to load rider status:', err);
+  }
+}
+
+// Submit a rider application to Supabase (with duplicate prevention).
+async function submitRiderApplication(formData) {
+  if (!state.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — application could not be saved', 'error'); return; }
+  if (state.rider && ['pending','approved'].includes(state.rider.status)) {
+    toast(state.rider.status === 'approved' ? 'You are already an approved rider' : 'You already have a pending application', 'info');
+    location.hash = '#/rider';
+    return;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
+    const matricNumber = (formData.get('studentId') || formData.get('matric') || '').trim();
+    const phone = (formData.get('phone') || '').trim();
+    if (!matricNumber || !phone) { toast('Please fill in all required fields', 'error'); return; }
+    const { data, error } = await supabase
+      .from('riders')
+      .insert({
+        user_id: session.user.id,
+        matric_number: matricNumber,
+        phone: phone,
+        status: 'pending',
+        available: false
+      })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
+        toast('You have already submitted an application', 'info');
+      } else {
+        console.error('Rider application insert failed:', error);
+        toast('Application failed: ' + error.message, 'error');
+      }
+      return;
+    }
+    state.rider = data;
+    save();
+    toast('Application submitted! We\'ll review your details shortly.');
+    location.hash = '#/rider';
+  } catch (err) {
+    console.error('Rider application error:', err);
+    toast('Application failed — please try again', 'error');
+  }
+}
+
+// Rate and review the rider assigned to a delivered order.
+async function submitRiderRating(orderId, riderId, rating, review) {
+  if (!state.user) { toast('Please sign in to rate your rider', 'info'); return false; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — rating could not be saved', 'error'); return false; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Please sign in to rate your rider', 'info'); return false; }
+    const { error } = await supabase
+      .from('rider_ratings')
+      .insert({
+        order_id: orderId,
+        rider_id: riderId,
+        reviewer_id: session.user.id,
+        rating: rating,
+        review: review || ''
+      });
+    if (error) {
+      if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
+        toast('You have already rated this delivery', 'info');
+      } else {
+        console.error('Rating insert failed:', error);
+        toast('Rating failed: ' + error.message, 'error');
+      }
+      return false;
+    }
+    await loadRiderFromSupabase();
+    toast('Thanks for rating your rider!', 'success');
+    return true;
+  } catch (err) {
+    console.error('Rating error:', err);
+    toast('Rating failed — please try again', 'error');
+    return false;
+  }
+}
+
 
 // ============================================
 // Orders from Supabase
@@ -277,15 +389,74 @@ async function loadOrdersFromSupabase() {
     });
 
     // 4. Map Supabase orders into the existing frontend order shape
-    const supabaseOrders = (ordersData || []).map(o => ({
+    const mapOrder = (o, itemsMap) => ({
       id: o.order_number,
-      items: itemsByOrder[o.id] || [],
+      dbId: o.id,
+      items: (itemsMap && itemsMap[o.id]) || [],
       total: o.total,
       fee: o.fee || 500,
       status: o.status || 'Order confirmed',
       spot: o.spot || '',
+      delivery_method: o.delivery_method || 'rider',
       created: formatOrderCreated(o.created_at)
-    }));
+    });
+
+    const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder));
+
+    // 4b. If the user is an approved rider, also load the rider delivery pool:
+    //     unassigned rider-delivery orders (status = 'Order confirmed',
+    //     rider_id = null, delivery_method = 'rider') plus orders already
+    //     assigned to this rider. vendor_self / both-pending orders stay out.
+    const poolOrders = [];
+    const { data: riderRow } = await supabase
+      .from('riders')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('status', 'approved')
+      .maybeSingle();
+    if (riderRow && riderRow.id) {
+      const [unassignedRes, assignedRes] = await Promise.all([
+        supabase.from('orders')
+          .select('*')
+          .in('status', ['Order confirmed','Ready for pickup'])
+          .is('rider_id', null)
+          .eq('delivery_method', 'rider'),
+        supabase.from('orders')
+          .select('*')
+          .eq('rider_id', riderRow.id)
+      ]);
+      if (unassignedRes.error) throw unassignedRes.error;
+      if (assignedRes.error) throw assignedRes.error;
+
+      const poolRows = [...(unassignedRes.data || []), ...(assignedRes.data || [])];
+      if (poolRows.length) {
+        const poolIds = poolRows.map(o => o.id);
+        const { data: poolItems, error: poolItemsError } = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', poolIds);
+        if (poolItemsError) throw poolItemsError;
+
+        const poolItemsByOrder = {};
+        (poolItems || []).forEach(item => {
+          if (!poolItemsByOrder[item.order_id]) poolItemsByOrder[item.order_id] = [];
+          poolItemsByOrder[item.order_id].push({
+            id: item.product_id,
+            vendor: item.vendor_id,
+            name: item.name,
+            price: item.price,
+            icon: item.icon,
+            desc: '',
+            category: '',
+            qty: item.qty
+          });
+        });
+
+        poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder)));
+      }
+    }
+    state.riderPool = poolOrders;
+    store('rider_pool', state.riderPool);
 
     // 5. Merge with existing localStorage orders (e.g. ones just placed in this
     //    session that may not be in Supabase yet). Avoid duplicates by id.
@@ -400,7 +571,8 @@ async function saveOrderToSupabase(order) {
       total: order.total,
       fee: order.fee,
       status: order.status,
-      spot: order.spot
+      spot: order.spot,
+      delivery_method: order.delivery_method || 'rider'
     })
     .select()
     .single();
@@ -444,6 +616,198 @@ async function saveOrderToSupabase(order) {
   return orderData;
 }
 
+// ============================================
+// Vendor Dashboard: load vendor data from Supabase
+// ============================================
+// Loads the authenticated vendor's own orders and products. The RLS policies
+// added by 20260820_add_vendor_dashboard_workflow.sql only return rows whose
+// vendor_id matches the vendor_id on the caller's profile (role = 'vendor'),
+// so Vendor A can never see Vendor B's data through these queries.
+async function loadVendorDataFromSupabase() {
+  state.vendorLoaded = true;
+  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return false;
+  if (typeof supabase === 'undefined' || !supabase) return false;
+  try {
+    const vid = state.user.vendor_id;
+
+    // 1. Vendor's OWN order_items (RLS order_items_select_vendor restricts
+    //    to this vendor's vendor_id only — never another vendor's lines).
+    const { data: vendorItems, error: itemsError } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('vendor_id', vid);
+    if (itemsError) throw itemsError;
+
+    // 2. Distinct order ids that contain this vendor's items.
+    const vendorOrderIds = [...new Set((vendorItems || []).map(i => i.order_id))];
+
+    // 3. Fetch those orders (RLS orders_select_vendor allows them because
+    //    they contain this vendor's items).
+    let ordersData = [];
+    if (vendorOrderIds.length) {
+      const { data, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .in('id', vendorOrderIds);
+      if (ordersError) throw ordersError;
+      ordersData = data || [];
+    }
+
+    // 4. Group ONLY the vendor's own items by order_id.
+    const itemsByOrder = {};
+    (vendorItems || []).forEach(item => {
+      if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+      itemsByOrder[item.order_id].push({
+        id: item.product_id,
+        vendor: item.vendor_id,
+        name: item.name,
+        price: item.price,
+        icon: item.icon,
+        desc: '',
+        category: '',
+        qty: item.qty
+      });
+    });
+
+    // 5. Map orders to the frontend order shape (same mapOrder used elsewhere).
+    state.vendorOrders = ordersData.map(o => ({
+      id: o.order_number,
+      dbId: o.id,
+      items: itemsByOrder[o.id] || [],
+      total: o.total,
+      fee: o.fee || 500,
+      status: o.status || 'Order confirmed',
+      spot: o.spot || '',
+      delivery_method: o.delivery_method || 'rider',
+      created: formatOrderCreated(o.created_at)
+    }));
+    store('vendor_orders', state.vendorOrders);
+
+    // 4. Vendor's OWN products (RLS products_select_vendor).
+    const { data: productsData, error: productsError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('vendor_id', vid);
+    if (productsError) throw productsError;
+    state.vendorProducts = (productsData || []).map(p => ({
+      id: p.id,
+      vendor: p.vendor_id,
+      name: p.name,
+      desc: p.desc,
+      price: p.price,
+      icon: p.icon,
+      category: p.category,
+      active: p.active !== false
+    }));
+    store('vendor_products', state.vendorProducts);
+
+    return true;
+  } catch (err) {
+    console.error('Vendor data load failed:', err);
+    return false;
+  }
+}
+
+async function ensureVendorLoaded() {
+  if (!state.vendorLoaded) {
+    await loadVendorDataFromSupabase();
+  }
+}
+
+// ============================================
+// Vendor Dashboard: views
+// ============================================
+function vendorOrderCard(o, activeTab) {
+  const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${item.icon}</span><span class="line__main"><b>${item.name}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
+  const statusBadge = `<span class="badge badge--${o.status==='Delivered'||o.status==='Cancelled'?'info':'warn'}">${o.status}</span>`;
+  const deliveryBadge = `<span class="badge badge--brand">${o.delivery_method||'rider'}</span>`;
+
+  // Actions depend on current status + delivery method.
+  let actions = '';
+  if (o.status === 'Order confirmed') {
+    if (o.delivery_method === 'both') {
+      // Vendor must pick rider vs vendor_self before progressing.
+      actions = `
+        <div class="row mt-1">
+          <button class="btn btn--sm" data-vendor-delivery="${o.id}" data-method="rider">Use rider</button>
+          <button class="btn btn--sm" data-vendor-delivery="${o.id}" data-method="vendor_self">Self deliver</button>
+        </div>`;
+    } else {
+      // Accept or reject.
+      actions = `
+        <div class="row mt-1">
+          <button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Preparing">Accept & prepare</button>
+          <button class="btn btn--ghost btn--sm" data-vendor-status="${o.id}" data-to="Cancelled">Reject</button>
+        </div>`;
+    }
+  } else if (o.status === 'Preparing') {
+    actions = o.delivery_method === 'rider'
+      ? `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Ready for pickup">Ready for pickup</button>`
+      : `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Delivered">Mark delivered</button>`;
+  } else if (o.status === 'Ready for pickup') {
+    actions = `<span class="muted small">Awaiting rider pickup</span>`;
+  } else if (o.status === 'Rider assigned' || o.status === 'Picked up') {
+    actions = `<span class="muted small">In transit with rider</span>`;
+  }
+
+  return `<article class="card mb-2">
+    <div class="row row--between row--wrap">
+      <div>
+        ${statusBadge} ${deliveryBadge}
+        <h3 class="mt-1">Order #${o.id}</h3>
+        <p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.total)} · ${o.spot}</p>
+      </div>
+      <div class="right">
+        <b class="price price--lg">${money(o.total)}</b>
+      </div>
+    </div>
+    <div class="divider"></div>
+    ${itemsHtml}
+    ${actions}
+  </article>`;
+}
+
+function vendorDashboard() {
+  const vid = state.user && state.user.vendor_id;
+  const vobj = vendor(vid || '');
+  const name = vobj ? vobj.name : 'Your vendor storefront';
+  const orders = state.vendorOrders || [];
+  const pending = orders.filter(o => o.status === 'Order confirmed');
+  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up'].includes(o.status));
+  const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
+  const earnings = orders.filter(o => o.status === 'Delivered').reduce((n,o)=> n + (o.total || 0), 0);
+  const products = state.vendorProducts || [];
+
+  const pendingHtml = pending.length
+    ? pending.map(o => vendorOrderCard(o)).join('')
+    : empty('📦','No pending orders','New orders will appear here when customers place them.');
+  const activeHtml = active.length
+    ? active.map(o => vendorOrderCard(o)).join('')
+    : empty('⏳','No active orders','Orders you accept will appear here.');
+  const completedHtml = completed.length
+    ? completed.map(o => vendorOrderCard(o)).join('')
+    : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
+
+  const productsHtml = products.length
+    ? products.map(p => `<tr><td>${p.icon} <b>${p.name}</b></td><td>${p.category}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active?'success':'warn'}">${p.active?'Live':'Hidden'}</span></td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted center">No products yet.</td></tr>';
+
+  return `<section class="section container">
+    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${name}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    <div class="grid grid--stats">
+      <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
+      <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
+      <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
+      <div class="stat"><span class="stat__label">Revenue</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">Delivered order value</span></div>
+    </div>
+    <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
+    <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
+    <div class="page-head mt-3"><div><h2>Completed orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
+    <div class="page-head mt-3"><div><h2>Products</h2><p>Your live product catalog.</p></div></div>
+    <div class="card mt-1"><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th></tr></thead><tbody>${productsHtml}</tbody></table></div></div>
+  </section>`;
+}
+
 function checkout() {
   if (!state.cart.length) { location.hash = '#/cart'; return ''; }
   // Require the user to be logged in before placing an order
@@ -469,25 +833,61 @@ async function track(id) {
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--info">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">Delivering to ${o.spot}</p><div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div></div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">A</span><div><b>Amara Okoye</b><div><span class="stars">★★★★★</span> <span class="small">4.9 · 126 deliveries</span></div></div></div><div class="divider"></div><p class="small muted">Estimated arrival</p><b>About 12 minutes</b><button class="btn btn--ghost btn--block mt-2" onclick="toast('Rider call is simulated in this demo','info')">📞 Contact rider</button></aside></div></section>`;
 }
 
-function auth(kind) { const login = kind==='login'; const admin = kind==='admin'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${admin?'Admin access':'Welcome back'}</h1><p class="muted">${admin?'Enter admin credentials to continue.':'Sign in to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2">${admin?'<div class="field"><label>Admin email</label><input required class="input" type="email" name="email" placeholder="admin@abuad.edu.ng"></div><div class="field"><label>Admin password</label><input required class="input" type="password" name="password" placeholder="Enter admin password"></div>':`<div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@abuad.edu.ng"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>`}<button class="btn btn--block btn--lg" type="submit">${admin?'Access admin panel':login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${!admin?(login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'):'<a class="link-btn" href="#/login">Back to student login</a>'}</p><p class="form-note mt-2 mb-0">${admin?'':(login?'Demo mode: enter any email and password to continue.':'Demo mode: enter any details to continue.')}</p></div></div></section>`; }
+function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@abuad.edu.ng"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
-function rider() { const pending=state.orders.filter(o=>o.status==='Order confirmed'); const active=state.orders.filter(o=>o.status==='Rider assigned'||o.status==='Picked up'); const done=state.orders.filter(o=>o.status==='Delivered'); const earnings=done.reduce((n,o)=>n+(o.fee||500),0); const pickupName=o=>{const v=o.items[0]?vendor(o.items[0].vendor):null;return `${v?v.name:'Campus vendor'} → ${o.spot}`;}; return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div><a class="btn btn--soft" href="#/rider/apply">Become a rider</a></div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Today’s earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length===1?'':'ies'}</span></div><div class="stat"><span class="stat__label">Deliveries today</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Acceptance rate</span><span class="stat__value">96%</span><span class="stat__hint">Great work!</span></div></div><div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Accept one when you’re ready.</p></div><span class="badge badge--success">● You’re online</span></div>${pending.length?`<div class="grid grid--2">${pending.map((o,i)=>`<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(o.fee||500)} earnings</span><span class="small muted">${i+2} min away</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`:empty('🛵','No available deliveries','New orders will appear here as soon as they are placed.')}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${active.length?`<div class="stack">${active.map(o=>{const picked=o.status==='Picked up';return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.fee||500)} earnings</p>${picked?`<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`:`<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>`}</article>`;}).join('')}</div>`:'<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>'}</section>`; }
-function riderApply() { return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Student ID</label><input class="input" required placeholder="e.g. 23/1234"></div><div class="field"><label>Phone number</label><input class="input" required placeholder="080... "></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`; }
-
-function dashboard(type) { const admin = type==='admin'; return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">${admin?'Platform control':'Vendor workspace'}</span><h1 class="mt-1">${admin?'Admin dashboard':(data().vendors[0]?.name || 'Vendor')}</h1><p>${admin?'Manage your campus delivery network.':'Manage your menu, orders and sales.'}</p></div><button class="btn">${admin?'Export report':'＋ Add product'}</button></div><div class="grid grid--stats">${(admin?[['Students','1,248'],['Active vendors','8'],['Orders today','186'],['Gross volume','₦482,600']]:[['Today’s sales','₦38,450'],['Orders','16'],['Menu items','24'],['Rating','4.8 ★']]).map((x,i)=>`<div class="stat ${i===0?'stat--brand':''}"><span class="stat__label">${x[0]}</span><span class="stat__value">${x[1]}</span><span class="stat__hint">Updated just now</span></div>`).join('')}</div><div class="card mt-3"><div class="card__head"><h3>${admin?'Recent orders':'Incoming orders'}</h3><button class="link-btn">View all</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Action</th></tr></thead><tbody>${[['#CR-1024','Tomi Ade','2 items','₦4,500','Rider assigned'],['#CR-1023','Joshua Eze','1 item','₦2,300','Preparing'],['#CR-1022','Ruth Bello','3 items','₦5,700','Delivered']].map((r,i)=>`<tr>${r.map((x,j)=>`<td>${j===4?`<span class="badge badge--${i===2?'success':i===1?'warn':'info'}">${x}</span>`:x}</td>`).join('')}<td><button class="link-btn">Manage</button></td></tr>`).join('')}</tbody></table></div></div></section>`; }
-
-// Admin credentials for the in-app admin dashboard (mirrors assets/js/admin.js).
-const ADMIN_CREDENTIALS = { email: 'admin@abuad.edu.ng', password: 'Moyin123' };
-
-function adminAction(action, id='') {
-  if(action==='reset' && confirm('Restore the original demo catalog?')) { state.catalog=clone(SEED_DATA); saveCatalog(); render(); return; }
-  if(action==='toggle') { const v=vendor(id); v.open=!v.open; saveCatalog(); render(); return; }
-  if(action==='deleteProduct' && confirm('Delete this product?')) { state.catalog.products=state.catalog.products.filter(p=>p.id!==Number(id)); state.cart=state.cart.filter(x=>x.id!==Number(id)); saveCatalog(); render(); return; }
-  if(action==='deleteVendor' && confirm('Delete this vendor and its products?')) { const ids=data().products.filter(p=>p.vendor===id).map(p=>p.id); state.catalog.vendors=state.catalog.vendors.filter(v=>v.id!==id); state.catalog.products=state.catalog.products.filter(p=>p.vendor!==id); state.cart=state.cart.filter(x=>!ids.includes(x.id)); saveCatalog(); render(); return; }
-  const form=$(`#${action}Form`); if(!form) return;
-  if(id) { const item=action==='vendor'?vendor(id):product(id); if(!item) return; Object.entries(item).forEach(([key,val])=>{if(form.elements[key]) form.elements[key].type==='checkbox'?form.elements[key].checked=val:form.elements[key].value=val;}); $(`#${action}FormTitle`).textContent=`Edit ${action}`; }
-  else { form.reset(); form.elements.id.value=''; $(`#${action}FormTitle`).textContent=`Add ${action}`; }
-  form.scrollIntoView({behavior:'smooth',block:'center'});
+function rider() {
+  const riderStatus = state.rider ? state.rider.status : null;
+  const isApprovedRider = riderStatus === 'approved';
+  const pending=state.riderPool.filter(o=>o.status==='Order confirmed'&&(o.delivery_method??'rider')!=='vendor_self');
+  const active=state.riderPool.filter(o=>(o.status==='Rider assigned'||o.status==='Picked up')&&(o.delivery_method??'rider')!=='vendor_self');
+  const done=state.riderPool.filter(o=>o.status==='Delivered'&&(o.delivery_method??'rider')!=='vendor_self');
+  const earnings=done.reduce((n,o)=>n+(o.fee||500),0);
+  const pickupName=o=>{const v=o.items[0]?vendor(o.items[0].vendor):null;return `${v?v.name:'Campus vendor'} → ${o.spot}`;};
+  const statusBadge = riderStatus === 'approved'
+    ? '<span class="badge badge--success">● Approved rider</span>'
+    : riderStatus === 'pending'
+      ? '<span class="badge badge--warn">● Application pending review</span>'
+      : riderStatus === 'rejected'
+        ? '<span class="badge badge--danger">● Application rejected — you can reapply</span>'
+        : riderStatus === 'suspended'
+          ? '<span class="badge badge--danger">● Account suspended</span>'
+          : '<span class="badge badge--warn">● Not a rider yet</span>';
+  const actionBtn = riderStatus === 'approved'
+    ? '<button class="btn btn--soft" id="riderToggle">Go offline / online</button>'
+    : riderStatus === 'pending'
+      ? '<button class="btn btn--ghost" disabled>Application pending</button>'
+      : '<a class="btn btn--soft" href="#/rider/apply">Become a rider</a>';
+  const ratingCard = state.rider ? `
+    <div class="card mt-3">
+      <div class="card__head"><h3>My rider profile</h3></div>
+      <div class="row"><span class="avatar avatar--lg">🛵</span><div>
+        <b>${state.user ? state.user.name : 'Rider'}</b>
+        <div class="small muted">Matric: ${state.rider.matric_number || '—'} · Phone: ${state.rider.phone || '—'}</div>
+        <div class="small"><span class="stars">${'★'.repeat(Math.round(Number(state.rider.rating_avg) || 5))}${'☆'.repeat(5 - Math.round(Number(state.rider.rating_avg) || 5))}</span>
+        <b>${state.rider.rating_avg ? Number(state.rider.rating_avg).toFixed(1) : '5.0'}</b>
+        <span class="muted">(${state.rider.rating_count || 0} ratings)</span></div>
+      </div></div>
+    </div>` : '';
+  const availableHtml = pending.length && isApprovedRider
+    ? `<div class="grid grid--2">${pending.map((o,i)=>`<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(o.fee||500)} earnings</span><span class="small muted">${i+2} min away</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+    : isApprovedRider
+      ? `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`
+      : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
+  const activeHtml = active.length
+    ? `<div class="stack">${active.map(o=>{const picked=o.status==='Picked up';return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.fee||500)} earnings</p>${picked?`<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`:`<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>`}</article>`;}).join('')}</div>`
+    : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
+  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Today’s earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length===1?'':'ies'}</span></div><div class="stat"><span class="stat__label">Deliveries today</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Acceptance rate</span><span class="stat__value">96%</span><span class="stat__hint">Great work!</span></div></div>${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Accept one when you’re ready.</p></div>${isApprovedRider?'<span class="badge badge--success">● You\'re online</span>':'<span class="badge badge--warn">● Applying required</span>'}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}</section>`;
+}
+function riderApply() {
+  if (state.rider && ['pending','approved','suspended'].includes(state.rider.status)) {
+    return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
+      <span style="font-size:3rem">${state.rider.status === 'approved' ? '🛵' : state.rider.status === 'suspended' ? '⛔' : '⏳'}</span>
+      <h1 class="mt-1">${state.rider.status === 'approved' ? 'You are an approved rider!' : state.rider.status === 'suspended' ? 'Account suspended' : 'Application pending'}</h1>
+      <p class="muted">${state.rider.status === 'approved' ? 'You can now accept deliveries from the Rider hub.' : state.rider.status === 'suspended' ? 'Contact admin to resolve your account status.' : 'We are reviewing your application. You will be able to accept deliveries once approved.'}</p>
+      <a class="btn mt-2" href="#/rider">Back to Rider hub</a>
+    </div></div></section>`;
+  }
+  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required placeholder="e.g. 23/1234"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required placeholder="080... "></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
 }
 function saveAdminForm(form) {
   const f=new FormData(form), isVendor=form.id==='vendorForm', id=f.get('id');
@@ -538,11 +938,32 @@ async function render() {
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
-  else if (parts[0]==='vendor') view = dashboard('vendor');
+  else if (parts[0]==='vendor') {
+    // Vendor dashboard gate: require Supabase auth + profile role='vendor'
+    // + a linked vendor_id. RLS on orders/products enforces that the data
+    // returned belongs to this vendor only.
+    if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) {
+      view = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
+        <span style="font-size:3rem">🏪</span>
+        <h1 class="mt-1">Vendor dashboard</h1>
+        <p class="muted">Only accounts with the vendor role and a linked vendor can access this page.</p>
+        <a class="btn mt-2" href="#/">Back to home</a>
+      </div></div></section>`;
+    } else {
+      await ensureVendorLoaded();
+      view = vendorDashboard();
+    }
+  }
   else if (parts[0]==='admin') {
-    if (parts[1]==='login') view = auth('admin');
-    else if (state.user?.role==='admin') view = adminWorkspace();
-    else { location.hash = '#/admin/login'; return; }
+    if (parts[1] === 'login') {
+      if (window.AdminHub) window.AdminHub.renderLogin();
+    } else {
+      const authed = window.AdminHub ? await AdminHub.init() : false;
+      if (!authed) { location.hash = '#/admin/login'; return; }
+    }
+    updateChrome();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
   }
   else view = notFound();
   $('#app').innerHTML = view;
@@ -553,9 +974,85 @@ async function render() {
 document.addEventListener('click', e=>{
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
-  const accept=e.target.closest('[data-accept]'); if(accept){const o=state.orders.find(x=>x.id===accept.dataset.accept); if(o){o.status='Rider assigned'; save(); addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);} toast('Delivery added to your rider queue'); render();}
-  const pickup=e.target.closest('[data-pickup]'); if(pickup){const o=state.orders.find(x=>x.id===pickup.dataset.pickup); if(o){o.status='Picked up'; save(); addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`);} toast('Order marked as picked up'); render();}
-  const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.orders.find(x=>x.id===delivered.dataset.delivered); if(o){o.status='Delivered'; save(); addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`);} toast('Delivery completed — earnings added!'); render();}
+  const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
+    const prevStatus=o.status;
+    o.status='Rider assigned'; save();
+    addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
+    if(typeof supabase!=='undefined' && supabase && o.dbId){
+      supabase.from('orders').update({ status:'Rider assigned', rider_id: state.rider.id }).eq('id',o.dbId)
+        .then(({ error })=>{ if(error){ console.error('Rider claim sync failed:', error); o.status=prevStatus; save(); } })
+        .catch(err=>console.error('Rider claim sync error:', err));
+    }
+    toast('Delivery added to your rider queue'); render();
+  }}
+  const pickup=e.target.closest('[data-pickup]'); if(pickup){const o=state.riderPool.find(x=>x.id===pickup.dataset.pickup); if(o){
+    o.status='Picked up'; save();
+    addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`);
+    if(typeof supabase!=='undefined' && supabase && o.dbId){
+      supabase.from('orders').update({ status:'Picked up' }).eq('id',o.dbId)
+        .then(({ error })=>{ if(error) console.error('Rider pickup sync failed:', error); })
+        .catch(err=>console.error('Rider pickup sync error:', err));
+    }
+    toast('Order marked as picked up'); render();
+  }}
+  const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.riderPool.find(x=>x.id===delivered.dataset.delivered); if(o){
+    o.status='Delivered'; save();
+    addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`);
+    if(typeof supabase!=='undefined' && supabase && o.dbId){
+      supabase.from('orders').update({ status:'Delivered' }).eq('id',o.dbId)
+        .then(({ error })=>{ if(error) console.error('Rider delivery sync failed:', error); })
+        .catch(err=>console.error('Rider delivery sync error:', err));
+    }
+    toast('Delivery completed — earnings added!'); render();
+  }}
+  // Vendor order status transitions (accept 'Preparing' / reject 'Cancelled' /
+  // mark 'Ready for pickup' / vendor-self 'Delivered'). Every change is
+  // persisted to Supabase then re-renders the dashboard.
+  const vstatus=e.target.closest('[data-vendor-status]'); if(vstatus){
+    const order=state.vendorOrders.find(x=>x.id===vstatus.dataset.vendorStatus);
+    const to=vstatus.dataset.to;
+    if(!order || !to) return;
+    const prev=order.status;
+    order.status=to;
+    save();
+    addNotification('Order updated',`Order #${order.id} is now ${to}.`);
+    if(typeof supabase!=='undefined' && supabase && order.dbId){
+      supabase.from('orders').update({ status: to }).eq('id', order.dbId)
+        .then(({ error })=>{ if(error){ console.error('Vendor status update failed:', error); order.status=prev; save(); } })
+        .catch(err=>console.error('Vendor status update error:', err));
+    }
+    toast(`Order #${order.id}: ${to}`);
+    render();
+  }
+  // Vendor chooses delivery method for 'both' orders.
+  const vdelivery=e.target.closest('[data-vendor-delivery]'); if(vdelivery){
+    const order=state.vendorOrders.find(x=>x.id===vdelivery.dataset.vendorDelivery);
+    const method=vdelivery.dataset.method;
+    if(!order || !method) return;
+    const prevMethod=order.delivery_method;
+    order.delivery_method=method;
+    if(method==='vendor_self' && order.status==='Order confirmed') order.status='Preparing';
+    save();
+    addNotification('Delivery method set',`Order #${order.id} will use ${method} delivery.`);
+    if(typeof supabase!=='undefined' && supabase && order.dbId){
+      supabase.from('orders').update({ delivery_method: method, status: order.status }).eq('id', order.dbId)
+        .then(({ error })=>{ if(error){ console.error('Vendor delivery-method update failed:', error); order.delivery_method=prevMethod; save(); } })
+        .catch(err=>console.error('Vendor delivery-method update error:', err));
+    }
+    toast(`Order #${order.id}: ${method==='rider'?'Rider will deliver':'You will deliver this order'}`);
+    render();
+  }
+  if(e.target.id==='riderToggle' && state.rider){
+    state.rider.available = !state.rider.available;
+    save();
+    if (typeof supabase !== 'undefined' && supabase && state.rider.id) {
+      supabase.from('riders').update({ available: state.rider.available }).eq('id', state.rider.id)
+        .then(({ error }) => { if (error) console.error('Rider availability sync failed:', error); })
+        .catch(err => console.error('Rider availability sync error:', err));
+    }
+    toast(state.rider.available ? 'You are now online' : 'You are now offline', 'info');
+    render();
+  }
   if(e.target.id==='logoutBtn'){state.user=null; save(); location.hash='#/'; toast('Signed out','info'); supabase.auth.signOut().catch(()=>{});}
 });
 
@@ -565,23 +1062,19 @@ document.addEventListener('submit', e=>{
   if(e.target.id==='authForm'){
     e.preventDefault();
     const f=new FormData(e.target);
-    const isAdmin=location.hash==='#/admin/login';
     const isRegister=location.hash==='#/register';
-    if(isAdmin){
-      const email=f.get('email'), password=f.get('password');
-      if(email!==ADMIN_CREDENTIALS.email || password!==ADMIN_CREDENTIALS.password){
-        toast('Invalid admin credentials','error');
-        return;
-      }
-      state.user={name:email.split('@')[0],email,role:'admin'};
-      save();
-      addNotification('Admin access granted','Welcome to the admin dashboard.');
-      location.hash='#/admin';
-      toast('Admin access granted');
-      return;
-    }
     const email=f.get('email'), password=f.get('password');
     if(isRegister){
+      // Confirm-password validation: must match the password field.
+      const confirmPassword=f.get('confirmPassword')||'';
+      if(password!==confirmPassword){
+        toast('Passwords do not match','error');
+        return;
+      }
+      if(password.length<6){
+        toast('Password must be at least 6 characters','error');
+        return;
+      }
       const full_name=f.get('name')||'';
       const phone=f.get('phone')||'';
       const hostel=f.get('hostel')||'';
@@ -613,15 +1106,19 @@ document.addEventListener('submit', e=>{
         .then(async ({ data, error }) => {
           if(error){ toast(error.message,'error'); return; }
           let name=email.split('@')[0];
+          let role='user';
+          let vendor_id=null;
           if(data.user){
             const { data: profile } = await supabase
               .from('profiles')
-              .select('full_name')
+              .select('full_name, role, vendor_id')
               .eq('id', data.user.id)
               .single();
             if(profile && profile.full_name) name=profile.full_name;
+            if(profile && profile.role) role=profile.role;
+            if(profile && profile.vendor_id) vendor_id=profile.vendor_id;
           }
-          state.user={name,email,role:'user'};
+          state.user={name,email,role,vendor_id};
           save();
           addNotification('You\'re signed in','Start exploring what\'s available around campus.');
           location.hash='#/';
@@ -636,7 +1133,8 @@ document.addEventListener('submit', e=>{
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
     const f=new FormData(e.target), total=cartTotal()+500;
     const orderNumber=`CR-${Math.floor(1000+Math.random()*8999)}`;
-    const order={id:orderNumber,items:cartItems(),total,fee:500,status:'Order confirmed',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now'};
+    const items=cartItems();
+    const order={id:orderNumber,items,total,fee:500,status:'Order confirmed',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
     
     // DIAGNOSTIC: Log the checkout flow start
     console.log('[CHECKOUT-DIAG] Checkout form submitted. Order number =', orderNumber, '| Cart items =', order.items.length, '| Total =', total);
@@ -674,7 +1172,10 @@ document.addEventListener('submit', e=>{
       toast('Order failed: Could not save to Supabase', 'error');
     });
   }
-  if(e.target.id==='riderForm'){e.preventDefault(); toast('Application submitted! We\'ll review your details shortly.'); location.hash='#/rider';}
+  if(e.target.id==='riderForm'){
+    e.preventDefault();
+    submitRiderApplication(new FormData(e.target));
+  }
 });
 
 $('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
@@ -705,6 +1206,9 @@ loadCatalogFromSupabase();
 // Load the authenticated user's orders from Supabase (falls back to localStorage).
 loadOrdersFromSupabase();
 
+// Load the authenticated user's rider status from Supabase.
+loadRiderFromSupabase();
+
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
 supabase.auth.getSession().then(({ data: { session } }) => {
@@ -712,7 +1216,7 @@ supabase.auth.getSession().then(({ data: { session } }) => {
     supabase.from('profiles').select('full_name').eq('id', session.user.id).single()
       .then(({ data: profile }) => {
         const userRole = (profile && profile.role) || 'user';
-    state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole};
+    state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole,vendor_id:(profile && profile.vendor_id) || null};
         save();
         render();
       })
@@ -723,4 +1227,3 @@ supabase.auth.getSession().then(({ data: { session } }) => {
       });
   }
 });
-

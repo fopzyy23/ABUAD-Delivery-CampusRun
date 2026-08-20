@@ -1,5 +1,5 @@
 /* ==========================================================================
-   CampusRun Admin Panel Styles
+   Dropzyy Admin Panel Styles
    ========================================================================== */
 
 /* ---------------------------------- ADMIN HEADER -------------------------- */
@@ -338,6 +338,35 @@ html[data-theme="dark"] .btn--soft {
   text-decoration: underline;
 }
 
+/* ---------------------------------- STATUS BADGES ------------------------- */
+.status--pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid transparent;
+}
+
+.status--approved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid transparent;
+}
+
 /* ---------------------------------- BADGES -------------------------------- */
 .badge {
   display: inline-flex;
@@ -451,6 +480,37 @@ html[data-theme="dark"] .badge--brand {
   .page-head .btn { width: 100%; }
   .grid--stats { grid-template-columns: 1fr; }
   .admin-header__actions .btn { flex: 1 1 100%; }
+}
+
+/* ---------------------------------- ADMIN SUB-HEADER ----------------------- */
+/* Used when the admin panel is embedded inside index.html (below the appbar).
+   Unlike .admin-header (which is sticky at top:0 for the standalone admin.html),
+   this sub-header is a normal flow element so it never overlaps the appbar. */
+.admin-subheader {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-subheader__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-subheader__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 780px) {
+  .admin-subheader { padding: 10px 0; }
+  .admin-subheader__inner { flex-direction: column; align-items: flex-start; }
+  .admin-subheader__actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .admin-subheader .btn { flex: 1; text-align: center; }
 }
 
 /* ---------------------------------- TOAST --------------------------------- */

@@ -1,5 +1,5 @@
 -- ============================================================
--- CampusRun RLS Security Fix Migration
+-- Dropzyy RLS Security Fix Migration
 -- ============================================================
 -- This migration fixes helper-function issues from the previous review:
 --  1. Eliminates scalar uuid helpers that can return multiple riders

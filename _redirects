@@ -1,1 +1,11 @@
-/*    /assets/html/index.html   200
+# Serve the standalone admin panel directly — must come BEFORE all catch-alls
+/assets/html/admin.html    /assets/html/admin.html    200
+/assets/admin.html         /assets/html/admin.html    200
+/admin.html                /assets/html/admin.html    200
+/admin                     /assets/html/admin.html    200
+
+# Serve individual asset files (css/js/images) directly
+/assets/*                  /assets/:splat              200
+
+# SPA fallback: any unmatched path serves the app entry point
+/*                         /assets/html/index.html     200

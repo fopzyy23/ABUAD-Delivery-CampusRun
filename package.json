@@ -2,7 +2,7 @@
   "name": "abuad-delivery",
   "version": "1.0.0",
   "private": true,
-  "description": "ABUAD Delivery (CampusRun) — catalog seed tooling",
+  "description": "Dropzyy — catalog seed tooling",
   "scripts": {
     "seed:catalog": "node scripts/seed_catalog.js"
   },

@@ -1,18 +1,44 @@
-# Netlify deployment configuration for CampusRun
+# Netlify deployment configuration for Dropzyy
 # Publish from the repo root so all assets (css, js, images) are accessible.
 # The root index.html redirects to the app entry point at assets/html/index.html.
 
 [build]
   publish = "."
 
-# Serve the app entry point for the site root.
+# Serve the standalone admin panel directly — must come BEFORE all catch-alls
 [[redirects]]
-  from = "/"
-  to = "/assets/html/index.html"
+  from = "/assets/html/admin.html"
+  to = "/assets/html/admin.html"
+  status = 200
+
+[[redirects]]
+  from = "/assets/admin.html"
+  to = "/assets/html/admin.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin.html"
+  to = "/assets/html/admin.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/assets/html/admin.html"
+  status = 200
+
+# Serve individual asset files (css/js/images) directly
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
   status = 200
 
 # SPA fallback: any unmatched path serves the app entry point so
 # hash-based routing (e.g. #/browse, #/cart) works on refresh.
+[[redirects]]
+  from = "/assets/html/*"
+  to = "/assets/html/index.html"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/assets/html/index.html"

@@ -1,5 +1,5 @@
 // ============================================
-// ABUAD Delivery — Catalog Seed Script
+// Dropzyy — Catalog Seed Script
 // ============================================
 // Safely upserts the existing SEED_DATA vendors and products into the
 // Supabase `vendors` and `products` tables.

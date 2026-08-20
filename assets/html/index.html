@@ -4,21 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0f9d76" />
-  <meta name="description" content="CampusRun — anything you need around campus, delivered to you by another student." />
-  <title>CampusRun · Campus Delivery for Students</title>
+  <meta name="description" content="Dropzyy — anything you need around campus, delivered to you by another student." />
+  <title>Dropzyy · Campus Delivery for Students</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/styles.css" />
+  <link rel="stylesheet" href="../css/admin.css" />
 </head>
 <body>
   <!-- ============ TOP APP BAR ============ -->
   <header class="appbar" id="appbar">
     <div class="appbar__inner container">
-      <a href="#/" class="brand" aria-label="CampusRun home">
+      <a href="#/" class="brand" aria-label="Dropzyy home">
         <span class="brand__logo">🛵</span>
-        <span class="brand__text">Campus<span>Run</span></span>
+        <span class="brand__text">Drop<span>zyy</span></span>
       </a>
 
       <nav class="topnav" id="topnav" aria-label="Main navigation"></nav>
@@ -62,7 +63,7 @@
       <div>
         <div class="brand brand--sm">
           <span class="brand__logo">🛵</span>
-          <span class="brand__text">Campus<span>Run</span></span>
+          <span class="brand__text">Drop<span>zyy</span></span>
         </div>
         <p class="muted">Anything you need around campus, delivered to you by another student.</p>
       </div>
@@ -71,13 +72,12 @@
         <a href="#/browse">Browse items</a>
         <a href="#/rider/apply">Become a rider</a>
         <a href="#/orders">My orders</a>
-        <!-- Admin link shown only for admins -->
-        <!-- @todo: role check will be done by JavaScript -->
-        <a href="admin.html" id="adminLink">Admin</a>
+        <!-- Admin link shown only for admins (role check via JavaScript in app.js) -->
+        <a href="#/admin" id="adminLink">Admin</a>
       </div>
     </div>
     <div class="container footer__base muted">
-      <span>© <span id="year"></span> CampusRun · Student-powered campus delivery</span>
+      <span>© <span id="year"></span> Dropzyy · Student-powered campus delivery</span>
       <span>Demo build · data stored locally in your browser</span>
     </div>
   </footer>
@@ -91,6 +91,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
+  <script src="../js/admin.js" defer></script>
   <script src="../js/app.js" defer></script>
 </body>
 </html>

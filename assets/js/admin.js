@@ -1,6 +1,13 @@
 // ============================================
-// CampusRun Admin Panel
+// Dropzyy Admin Panel
 // ============================================
+// This module provides the full admin system (Supabase auth, catalog
+// management, orders, riders). It is loaded on BOTH index.html (unified)
+// and admin.html (legacy redirect). To avoid global variable collisions
+// with app.js (both declare $, money, store, state, etc.), this entire
+// module is wrapped in an IIFE. The public API is exposed via window.AdminHub.
+
+(function () {
 
 // State management
 let state = {
@@ -19,12 +26,12 @@ let supabaseAdminUser = null;
 const $ = s => document.querySelector(s);
 const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
 const store = (key, value) => localStorage.setItem(`campusrun_${key}`, JSON.stringify(value));
-const load = (key, fallback) => { 
-  try { 
-    return JSON.parse(localStorage.getItem(`campusrun_${key}`)) ?? fallback; 
-  } catch { 
-    return fallback; 
-  } 
+const load = (key, fallback) => {
+  try {
+    return JSON.parse(localStorage.getItem(`campusrun_${key}`)) ?? fallback;
+  } catch {
+    return fallback;
+  }
 };
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -106,7 +113,7 @@ async function deleteVendorFromSupabase(vendorId) {
       .delete()
       .eq('vendor_id', vendorId);
     if (productError) throw productError;
-    
+
     const { error: vendorError } = await supabase
       .from('vendors')
       .delete()
@@ -145,7 +152,7 @@ async function loadCatalogFromSupabase() {
     ]);
     if (vendorsRes.error) throw vendorsRes.error;
     if (productsRes.error) throw productsRes.error;
-    
+
     const vendors = vendorsRes.data.map(v => ({
       id: v.id, name: v.name, icon: v.icon, type: v.type,
       rating: v.rating, time: v.time, cover: v.cover, open: v.open,
@@ -197,8 +204,8 @@ const SEED_DATA = {
     { id: 17, vendor: 'caf-1', name: 'Porridge Yam (Half Pack)', desc: 'Caf 1 serving.', price: 1200, icon: '🍲', category: 'Meals' },
     { id: 18, vendor: 'caf-1', name: 'Porridge Yam (Full Pack)', desc: 'Caf 1 serving.', price: 2400, icon: '🍲', category: 'Meals' },
     { id: 19, vendor: 'caf-1', name: 'Emerald Delight', desc: 'White rice and vegetable soup.', price: 3200, icon: '🍚', category: 'Food' },
-    { id: 20, vendor: 'caf-1', name: 'Swallow with Soup', desc: 'Caf 1 serving.', price: 2500, icon: '🥘', category: 'Meals' },
-    { id: 21, vendor: 'caf-1', name: 'Extra Swallow Wrap', desc: 'Caf 1 serving.', price: 600, icon: '🥘', category: 'Meals' },
+    { id: 20, vendor: 'caf-1', name: 'Swallow with Soup', desc: 'Caf 1 serving.', price: 2500, icon: '🍲', category: 'Meals' },
+    { id: 21, vendor: 'caf-1', name: 'Extra Swallow Wrap', desc: 'Caf 1 serving.', price: 600, icon: '🍲', category: 'Meals' },
     { id: 22, vendor: 'caf-1', name: 'Pizza', desc: 'Listed mid-range price (₦7,000–₦8,000).', price: 7500, icon: '🍕', category: 'Food' },
     { id: 23, vendor: 'captain-cook', name: 'Jollof Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍛', category: 'Food' },
     { id: 24, vendor: 'captain-cook', name: 'Fried Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍚', category: 'Food' },
@@ -211,7 +218,7 @@ const SEED_DATA = {
     { id: 31, vendor: 'captain-cook', name: 'Fish (Regular)', desc: 'Captain Cook serving.', price: 600, icon: '🐟', category: 'Food' },
     { id: 32, vendor: 'captain-cook', name: 'Fish (Large)', desc: 'Captain Cook serving.', price: 800, icon: '🐟', category: 'Food' },
     { id: 33, vendor: 'captain-cook', name: 'Ofada Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍚', category: 'Food' },
-    { id: 34, vendor: 'captain-cook', name: 'Ofada Sauce', desc: 'Captain Cook serving.', price: 500, icon: '🥘', category: 'Meals' },
+    { id: 34, vendor: 'captain-cook', name: 'Ofada Sauce', desc: 'Captain Cook serving.', price: 500, icon: '🍲', category: 'Meals' },
     { id: 35, vendor: 'captain-cook', name: 'Ice Cream Cone', desc: 'Captain Cook serving.', price: 1000, icon: '🍦', category: 'Snacks' },
     { id: 36, vendor: 'captain-cook', name: 'Ice Cream Container', desc: 'Captain Cook serving.', price: 2000, icon: '🍨', category: 'Snacks' },
     { id: 37, vendor: 'caf-2', name: 'Jollof Rice', desc: 'Caf 2 price aligned with Caf 1.', price: 400, icon: '🍛', category: 'Food' },
@@ -230,7 +237,7 @@ const SEED_DATA = {
     { id: 50, vendor: 'season-deli', name: 'Boiled Egg', desc: 'Price is subject to confirmation.', price: 350, icon: '🥚', category: 'Meals' },
     { id: 51, vendor: 'streat-food', name: 'Suya', desc: 'Streat food serving.', price: 800, icon: '🍢', category: 'Food' },
     { id: 52, vendor: 'streat-food', name: 'Suya (Other Stall)', desc: 'Alternative Streat food stall.', price: 500, icon: '🍢', category: 'Food' },
-    { id: 53, vendor: 'streat-food', name: 'Ponmo Sauce', desc: 'Streat food serving.', price: 700, icon: '🥘', category: 'Meals' },
+    { id: 53, vendor: 'streat-food', name: 'Ponmo Sauce', desc: 'Streat food serving.', price: 700, icon: '🍲', category: 'Meals' },
     { id: 54, vendor: 'streat-food', name: 'Chicken Sauce', desc: 'Streat food serving.', price: 500, icon: '🍗', category: 'Meals' },
     { id: 55, vendor: 'streat-food', name: 'Asun', desc: 'Listed mid-range price (₦1,000–₦1,200).', price: 1100, icon: '🍖', category: 'Food' },
     { id: 56, vendor: 'streat-food', name: 'Chips', desc: 'Without pack.', price: 1500, icon: '🍟', category: 'Snacks' },
@@ -291,6 +298,23 @@ function toast(message, kind = 'success') {
   el.textContent = message;
   $('#toastRoot').append(el);
   setTimeout(() => el.remove(), 3400);
+}
+
+// ============================================
+// Admin Sub-Header (embedded in index.html above the workspace)
+// ============================================
+function adminNav() {
+  return `
+    <div class="admin-subheader">
+      <div class="container admin-subheader__inner">
+        <span class="badge badge--brand">Admin Panel</span>
+        <div class="admin-subheader__actions">
+          <a href="#/" class="btn btn--ghost btn--sm">← Back to Site</a>
+          <button class="btn btn--dangerSoft btn--sm" id="adminLogoutBtn">Sign out</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // ============================================
@@ -370,12 +394,12 @@ async function login(email, password) {
     toast('Admin login unavailable: Supabase authentication is not configured.', 'error');
     return false;
   }
-  
+
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     if (!data.user) throw new Error('No user returned from Supabase authentication.');
-    
+
     supabaseAdminUser = data.user;
     const profile = await fetchAdminProfile();
     if (!profile || profile.role !== 'admin') {
@@ -386,7 +410,7 @@ async function login(email, password) {
       toast('Access denied: this account does not have admin privileges.', 'error');
       return false;
     }
-    
+
     state.isAuthenticated = true;
     return true;
   } catch (err) {
@@ -398,14 +422,13 @@ async function login(email, password) {
 function logout() {
   state.isAuthenticated = false;
   supabaseAdminUser = null;
-  // Clear Supabase session and return to the login screen regardless of
-  // whether signOut succeeds or fails.
+  // Clear Supabase session and redirect to the admin login screen.
   if (supabaseAvailable()) {
     supabase.auth.signOut().finally(() => {
-      renderLogin();
+      location.hash = '#/admin/login';
     });
   } else {
-    renderLogin();
+    location.hash = '#/admin/login';
   }
 }
 
@@ -451,7 +474,7 @@ async function resetCatalog() {
   if (confirm('Restore the original demo catalog? All changes will be lost.')) {
     state.catalog = clone(SEED_DATA);
     saveCatalog();
-    
+
     // Sync the restored catalog back to Supabase
     if (supabaseAvailable()) {
       try {
@@ -460,20 +483,20 @@ async function resetCatalog() {
           .from('vendors')
           .upsert(state.catalog.vendors.map(vendorToRow), { onConflict: 'id' });
         if (vendorError) throw vendorError;
-        
+
         // Upsert all seed products
         const { error: productError } = await supabase
           .from('products')
           .upsert(state.catalog.products.map(productToRow), { onConflict: 'id' });
         if (productError) throw productError;
-        
+
         toast('Catalog restored and synced to Supabase');
       } catch (err) {
         console.error('Supabase catalog reset sync failed:', err);
         toast('Catalog restored locally (Supabase sync failed)', 'error');
       }
     }
-    
+
     renderAdminWorkspace();
   }
 }
@@ -493,17 +516,17 @@ async function addVendor(formData) {
     open: formData.get('open') === 'on',
     delivery_method: formData.get('delivery_method') || 'rider'
   };
-  
+
   const existingIndex = state.catalog.vendors.findIndex(v => v.id === vendor.id);
   if (existingIndex >= 0) {
     state.catalog.vendors[existingIndex] = vendor;
   } else {
     state.catalog.vendors.push(vendor);
   }
-  
+
   // Save to localStorage (fallback)
   saveCatalog();
-  
+
   // Sync to Supabase
   const synced = await syncVendorToSupabase(vendor);
   if (!synced) {
@@ -511,7 +534,7 @@ async function addVendor(formData) {
   } else {
     toast('Vendor saved successfully');
   }
-  
+
   renderAdminWorkspace();
 }
 
@@ -523,10 +546,10 @@ async function deleteVendor(vendorId) {
     // Remove any cart entries that referenced the deleted vendor's products
     const cart = load('cart', []);
     store('cart', cart.filter(x => !vendorProductIds.includes(x.id)));
-    
+
     // Save to localStorage (fallback)
     saveCatalog();
-    
+
     // Sync to Supabase
     const synced = await deleteVendorFromSupabase(vendorId);
     if (!synced) {
@@ -534,7 +557,7 @@ async function deleteVendor(vendorId) {
     } else {
       toast('Vendor deleted');
     }
-    
+
     renderAdminWorkspace();
   }
 }
@@ -543,10 +566,10 @@ async function toggleVendor(vendorId) {
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   if (vendor) {
     vendor.open = !vendor.open;
-    
+
     // Save to localStorage (fallback)
     saveCatalog();
-    
+
     // Sync to Supabase
     const synced = await syncVendorToSupabase(vendor);
     if (!synced) {
@@ -554,7 +577,7 @@ async function toggleVendor(vendorId) {
     } else {
       toast(`Vendor ${vendor.open ? 'opened' : 'closed'}`);
     }
-    
+
     renderAdminWorkspace();
   }
 }
@@ -572,17 +595,17 @@ async function addProduct(formData) {
     icon: formData.get('icon').trim() || '🍽️',
     desc: formData.get('desc').trim()
   };
-  
+
   const existingIndex = state.catalog.products.findIndex(p => p.id === product.id);
   if (existingIndex >= 0) {
     state.catalog.products[existingIndex] = product;
   } else {
     state.catalog.products.push(product);
   }
-  
+
   // Save to localStorage (fallback)
   saveCatalog();
-  
+
   // Sync to Supabase
   const synced = await syncProductToSupabase(product);
   if (!synced) {
@@ -590,7 +613,7 @@ async function addProduct(formData) {
   } else {
     toast('Product saved successfully');
   }
-  
+
   renderAdminWorkspace();
 }
 
@@ -600,10 +623,10 @@ async function deleteProduct(productId) {
     // Remove any cart entries that referenced the deleted product
     const cart = load('cart', []);
     store('cart', cart.filter(x => x.id !== Number(productId)));
-    
+
     // Save to localStorage (fallback)
     saveCatalog();
-    
+
     // Deactivate in Supabase (soft delete — keeps FK integrity)
     const synced = await deactivateProductInSupabase(Number(productId));
     if (!synced) {
@@ -611,9 +634,36 @@ async function deleteProduct(productId) {
     } else {
       toast('Product deleted');
     }
-    
+
     renderAdminWorkspace();
   }
+}
+
+// ============================================
+// Admin Initialization
+// ============================================
+// Called by app.js (index.html) when the user navigates to an admin route.
+// Also called automatically when admin.html is loaded directly (legacy).
+async function init() {
+  const authed = await checkAuth();
+  if (!authed) {
+    // Not authenticated — render the login screen so the user can sign in.
+    renderLogin();
+    return false;
+  }
+  // Load catalog, orders, and riders only once (lazy load on first admin entry).
+  if (!state.catalog) {
+    await loadCatalog();
+    await loadOrders();
+    await loadRiders();
+  }
+  renderAdminWorkspace();
+  return true;
+}
+
+// Re-render just the catalog tables (alias for the full workspace).
+function renderCatalog() {
+  renderAdminWorkspace();
 }
 
 // ============================================
@@ -622,6 +672,7 @@ async function deleteProduct(productId) {
 function renderLogin() {
   const app = $('#app');
   app.innerHTML = `
+    ${adminNav()}
     <section class="container">
       <div class="auth-wrap">
         <div class="card">
@@ -645,20 +696,18 @@ function renderLogin() {
       </div>
     </section>
   `;
-  
+
   $('#loginForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const email = formData.get('email');
     const password = formData.get('password');
-    
-    login(email, password).then(async isValid => {
+
+    login(email, password).then(isValid => {
       if (isValid) {
         toast('Admin access granted');
-        await loadCatalog();
-        await loadOrders();
-        await loadRiders();
-        renderAdminWorkspace();
+        // Delegate to app.js routing: hash change triggers render() → init()
+        location.hash = '#/admin';
       } else {
         toast('Invalid credentials', 'error');
       }
@@ -667,12 +716,13 @@ function renderLogin() {
 }
 
 function renderAdminWorkspace() {
-  const vendors = state.catalog.vendors;
-  const products = state.catalog.products;
+  const vendors = state.catalog ? state.catalog.vendors : [];
+  const products = state.catalog ? state.catalog.products : [];
   const orders = state.orders;
-  
+
   const app = $('#app');
   app.innerHTML = `
+    ${adminNav()}
     <section class="section container">
       <div class="page-head">
         <div>
@@ -816,7 +866,7 @@ function renderAdminWorkspace() {
                   <td>${v.delivery_method || 'rider'}</td>
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
                   <td>
-                    <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> · 
+                    <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> ·
                     <button class="link-btn" data-delete-vendor="${v.id}">Delete</button>
                   </td>
                 </tr>
@@ -853,7 +903,7 @@ function renderAdminWorkspace() {
                     <td>${p.category}</td>
                     <td>${money(p.price)}</td>
                     <td>
-                      <button class="link-btn" data-edit-product="${p.id}">Edit</button> · 
+                      <button class="link-btn" data-edit-product="${p.id}">Edit</button> ·
                       <button class="link-btn" data-delete-product="${p.id}">Delete</button>
                     </td>
                   </tr>
@@ -978,7 +1028,7 @@ function renderAdminWorkspace() {
       </div>
     </section>
   `;
-  
+
   // Attach event listeners
   attachAdminEventListeners();
 }
@@ -986,49 +1036,48 @@ function renderAdminWorkspace() {
 function attachAdminEventListeners() {
   // Reset catalog
   $('#resetCatalog')?.addEventListener('click', resetCatalog);
-  
+
   // Vendor form submission
   $('#vendorForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
     addVendor(new FormData(e.target));
   });
-  
   // Product form submission
   $('#productForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
     addProduct(new FormData(e.target));
   });
-  
+
   // Clear forms
   $('#clearVendorForm')?.addEventListener('click', () => {
     $('#vendorForm').reset();
     $('#vendorForm').querySelector('input[name="id"]').value = '';
     $('#vendorFormTitle').textContent = 'Add Vendor';
   });
-  
+
   $('#clearProductForm')?.addEventListener('click', () => {
     $('#productForm').reset();
     $('#productForm').querySelector('input[name="id"]').value = '';
     $('#productFormTitle').textContent = 'Add Product';
   });
-  
+
   // Edit/Delete/Toggle buttons
   document.querySelectorAll('[data-edit-vendor]').forEach(btn => {
     btn.addEventListener('click', () => editVendor(btn.dataset.editVendor));
   });
-  
+
   document.querySelectorAll('[data-delete-vendor]').forEach(btn => {
     btn.addEventListener('click', () => deleteVendor(btn.dataset.deleteVendor));
   });
-  
+
   document.querySelectorAll('[data-toggle-vendor]').forEach(btn => {
     btn.addEventListener('click', () => toggleVendor(btn.dataset.toggleVendor));
   });
-  
+
   document.querySelectorAll('[data-edit-product]').forEach(btn => {
     btn.addEventListener('click', () => editProduct(btn.dataset.editProduct));
   });
-  
+
   document.querySelectorAll('[data-delete-product]').forEach(btn => {
     btn.addEventListener('click', () => deleteProduct(btn.dataset.deleteProduct));
   });
@@ -1064,7 +1113,7 @@ function attachAdminEventListeners() {
 function editVendor(vendorId) {
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   if (!vendor) return;
-  
+
   const form = $('#vendorForm');
   form.querySelector('input[name="id"]').value = vendor.id;
   form.querySelector('input[name="name"]').value = vendor.name;
@@ -1082,7 +1131,7 @@ function editVendor(vendorId) {
 function editProduct(productId) {
   const product = state.catalog.products.find(p => p.id === Number(productId));
   if (!product) return;
-  
+
   const form = $('#productForm');
   form.querySelector('input[name="id"]').value = product.id;
   form.querySelector('input[name="name"]').value = product.name;
@@ -1096,42 +1145,59 @@ function editProduct(productId) {
 }
 
 // ============================================
-// Initialization
+// Exposed API for the unified admin flow
 // ============================================
-// The logout button lives in the admin header on every screen (login form,
-// workspace, etc.), so attach its handler once as a delegated listener on the
-// document — this also covers the case where the user just logged in via the
-// form and the workspace (with its per-render listeners) isn't mounted yet.
+// The admin panel is embedded inside the main app (index.html) rather than a
+// separate admin.html page. These functions are exposed on window.AdminHub so
+// that app.js can delegate #/admin routing to them. Auto-init is NOT performed
+// here — app.js calls window.AdminHub.init() when the user navigates to an
+// admin route.
+
+window.AdminHub = {
+  init,
+  checkAuth,
+  login,
+  logout,
+  renderLogin,
+  renderAdminWorkspace,
+  renderCatalog,
+  addVendor,
+  deleteVendor,
+  toggleVendor,
+  editVendor,
+  addProduct,
+  deleteProduct,
+  editProduct,
+  resetCatalog,
+  updateOrderStatus,
+  loadCatalog,
+  loadOrders,
+  loadRiders,
+  approveRider,
+  rejectRider,
+  suspendRider
+};
+
+// Admin logout button (uses a unique ID to avoid conflict with the customer
+// logout button in app.js — both are called "logoutBtn" in their respective
+// contexts, so we use "adminLogoutBtn" here).
 document.addEventListener('click', (e) => {
-  if (e.target.id === 'logoutBtn') {
+  if (e.target.id === 'adminLogoutBtn' || e.target.closest('#adminLogoutBtn')) {
     if (confirm('Sign out of admin panel?')) {
       logout();
     }
   }
 });
 
-async function init() {
-  // Check authentication
-  const isAuthenticated = await checkAuth();
-  if (!isAuthenticated) {
-    renderLogin();
-    return;
+// Auto-initialize when loaded directly via admin.html (backward compatible).
+// When loaded inside index.html, app.js controls initialization via
+// window.AdminHub.init() when the user navigates to an admin route.
+if (window.location.pathname.includes('admin.html')) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
-  
-  // Load catalog data (from Supabase, falling back to localStorage)
-  await loadCatalog();
-  await loadOrders();
-  await loadRiders();
-  
-  // Render admin workspace
-  renderAdminWorkspace();
-}
-
-// Start the app when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
 }
 
 // Load all orders and their items for the admin workspace. The public order
@@ -1351,3 +1417,5 @@ async function suspendRider(riderId) {
 
   renderAdminWorkspace();
 }
+
+})(); // End of admin module IIFE
