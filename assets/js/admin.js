@@ -14,7 +14,8 @@ let state = {
   isAuthenticated: false,
   catalog: null,
   orders: [],
-  riders: []
+  riders: [],
+  users: []
 };
 
 // Supabase authentication tracking
@@ -651,11 +652,14 @@ async function init() {
     renderLogin();
     return false;
   }
-  // Load catalog, orders, and riders only once (lazy load on first admin entry).
+  // Load catalog, orders, riders, and assignable users only once (lazy load on
+  // first admin entry). loadAssignableUsers requires admin auth, which
+  // checkAuth() already enforced above.
   if (!state.catalog) {
     await loadCatalog();
     await loadOrders();
     await loadRiders();
+    await loadAssignableUsers();
   }
   renderAdminWorkspace();
   return true;
@@ -1026,6 +1030,44 @@ function renderAdminWorkspace() {
           </table>
         </div>
       </div>
+
+      <!-- Vendor Assignment Section (admin only) -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Vendor Assignment</h3>
+          <span class="muted small">Assign users (role = user) to a vendor. Admin only.</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Current Vendor</th>
+                <th style="min-width:200px">Assign to Vendor</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${state.users.length ? state.users.map(user => {
+                const current = user.vendor_id ? vendors.find(v => v.id === user.vendor_id) : null;
+                return `
+                <tr data-user-id="${user.id}">
+                  <td>${user.full_name || '—'}<div class="muted small">${user.email || ''}</div></td>
+                  <td>${current ? current.name : (user.vendor_id || '—')}</td>
+                  <td>
+                    <select class="select" name="vendor" data-user-vendor="${user.id}">
+                      <option value="">(unassigned)</option>
+                      ${vendors.map(v => `<option value="${v.id}" ${user.vendor_id === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+                    </select>
+                  </td>
+                  <td><button class="link-btn" data-assign-user="${user.id}">Assign</button></td>
+                </tr>
+                `;
+              }).join('') : '<tr><td colspan="4" class="muted center">No users to assign.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   `;
 
@@ -1108,6 +1150,18 @@ function attachAdminEventListeners() {
       suspendRider(btn.dataset.suspendRider);
     });
   });
+
+  // Assign a user to a vendor (admin-only RPC). The client never updates
+  // profiles directly — assignUserToVendor() calls the server-side RPC.
+  document.querySelectorAll('[data-assign-user]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const userId = btn.dataset.assignUser;
+      const row = btn.closest('[data-user-id]');
+      const select = row ? row.querySelector('select[name="vendor"]') : null;
+      const vendorId = select && select.value ? select.value : null;
+      assignUserToVendor(userId, vendorId);
+    });
+  });
 }
 
 function editVendor(vendorId) {
@@ -1145,6 +1199,58 @@ function editProduct(productId) {
 }
 
 // ============================================
+// Vendor Assignment (admin only)
+// ============================================
+// Loads profiles where role = 'user' for the assignment UI. Admins read all
+// profiles via the profiles_select_admin policy; we filter to role='user' so
+// admins/vendors are not assignable here.
+async function loadAssignableUsers() {
+  if (!supabaseAvailable()) {
+    state.users = [];
+    return;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, vendor_id')
+      .eq('role', 'user')
+      .order('full_name', { ascending: true });
+    if (error) throw error;
+    state.users = data || [];
+  } catch (err) {
+    console.error('Failed to load assignable users:', err);
+    state.users = [];
+    toast('Could not load user list', 'error');
+  }
+}
+
+// Assign a user to a vendor via the admin-only Supabase RPC. The client NEVER
+// updates profiles.vendor_id (or profiles.role) directly — the server-side RPC
+// assign_user_to_vendor() (admin-gated via is_admin()) performs the UPDATE.
+async function assignUserToVendor(userId, vendorId) {
+  if (!userId) return false;
+  if (!supabaseAvailable()) {
+    toast('Assignment unavailable: Supabase is not configured.', 'error');
+    return false;
+  }
+  try {
+    const { error } = await supabase.rpc('assign_user_to_vendor', {
+      target_user_id: userId,
+      target_vendor_id: vendorId
+    });
+    if (error) throw error;
+    toast(vendorId ? 'User assigned to vendor' : 'Vendor assignment cleared');
+    await loadAssignableUsers();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Vendor assignment failed:', err);
+    toast('Assignment failed: ' + (err.message || 'Unknown error'), 'error');
+    return false;
+  }
+}
+
+// ============================================
 // Exposed API for the unified admin flow
 // ============================================
 // The admin panel is embedded inside the main app (index.html) rather than a
@@ -1175,7 +1281,9 @@ window.AdminHub = {
   loadRiders,
   approveRider,
   rejectRider,
-  suspendRider
+  suspendRider,
+  assignUserToVendor,
+  loadAssignableUsers
 };
 
 // Admin logout button (uses a unique ID to avoid conflict with the customer

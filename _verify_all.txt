@@ -1,0 +1,25 @@
+node --check assets/js/admin.js: SYNTAX OK
+--- RPC migration: required terms ---
+PASS SECURITY DEFINER
+PASS SET search_path=public
+PASS LANGUAGE plpgsql
+PASS is_admin() reused
+PASS admin guard (IF NOT is_admin)
+PASS UPDATE public.profiles
+PASS SET role = 'vendor'
+PASS SET role = 'user'
+FAIL SET vendor_id = target_vendor_id
+FAIL SET vendor_id = NULL
+PASS target profile existence check
+PASS vendor existence check
+PASS GRANT EXECUTE TO authenticated
+--- RPC migration: forbidden terms (must be absent) ---
+PASS(no service_role)
+PASS(no DISABLE ROW LEVEL SECURITY)
+PASS(no ALTER TABLE)
+PASS(no CREATE TABLE/POLICY/INDEX/TRIGGER)
+PASS(no DROP TABLE/POLICY/INDEX/TRIGGER)
+--- admin.js: secure client usage ---
+PASS(no direct profiles.update)
+PASS: calls RPC
+PASS: client never sets role

@@ -1082,10 +1082,25 @@ document.addEventListener('submit', e=>{
         .then(async ({ data, error }) => {
           if(error){ toast(error.message,'error'); return; }
           if(data.user){
-            const { error: profileError } = await supabase
-              .from('profiles')
-              .insert({ id: data.user.id, email, full_name, phone, hostel });
-            if(profileError){ console.error('Profile insert error:', profileError); }
+            if(data.session){
+              // Email confirmation is DISABLED: signUp returned an authenticated
+              // session, so auth.uid() is set and the profiles_insert_own RLS
+              // policy (WITH CHECK id = auth.uid()) permits the INSERT.
+              // Create the profile now with the default role ('user').
+              const { error: profileError } = await supabase
+                .from('profiles')
+                .insert({ id: data.user.id, email, full_name, phone, hostel, role: 'user' });
+              if(profileError){ console.error('Profile insert error:', profileError); toast('Could not create your profile: ' + profileError.message,'error'); }
+            } else {
+              // Email confirmation is REQUIRED: signUp returned a user but no
+              // session, so the client is unauthenticated and auth.uid() is NULL.
+              // The profiles_insert_own RLS policy (WITH CHECK id = auth.uid())
+              // would reject the INSERT, so we must NOT attempt it here. The
+              // signup metadata (full_name/phone/hostel) was already persisted by
+              // Supabase in auth.users.user_metadata via signUp's options.data,
+              // and the profile row is created safely on the next sign-in (login
+              // handler below) once a session — and therefore auth.uid() — exists.
+            }
           }
           if(data.session){
             // Email confirmation is disabled — sign the user in immediately.
@@ -1117,6 +1132,29 @@ document.addEventListener('submit', e=>{
             if(profile && profile.full_name) name=profile.full_name;
             if(profile && profile.role) role=profile.role;
             if(profile && profile.vendor_id) vendor_id=profile.vendor_id;
+            if(!profile && data.session){
+              // Deferred profile creation: the user signed up with email
+              // confirmation enabled (signUp returned no session, so no profile
+              // could be inserted at signup). signInWithPassword has now
+              // established a session, so auth.uid() is set and the
+              // profiles_insert_own RLS policy permits the INSERT. Build the
+              // row from user_metadata (set by signUp's options.data) with the
+              // default role ('user'). The INSERT runs only when a session
+              // exists; any error is surfaced via toast (not silently logged).
+              const md = (data.user.user_metadata) || {};
+              const { error: profileError } = await supabase
+                .from('profiles')
+                .insert({
+                  id: data.user.id,
+                  email: data.user.email || email,
+                  full_name: md.full_name || '',
+                  phone: md.phone || '',
+                  hostel: md.hostel || '',
+                  role: 'user'
+                });
+              if(profileError){ console.error('Profile insert error:', profileError); toast('Could not create your profile: ' + profileError.message,'error'); }
+              if(md.full_name) name = md.full_name;
+            }
           }
           state.user={name,email,role,vendor_id};
           save();
@@ -1214,9 +1252,31 @@ loadRiderFromSupabase();
 supabase.auth.getSession().then(({ data: { session } }) => {
   if(session && session.user){
     supabase.from('profiles').select('full_name').eq('id', session.user.id).single()
-      .then(({ data: profile }) => {
+      .then(async ({ data: profile }) => {
         const userRole = (profile && profile.role) || 'user';
-    state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole,vendor_id:(profile && profile.vendor_id) || null};
+        if(!profile){
+          // No profiles row exists for this authenticated session — create a
+          // default customer profile from the signup metadata stored in
+          // user_metadata. A session exists (getSession) so auth.uid() is set
+          // and the profiles_insert_own RLS policy permits the INSERT. role is
+          // strictly 'user'; an existing profile is never modified.
+          const md = (session.user.user_metadata) || {};
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: session.user.id,
+              email: session.user.email,
+              full_name: md.full_name || '',
+              phone: md.phone || '',
+              hostel: md.hostel || '',
+              role: 'user'
+            });
+          if(insertError){
+            console.error('Profile insert error:', insertError);
+            toast('Could not create your profile: ' + insertError.message,'error');
+          }
+        }
+        state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole,vendor_id:(profile && profile.vendor_id) || null};
         save();
         render();
       })
