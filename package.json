@@ -2,8 +2,10 @@
   "name": "abuad-delivery",
   "version": "1.0.0",
   "private": true,
-  "description": "Dropzyy — catalog seed tooling",
+  "description": "Dropzyy — student-powered campus delivery (ABUAD)",
   "scripts": {
+    "validate": "node scripts/validate_all.js",
+    "validate:live": "node scripts/validate_all.js --live",
     "seed:catalog": "node scripts/seed_catalog.js"
   },
   "dependencies": {

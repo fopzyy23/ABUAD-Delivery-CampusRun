@@ -75,9 +75,23 @@ function createdCols(text) {
 const created = createdCols(sqlNoComments);
 
 // 5. Validate every `table.column` reference in non-comment SQL
+// ACTION 12 validator fix: PL/pgSQL FOR-loop record aliases (e.g.
+// `FOR r IN SELECT conname ...`) are loop variables, NOT table aliases.
+// The old code matched `r.conname` and resolved `r` -> riders via
+// aliasMap, producing the false positive
+//   MISSING COLUMN: riders.conname
+// Collect the declared loop aliases and skip unqualified alias refs.
+const loopAliases = new Set();
+const forAliasRe = /\bFOR\s+(\w+)\s+IN\b/g;
+let fam;
+while ((fam = forAliasRe.exec(sqlNoComments)) !== null) loopAliases.add(fam[1]);
+
 const colRefRe = /(?:public\.)?(\w+)\.(\w+)/g;
 let cm;
 while ((cm = colRefRe.exec(sqlNoComments)) !== null) {
+  // Skip PL/pgSQL loop-alias references such as `r.conname` (they are not
+  // schema-qualified and the alias is declared by a FOR ... IN loop).
+  if (loopAliases.has(cm[1]) && !cm[0].startsWith('public.')) continue;
   const table = aliasMap[cm[1]];
   if (!table) continue;
   const col = cm[2];

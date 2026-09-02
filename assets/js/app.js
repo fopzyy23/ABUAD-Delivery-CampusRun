@@ -1,18 +1,16 @@
-console.log("[TEST] app.js is running");
-
 const SEED_DATA = {
   vendors: [
-    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true },
-    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true },
-    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true },
-    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true },
-    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true },
-    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true },
-    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true },
-    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true },
-    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true },
-    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true }
+    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, description: 'Campus favourite for rice, chicken and hearty plates.', opening_hours: 'Mon–Sun 08:00–21:00' },
+    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, description: 'Sandwiches, deli-style meals and quick bites.', opening_hours: 'Mon–Sat 09:00–19:00' },
+    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, description: 'Reliable cafeteria meals for the whole campus.', opening_hours: 'Mon–Fri 07:00–18:00, Sat 08:00–14:00' },
+    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, description: 'Wide menu of Nigerian classics and snacks.', opening_hours: 'Mon–Sun 08:00–20:00' },
+    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, description: 'Rice, pasta and shared favourites.', opening_hours: 'Mon–Sun 08:00–20:00' },
+    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, description: 'Grilled options and daily specials.', opening_hours: 'Mon–Fri 08:00–18:00, Sat 10:00–16:00' },
+    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
+    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
+    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
+    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
+    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
   ],
   products: [
     { id: 1, vendor: 'caf-1', name: 'Jollof Rice', desc: 'Caf 1 serving.', price: 400, icon: '🍛', category: 'Food' },
@@ -124,31 +122,20 @@ const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
 const store = (key, value) => localStorage.setItem(`campusrun_${key}`, JSON.stringify(value));
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(`campusrun_${key}`)) ?? fallback; } catch { return fallback; } };
 const clone = value => JSON.parse(JSON.stringify(value));
-const state = { cart: load('cart', []), orders: load('orders', []), user: load('user', null), notifications: load('notifications', [{ title: 'Welcome to CampusRun', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), catalog: load('catalog_v3', clone(SEED_DATA)), rider: load('rider', null), riderRatings: load('rider_ratings', []), riderPool: load('rider_pool', []), vendorOrders: load('vendor_orders', []), vendorProducts: load('vendor_products', []), vendorLoaded: false };
+// Escape user-controlled text before it is inserted into innerHTML/template
+// literals. Prevents HTML/XSS injection via names, descriptions, spots,
+// comments, notifications, etc.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
+const state = { cart: load('cart', []), orders: load('orders', []), user: load('user', null), notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: load('rider', null), riderRatings: load('rider_ratings', []), riderPool: load('rider_pool', []), vendorOrders: load('vendor_orders', []), vendorProducts: load('vendor_products', []), withdrawals: load('withdrawals', []), withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false };
 
-// Merge any missing seed vendors/products into the loaded catalog. This repairs
-// stale localStorage data that predates new catalog entries (e.g. the drinks and
-// bookshop vendors) so those sections are always present.
-function mergeSeedIntoStored(cat) {
-  let changed = false;
-  SEED_DATA.vendors.forEach(seedV => {
-    if (!cat.vendors.some(v => v.id === seedV.id)) { cat.vendors.push(clone(seedV)); changed = true; }
-  });
-  SEED_DATA.products.forEach(seedP => {
-    if (!cat.products.some(p => p.id === seedP.id)) { cat.products.push(clone(seedP)); changed = true; }
-  });
-  if (changed) { state.catalog = cat; store('catalog_v3', cat); }
-  return cat;
-}
-
-// Re-read the catalog from storage on every access (the admin panel shares the
-// same 'catalog_v3' key, so this keeps the customer site in sync with admin
-// edits). We also prune cart entries that reference now-deleted products so the
-// cart/checkout views never crash or show ₦NaN.
+// Re-read the catalog from storage on every access. The catalog's source of
+// truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
+// the localStorage copy is only an offline fallback. We deliberately do NOT
+// merge seed data back in here — that would resurrect vendors/products the
+// admin deleted in Supabase. We also prune cart entries that reference
+// now-deleted products so the cart/checkout views never crash or show ₦NaN.
 const data = () => {
-  let cat = load('catalog_v3', clone(SEED_DATA));
-  cat = mergeSeedIntoStored(cat);
-  if (cat !== state.catalog) state.catalog = cat;
+  const cat = load('catalog_v3', clone(SEED_DATA));
   state.catalog = cat;
   const ids = new Set(state.catalog.products.map(p => p.id));
   if (state.cart.some(x => !ids.has(x.id))) {
@@ -170,14 +157,26 @@ async function loadCatalogFromSupabase() {
     if (vendorsRes.error) throw vendorsRes.error;
     if (productsRes.error) throw productsRes.error;
     // Map Supabase rows back to the frontend catalog shape. products.vendor_id
-    // becomes the existing `vendor` field used throughout the UI.
-    const vendors = vendorsRes.data.map(v => ({ id: v.id, name: v.name, icon: v.icon, type: v.type, rating: v.rating, time: v.time, cover: v.cover, open: v.open }));
-    const products = productsRes.data.map(p => ({ id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc, price: p.price, icon: p.icon, category: p.category }));
+    // becomes the existing `vendor` field used throughout the UI. Optional
+    // discovery fields (image / description / opening_hours) are carried
+    // through when present; NULL simply means the UI falls back gracefully.
+    const vendors = vendorsRes.data.map(v => ({
+      id: v.id, name: v.name, icon: v.icon, type: v.type, rating: v.rating,
+      time: v.time, cover: v.cover, open: v.open,
+      image: v.image || '', description: v.description || '',
+      opening_hours: v.opening_hours || ''
+    }));
+    const products = productsRes.data.map(p => ({
+      id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc, price: p.price,
+      icon: p.icon, category: p.category, image: p.image || ''
+    }));
     state.catalog = { vendors, products };
+    state.catalogLoadError = false;
     store('catalog_v3', state.catalog);
     render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
+    state.catalogLoadError = true;
   }
 }
 
@@ -188,16 +187,53 @@ function product(id) { return data().products.find(p => p.id === Number(id)); }
 // The admin panel writes the same 'catalog_v3' key; if a customer action wrote a
 // stale in-memory copy of the catalog here, it would silently revert the admin's
 // changes — that was the root cause of the admin-to-main-site sync bug.
-function save() { store('cart', state.cart); store('orders', state.orders); store('user', state.user); store('notifications', state.notifications); store('rider', state.rider); store('rider_ratings', state.riderRatings); store('rider_pool', state.riderPool); store('vendor_orders', state.vendorOrders); store('vendor_products', state.vendorProducts); updateChrome(); }
+function save() { store('cart', state.cart); store('orders', state.orders); store('user', state.user); store('notifications', state.notifications); store('rider', state.rider); store('rider_ratings', state.riderRatings); store('rider_pool', state.riderPool); store('vendor_orders', state.vendorOrders); store('vendor_products', state.vendorProducts); store('withdrawals', state.withdrawals); updateChrome(); }
 
-// Admin-facing persistence: persist the catalog AND the rest of state.
-function saveCatalog() { store('catalog_v3', state.catalog); save(); }
-
-function addNotification(title, body) { state.notifications.unshift({ title, body, time: 'Now', unread: true }); save(); }
+// Add a notification for the CURRENT user only. Persisted to Supabase when a
+// session exists (RLS notifications_insert_own restricts user_id to
+// auth.uid(), so a client can never create one for another user); the
+// localStorage copy is the offline fallback. Cross-user notifications (e.g.
+// vendor/rider alerts) are created server-side by the notifications trigger.
+function addNotification(title, body) {
+  const entry = { id: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), title, body, time: 'Now', unread: true };
+  state.notifications.unshift(entry);
+  if (typeof supabase !== 'undefined' && supabase) {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session || !session.user) return;
+      return supabase
+        .from('notifications')
+        .insert({ user_id: session.user.id, title, message: body, type: 'info', is_read: false })
+        .select('id')
+        .single()
+        .then(({ data, error }) => {
+          if (!error && data) { entry.id = data.id; save(); }
+        });
+    }).catch(() => {});
+  }
+  save();
+}
 function toast(message, kind = 'success') { const el = document.createElement('div'); el.className = `toast toast--${kind}`; el.textContent = message; $('#toastRoot').append(el); setTimeout(() => el.remove(), 3400); }
 function addCart(id) { const p = product(id); const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
+
+// ============================================
+// Order number generation (ACTION 9)
+// ============================================
+// Previously orders used CR- + 4 random digits, which collided easily.
+// The new identifier combines a base-36 timestamp (monotonic, sortable with
+// real time) plus a random suffix — collision-resistant, human-friendly and
+// does not rely on any DB sequence/constraint, so existing orders (whose
+// order_number is just stored text) are unaffected.
+function generateOrderNumber() {
+  const ts = Date.now().toString(36).toUpperCase();          // base36 timestamp
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase(); // ~6 random chars
+  return `CR-${ts}${rand}`;
+}
+
+// Delivery fee: flat ₦1,000 campus delivery charge, kept strictly separate
+// from the product subtotal everywhere it is used.
+const DELIVERY_FEE = 1000;
 
 // ============================================
 // Rider Hub: load rider application status from Supabase
@@ -227,6 +263,9 @@ async function loadRiderFromSupabase() {
     }
   } catch (err) {
     console.error('Failed to load rider status:', err);
+    state.riderLoadError = true;
+  } finally {
+    state.riderLoaded = true;
   }
 }
 
@@ -273,6 +312,146 @@ async function submitRiderApplication(formData) {
     console.error('Rider application error:', err);
     toast('Application failed — please try again', 'error');
   }
+}
+
+// ============================================
+// Rider earnings & withdrawal requests (ACTION 10)
+// ============================================
+// Earnings are NEVER client-supplied. They are always DERIVED from the
+// delivery-fee rule (orders.fee) on the rider's completed (Delivered)
+// deliveries — the same flat-fee rule used at checkout. Because no
+// settlement/payout has occurred, every figure is clearly labelled as an
+// ESTIMATE and PENDING.
+function riderCompletedDeliveries() {
+  return (state.riderPool || []).filter(o =>
+    o.status === 'Delivered' && (o.delivery_method || 'rider') !== 'vendor_self'
+  );
+}
+// Estimated pending earnings = sum of delivery fees on completed deliveries.
+function riderPendingEarnings() {
+  return riderCompletedDeliveries().reduce((n, o) => n + (o.fee || DELIVERY_FEE), 0);
+}
+// Sum of withdrawal requests still awaiting admin review (status 'pending'),
+// so the rider sees how much of their estimate is already requested.
+function riderPendingRequestsTotal() {
+  return (state.withdrawals || [])
+    .filter(w => w.status === 'pending')
+    .reduce((n, w) => n + Number(w.amount || 0), 0);
+}
+
+// Load the authenticated rider's own withdrawal requests from Supabase.
+// RLS (withdrawal_requests_select_own) restricts rows to the caller's own
+// rider_id, so only the rider's own requests are ever returned.
+async function loadWithdrawalsFromSupabase() {
+  if (typeof supabase === 'undefined' || !supabase) {
+    state.withdrawalsLoaded = true;
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { state.withdrawalsLoaded = true; return false; }
+    const { data, error } = await supabase
+      .from('withdrawal_requests')
+      .select('*')
+      .order('requested_at', { ascending: false });
+    if (error) throw error;
+    state.withdrawals = (data || []).map(w => ({
+      id: w.id,
+      rider_id: w.rider_id,
+      amount: Number(w.amount || 0),
+      status: w.status || 'pending',
+      requested_at: w.requested_at || null,
+      reviewed_at: w.reviewed_at || null,
+      admin_note: w.admin_note || ''
+    }));
+    state.withdrawalsLoaded = true;
+    state.withdrawalsError = null;
+    save();
+    return true;
+  } catch (err) {
+    console.error('Failed to load withdrawal requests:', err);
+    state.withdrawalsLoaded = true;
+    state.withdrawalsError = true;
+    return false;
+  }
+}
+
+// Request a withdrawal of `amount` from the rider's PENDING (estimated)
+// earnings. This only CREATES a pending/admin-reviewed record — no money
+// moves. The server-side INSERT policy requires the caller to be an approved
+// rider and the row to be born status = 'pending', so a rider can never forge
+// an approved/paid row or an arbitrary rider_id.
+async function requestWithdrawal(amount) {
+  if (!state.user) { toast('Please sign in to request a withdrawal', 'info'); return false; }
+  if (!state.rider || state.rider.status !== 'approved') { toast('Only approved riders can request withdrawals', 'error'); return false; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — request could not be saved', 'error'); return false; }
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid amount greater than ₦0', 'error'); return false; }
+  const available = Math.max(0, riderPendingEarnings() - riderPendingRequestsTotal());
+  if (value > available) { toast(`Amount exceeds your available estimated earnings of ${money(available)}`, 'error'); return false; }
+
+  state.withdrawalSubmitting = true;
+  render();
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Please sign in', 'info'); state.withdrawalSubmitting = false; render(); return false; }
+    const { error } = await supabase
+      .from('withdrawal_requests')
+      .insert({ rider_id: state.rider.id, amount: value, status: 'pending' });
+    if (error) throw error;
+    state.withdrawalSubmitting = false;
+    await loadWithdrawalsFromSupabase();
+    toast('Withdrawal request submitted for admin review', 'success');
+    render();
+    return true;
+  } catch (err) {
+    console.error('Withdrawal request failed:', err);
+    state.withdrawalSubmitting = false;
+    toast('Withdrawal request failed: ' + (err.message || 'unknown error'), 'error');
+    render();
+    return false;
+  }
+}
+
+// Handler for the track-page rating form: validates the star selection, then
+// delegates to submitRiderRating (which re-validates ownership/Delivered rider
+// through RLS), and finally transitions the order to 'Rated' using the
+// existing orders_update_own_rating workflow (WithCheck: user_id = auth.uid(),
+// status = 'Rated'). The UNIQUE(order_id, reviewer_id) constraint and the
+// state.ratingCompleteOrder flag both block duplicate submissions.
+async function submitRiderRatingForm(form) {
+  const f = new FormData(form);
+  const orderId = f.get('orderId');
+  const riderId = f.get('riderId');
+  const review = (f.get('review') || '').trim();
+  const activeStar = form.querySelector('.stars--input button.is-on');
+  if (!orderId || !riderId) { toast('Could not submit rating — missing order details', 'error'); return; }
+  const rating = activeStar ? Number(activeStar.dataset.rating) : 0;
+  if (rating < 1 || rating > 5 || !Number.isInteger(rating)) { toast('Please select a star rating (1–5)', 'error'); return; }
+  const submitted = await submitRiderRating(orderId, riderId, rating, review);
+  if (!submitted) return;
+  // Mark as rated locally, then persist the Delivered → Rated transition via
+  // the permitted RLS path. On failure keep the order Delivered and show the
+  // form again so the user can retry.
+  const order = state.orders.find(x => x.dbId === orderId);
+  const prevStatus = order ? order.status : null;
+  if (order) order.status = 'Rated';
+  state.ratingCompleteOrder = orderId;
+  save();
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      const { error } = await supabase.from('orders').update({ status: 'Rated' }).eq('id', orderId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Order mark-as-Rated failed:', err);
+      if (order) order.status = prevStatus;
+      if (state.ratingCompleteOrder === orderId) delete state.ratingCompleteOrder;
+      save();
+      toast('Rating saved, but marking the order as rated failed', 'error');
+      return;
+    }
+  }
+  render();
 }
 
 // Rate and review the rider assigned to a delivered order.
@@ -335,12 +514,21 @@ function formatOrderCreated(createdAt) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Full absolute timestamp for the order details view (ACTION 9).
+function formatFullDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-NG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 // Load the authenticated user's orders from Supabase (orders + order_items)
 // and map them into the existing frontend order shape. Falls back to
 // localStorage if Supabase is unavailable.
 async function loadOrdersFromSupabase() {
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing — using localStorage orders fallback');
+    state.ordersLoadError = true;
     state.ordersLoadedFromSupabase = true;
     return false;
   }
@@ -388,20 +576,63 @@ async function loadOrdersFromSupabase() {
       });
     });
 
-    // 4. Map Supabase orders into the existing frontend order shape
-    const mapOrder = (o, itemsMap) => ({
+        // 4. Map Supabase orders into the existing frontend order shape.
+    //    rider_id / rider_name / rider_phone are resolved below so the tracking
+    //    page can show the actual assigned rider (name + phone during an active
+    //    delivery) instead of a hardcoded name.
+    const mapOrder = (o, itemsMap, riderNames, riderPhones) => ({
       id: o.order_number,
       dbId: o.id,
       items: (itemsMap && itemsMap[o.id]) || [],
       total: o.total,
-      fee: o.fee || 500,
+      subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee || DELIVERY_FEE)),
+      fee: o.fee || DELIVERY_FEE,
       status: o.status || 'Order confirmed',
+      payment_status: o.payment_status || 'pending',
+      payment_reference: o.payment_reference || null,
+      transaction_id: o.transaction_id || null,
       spot: o.spot || '',
       delivery_method: o.delivery_method || 'rider',
-      created: formatOrderCreated(o.created_at)
+      rider_id: o.rider_id || null,
+      rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
+      rider_phone: (o.rider_id && riderPhones && riderPhones[o.rider_id]) || null,
+      created: formatOrderCreated(o.created_at),
+      createdAt: o.created_at || null
     });
 
-    const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder));
+        // Resolve rider details (name + phone) for orders that already have an
+    // assigned rider. The customer may read the assigned rider's row — including
+    // `phone` — via the existing riders_select_order_assigned policy, so phone is
+    // "existing profile data where permitted". Only the name is shown on the
+    // orders list; the phone is shown on the Track page for an active delivery
+    // (see track()) so a customer can contact the rider who is on the way.
+    const riderIds = [...new Set((ordersData || []).map(o => o.rider_id).filter(Boolean))];
+    const riderNames = {};
+    const riderPhones = {};
+    if (riderIds.length) {
+      const { data: riderRows } = await supabase
+        .from('riders')
+        .select('id, user_id, phone')
+        .in('id', riderIds);
+      if (riderRows && riderRows.length) {
+        const riderUserIds = [...new Set(riderRows.map(r => r.user_id).filter(Boolean))];
+        if (riderUserIds.length) {
+          const { data: riderProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', riderUserIds);
+          const nameByUser = {};
+          (riderProfiles || []).forEach(p => { nameByUser[p.id] = p.full_name; });
+          riderRows.forEach(r => {
+            riderNames[r.id] = nameByUser[r.user_id] || null;
+            // Only expose the rider's phone — never a customer's phone to a rider.
+            riderPhones[r.id] = r.phone || null;
+          });
+        }
+      }
+    }
+
+        const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder, riderNames, riderPhones));
 
     // 4b. If the user is an approved rider, also load the rider delivery pool:
     //     unassigned rider-delivery orders (status = 'Order confirmed',
@@ -452,7 +683,7 @@ async function loadOrdersFromSupabase() {
           });
         });
 
-        poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder)));
+        poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames)));
       }
     }
     state.riderPool = poolOrders;
@@ -471,6 +702,7 @@ async function loadOrdersFromSupabase() {
     return true;
   } catch (err) {
     console.error('Supabase orders load failed — using localStorage fallback:', err);
+    state.ordersLoadError = true;
     state.ordersLoadedFromSupabase = true;
     return false;
   }
@@ -483,15 +715,319 @@ async function ensureOrdersLoaded() {
   }
 }
 
-function productCard(p) { return `<article class="pcard"><div class="pcard__thumb">${p.icon}</div><div class="pcard__name">${p.name}</div><div class="pcard__desc">${p.desc}</div><div class="pcard__foot"><span class="price">${money(p.price)}</span><button class="btn btn--soft btn--sm" data-add="${p.id}">Add +</button></div></article>`; }
-function vendorCard(v) { return `<a class="vcard" href="#/vendor/${v.id}"><div class="vcard__cover" style="background:${v.cover}">${v.icon}<span class="badge badge--brand">${v.type}</span>${v.open?'':'<span class="vcard__closed">Closed</span>'}</div><div class="vcard__body"><h3>${v.name}</h3><div class="vcard__meta"><span class="stars">★★★★★</span><b>${v.rating}</b><span>• ${v.time}</span></div></div></a>`; }
+// ============================================
+// Notifications from Supabase
+// ============================================
+// Supabase is the source of truth for the signed-in user's notifications
+// (RLS: notifications_select_own — own rows only); the localStorage copy is
+// only an offline fallback. Rows are mapped into the existing panel shape
+// { id, title, body, time, unread } and are shown newest first.
+function mapNotificationRow(n) {
+  return {
+    id: n.id,
+    title: n.title,
+    body: n.message,
+    time: formatOrderCreated(n.created_at),
+    createdAt: n.created_at || null,
+    unread: !n.is_read
+  };
+}
+
+// Pull-based load (works regardless of Realtime availability). Also the
+// fallback used when the Realtime channel is unavailable.
+async function loadNotificationsFromSupabase() {
+  if (typeof supabase === 'undefined' || !supabase) return false;
+  state.notificationsLoading = true;
+  state.notificationsError = false;
+  save();
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { state.notificationsLoading = false; save(); return false; }
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    state.notifications = (data || []).map(mapNotificationRow);
+    state.notificationsLoading = false;
+    state.notificationsError = false;
+    save();
+    return true;
+  } catch (err) {
+    console.error('Notifications load failed — using localStorage fallback:', err);
+    state.notificationsLoading = false;
+    state.notificationsError = true;
+    save();
+    return false;
+  }
+}
+
+// Scroll the newest incoming realtime notification into view without losing
+// the panel's current contents. Keeps the list capped at 50 like the pull load.
+function upsertNotificationFromRow(row, isNew) {
+  const mapped = mapNotificationRow(row);
+  const idx = state.notifications.findIndex(n => n.id === mapped.id);
+  if (idx >= 0) {
+    // Update in place (e.g. the row was marked as read from another tab).
+    state.notifications[idx] = { ...state.notifications[idx], ...mapped };
+  } else if (isNew) {
+    state.notifications.unshift(mapped);
+    if (state.notifications.length > 50) state.notifications.pop();
+  }
+  save();
+}
+
+// Realtime (push): subscribe to this user's notifications so the unread badge
+// and list update without a manual refresh. RLS still applies server-side, so
+// only rows the user can SELECT (their own) are delivered. If the channel is
+// unavailable (or the notifications table/Realtime is not published yet), the
+// pull-based fallback above continues to work.
+function subscribeNotificationsRealtime() {
+  if (typeof supabase === 'undefined' || !supabase) return;
+  try {
+    if (state.notificationsChannel) {
+      supabase.removeChannel(state.notificationsChannel).catch(() => {});
+      state.notificationsChannel = null;
+    }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session || !session.user) return;
+      const channel = supabase
+        .channel('notifications-live')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
+          payload => {
+            if (payload && payload.new) upsertNotificationFromRow(payload.new, true);
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
+          payload => {
+            if (payload && payload.new) upsertNotificationFromRow(payload.new, false);
+          }
+        )
+        .subscribe(status => {
+          // If Realtime fails, the pull-based loader (triggered on panel open,
+          // login, and boot) remains the fallback — no user-visible error.
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Notifications realtime channel unavailable — using pull fallback:', status);
+            if (state.notificationsChannel === channel) state.notificationsChannel = null;
+          }
+        });
+      state.notificationsChannel = channel;
+    }).catch(() => { /* pull-based fallback only */ });
+  } catch (err) {
+    console.warn('Notifications realtime setup failed — using pull fallback:', err);
+  }
+}
+
+// Mark all of the current user's notifications as read (Supabase + local UI).
+// The UPDATE is scoped to the caller's own user_id (RLS notifications_update_own
+// re-asserts ownership server-side), so it can never touch another user's rows.
+function markAllNotificationsRead() {
+  state.notifications.forEach(n => n.unread = false);
+  save();
+  if (typeof supabase === 'undefined' || !supabase) return;
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session || !session.user) return;
+    return supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', session.user.id)
+      .eq('is_read', false)
+      .then(({ error }) => {
+        if (error) console.error('Mark-all-read sync failed:', error);
+      });
+  }).catch(err => console.error('Mark-all-read error:', err));
+}
+
+// Render the notification dropdown list with explicit loading / error /
+// empty / list states. Called from updateChrome each time notifications change
+// (pull load, realtime events, mark-all-read) so the panel always reflects the
+// current loading state, oldest-first ordering comes straight from the query.
+function renderNotificationList() {
+  if (state.notificationsLoading && !state.notifications.length) {
+    return '<div class="muted small center" style="padding:14px">Loading notifications…</div>';
+  }
+  if (state.notificationsError && !state.notifications.length) {
+    return '<div class="muted small center" style="padding:14px">Could not load notifications right now.</div>';
+  }
+  if (!state.notifications.length) {
+    return '<div class="muted small center" style="padding:14px">No notifications yet.</div>';
+  }
+  return state.notifications.map(n =>
+    `<div class="notif ${n.unread ? 'notif--unread' : ''}"><span>🔔</span><div>` +
+    `<div class="notif__title">${esc(n.title)}</div>` +
+    `<div class="notif__body">${esc(n.body)}</div>` +
+    `<div class="notif__time">${esc(n.time)}</div></div></div>`
+  ).join('');
+}
+
+// ---- Discovery helpers (ACTION 8) ----
+// Only http(s) / protocol-relative / absolute-or-relative safe URLs are
+// allowed into an <img src>. Dangerous schemes (javascript:, data:, vbscript:,
+// file:) are rejected up-front so dynamic content is always escaped and
+// validated before rendering.
+function safeImageUrl(url) {
+  if (!url) return '';
+  const s = String(url).trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') ||
+      lower.startsWith('vbscript:') || lower.startsWith('file:')) return '';
+  if (/^(https?:)?\/\//i.test(s)) return s;
+  if (/^\/[a-z0-9._~:/?#[\]@!$&'()*+,;=%-]*$/i.test(s)) return s; // absolute path
+  if (/^[a-z0-9][a-z0-9._~:/?#[\]@!$&'()*+,;=%-]*$/i.test(s)) return s; // relative path
+  return '';
+}
+
+// Day index map: 0 = Sunday … 6 = Saturday (matches Date#getDay()).
+const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+// Parse a single time token ("08:00", "8am", "9:30pm", "12pm"…) → minutes.
+function parseTimeToken(t) {
+  const s = String(t || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] || 0);
+  const ap = m[3];
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+// Parse a day-set fragment ("mon-fri", "sat", "daily", "every day") → day indexes.
+function parseDaySet(part) {
+  const p = String(part || '').trim().toLowerCase();
+  if (!p || /every|daily|all\s+day|open\s+7/i.test(p)) return [0, 1, 2, 3, 4, 5, 6];
+  const days = new Set();
+  const groups = p.split(/[&\s]+/).filter(Boolean);
+  for (const g of groups) {
+    const m = g.match(/^(sun|mon|tue|wed|thu|fri|sat)(?:\s*[-–]\s*(sun|mon|tue|wed|thu|fri|sat))?$/);
+    if (!m) continue;
+    const a = DAY_INDEX[m[1]];
+    const b = m[2] ? DAY_INDEX[m[2]] : a;
+    if (a === undefined) continue;
+    if (b >= a) { for (let i = a; i <= b; i++) days.add(i); }
+    else { for (let i = a; i <= 6; i++) days.add(i); for (let i = 0; i <= b; i++) days.add(i); }
+  }
+  return days.size ? [...days] : null;
+}
+
+// Parse an opening_hours string into { alwaysOpen, rules } or null.
+// Supported shapes: "08:00–18:00", "Mon–Fri 08:00–18:00, Sat 09:00–14:00",
+// "8am–6pm", "24 hours", "Daily 08:00–18:00". Unparseable input → null so the
+// caller falls back to the vendor's existing `open` boolean.
+function parseOpeningHours(text) {
+  const s = String(text || '').trim().toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  if (/24\s*(hours|hrs|h)?/.test(s) && /open|always|daily|every/i.test(s)) {
+    return { alwaysOpen: true, rules: [] };
+  }
+  const rules = [];
+  const segments = s.split(',').map(x => x.trim()).filter(Boolean);
+  for (const seg of segments) {
+    const timeMatch = seg.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-–to]+\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+    if (!timeMatch) continue;
+    const open = parseTimeToken(timeMatch[1]);
+    const close = parseTimeToken(timeMatch[2]);
+    if (open === null || close === null) continue;
+    const dayPart = seg.slice(0, timeMatch.index).trim();
+    const days = parseDaySet(dayPart);
+    if (!days) continue;
+    rules.push({ days, open, close, display: `${timeMatch[1].trim()} – ${timeMatch[2].trim()}` });
+  }
+  if (!rules.length) return null;
+  return { alwaysOpen: false, rules };
+}
+
+// Compute a vendor's current open/closed status. When opening_hours is present
+// and parseable it is the source of truth; otherwise the existing `open`
+// boolean is used (unchanged behaviour for vendors without hours).
+function vendorOpenStatus(v) {
+  if (v && v.opening_hours) {
+    const parsed = parseOpeningHours(v.opening_hours);
+    if (parsed) {
+      if (parsed.alwaysOpen) return { open: true, label: 'Open now', hint: 'Open 24 hours' };
+      const now = new Date();
+      const day = now.getDay();
+      const mins = now.getHours() * 60 + now.getMinutes();
+      const rule = parsed.rules.find(r => r.days.includes(day));
+      if (!rule) return { open: false, label: 'Closed', hint: `Hours: ${v.opening_hours}` };
+      const isOpen = rule.open <= rule.close
+        ? mins >= rule.open && mins < rule.close
+        : mins >= rule.open || mins < rule.close; // overnight (e.g. 22:00–02:00)
+      const [openTxt, closeTxt] = rule.display.split(' – ');
+      return {
+        open: isOpen,
+        label: isOpen ? 'Open now' : 'Closed',
+        hint: isOpen ? `Open until ${closeTxt}` : `Opens ${openTxt}`
+      };
+    }
+  }
+  return { open: !!(v && v.open), label: (v && v.open) ? 'Open now' : 'Closed', hint: '' };
+}
+function productCard(p) {
+  const v = vendor(p.vendor);
+  const img = safeImageUrl(p.image);
+  return `<article class="pcard">
+    <a class="pcard__link" href="#/product/${p.id}">
+      <div class="pcard__thumb">
+        <span class="pcard__thumb-fallback">${esc(p.icon)}</span>
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" onerror="this.remove()">` : ''}
+      </div>
+      <div class="pcard__name">${esc(p.name)}</div>
+    </a>
+    <div class="pcard__vendor">${esc(v ? v.name : 'Campus vendor')}</div>
+    <div class="pcard__desc">${esc(p.desc)}</div>
+    <div class="pcard__foot"><span class="price">${money(p.price)}</span><button class="btn btn--soft btn--sm" data-add="${p.id}">Add +</button></div>
+  </article>`;
+}
+function vendorCard(v) {
+  const status = vendorOpenStatus(v);
+  const img = safeImageUrl(v.image);
+  return `<a class="vcard" href="#/vendor/${esc(v.id)}">
+    <div class="vcard__cover" style="background:${esc(v.cover)}">
+      <span class="vcard__cover-fallback">${esc(v.icon)}</span>
+      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="badge badge--brand">${esc(v.type)}</span>
+      ${status.open ? '' : '<span class="vcard__closed">Closed</span>'}
+    </div>
+    <div class="vcard__body">
+      <h3>${esc(v.name)}</h3>
+      <div class="vcard__meta"><span class="stars">★★★★★</span><b>${esc(v.rating)}</b><span>• ${esc(v.time)}</span></div>
+      ${v.description ? `<div class="vcard__desc">${esc(v.description)}</div>` : ''}
+      ${status.hint ? `<div class="vcard__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? '●' : '○'} ${esc(status.hint)}</div>` : ''}
+    </div>
+  </a>`;
+}
 function empty(icon, title, copy, action = '') { return `<div class="empty"><div class="empty__icon">${icon}</div><b>${title}</b><span>${copy}</span>${action}</div>`; }
+
+// Shown when the live Supabase catalog could not be fetched and the customer
+// site is rendering the cached localStorage copy (offline fallback).
+function catalogBanner() {
+  return state.catalogLoadError
+    ? `<div class="catalog-offline">Showing a saved catalog — live items could not be refreshed. Check your connection.</div>`
+    : '';
+}
+
+// Vendor display name(s) for an order, derived from its items' vendor ids.
+function orderVendorNames(o) {
+  const names = [...new Set((o.items || []).map(it => (vendor(it.vendor) || { name: null }).name).filter(Boolean))];
+  return names.length ? names.join(', ') : 'Campus vendor';
+}
 
 function home() {
   const vcount = data().vendors.length;
   const drinks = data().products.filter(p => p.category === 'Drinks');
   const books = data().products.filter(p => p.category === 'Bookshop');
-  return `<section class="hero"><div class="container hero__inner"><div><span class="hero__eyebrow">⚡ Built by students, for students</span><h1>Anything on campus.<br>At your door.</h1><p>Food, books, essentials and more — delivered by a fellow student whenever you need it.</p><form class="searchbar" id="heroSearch"><span>🔎</span><input name="q" placeholder="Search food, snacks, books..." autocomplete="off"><button class="btn btn--accent" type="submit">Find it</button></form><div class="hero__stats"><div class="hero__stat"><b>25 min</b><span>average delivery</span></div><div class="hero__stat"><b>${vcount}</b><span>ABUAD restaurants</span></div><div class="hero__stat"><b>₦500</b><span>delivery from</span></div></div></div><div class="hero__art"><div class="hero__card"><span>🍜</span><div><b>Order placed</b><small>Indomie Special from Staff Caf.</small></div><em>✓</em></div><div class="hero__card"><span>🛵</span><div><b>Rider on the way</b><small>Amara is 4 mins away</small></div><em>→</em></div><div class="hero__card"><span>🏠</span><div><b>Delivered to your hostel</b><small>Enjoy your order!</small></div><em>★</em></div></div></div></section><section class="section container"><div class="page-head"><div><h2>What do you need today?</h2><p>Pick a category and get it delivered around campus.</p></div></div><div class="grid grid--4">${[['🍔','Food','Fresh campus favourites','Food'],['🍞','Hostel meals','Quick & filling','Meals'],['🍿','Snacks','Study fuel','Snacks'],['🥤','Drinks','Cold beverages & refreshments','Drinks'],['📚','Book Shop','Textbooks & materials','Bookshop']].map((c,i)=>`<a class="cat" href="#/browse?cat=${c[3]}"><span class="cat__icon">${c[0]}</span><b>${c[1]}</b><small>${c[2]}</small></a>`).join('')}</div></section><section class="section container"><div class="page-head"><div><h2>Popular around campus</h2><p>Student favourites, ready when you are.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">See all items →</a></div><div class="grid grid--4">${data().products.slice(0,4).map(productCard).join('')}</div></section>${drinks.length?`<section class="section container"><div class="page-head"><div><h2>🥤 Drinks & Beverages</h2><p>Cold drinks, juices and refreshments delivered fast.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Drinks">View all drinks →</a></div><div class="grid grid--4">${drinks.slice(0,4).map(productCard).join('')}</div></section>`:''}${books.length?`<section class="section container"><div class="page-head"><div><h2>📚 Book Shop</h2><p>Textbooks, stationery and study essentials.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Bookshop">Visit the Book Shop →</a></div><div class="grid grid--4">${books.slice(0,4).map(productCard).join('')}</div></section>`:''}<section class="section container"><div class="page-head"><div><h2>ABUAD restaurants</h2><p>Reliable campus kitchens students love.</p></div><a class="btn btn--ghost btn--sm" href="#/vendors">View restaurants →</a></div><div class="scroll-x">${data().vendors.map(vendorCard).join('')}</div></section>`;
+  return `${catalogBanner()}<section class="hero"><div class="container hero__inner"><div><span class="hero__eyebrow">⚡ Built by students, for students</span><h1>Anything on campus.<br>At your door.</h1><p>Food, books, essentials and more — delivered by a fellow student whenever you need it.</p><form class="searchbar" id="heroSearch"><span>🔎</span><input name="q" placeholder="Search food, snacks, books..." autocomplete="off"><button class="btn btn--accent" type="submit">Find it</button></form><div class="hero__stats"><div class="hero__stat"><b>25 min</b><span>average delivery</span></div><div class="hero__stat"><b>${vcount}</b><span>ABUAD restaurants</span></div><div class="hero__stat"><b>₦1,000</b><span>delivery from</span></div></div></div><div class="hero__art"><div class="hero__card"><span>🍜</span><div><b>Order placed</b><small>Indomie Special from Staff Caf.</small></div><em>✓</em></div><div class="hero__card"><span>🛵</span><div><b>Rider on the way</b><small>Your rider is 4 mins away</small></div><em>→</em></div><div class="hero__card"><span>🏠</span><div><b>Delivered to your hostel</b><small>Enjoy your order!</small></div><em>★</em></div></div></div></section><section class="section container"><div class="page-head"><div><h2>What do you need today?</h2><p>Pick a category and get it delivered around campus.</p></div></div><div class="grid grid--4">${[['🍔','Food','Fresh campus favourites','Food'],['🍞','Hostel meals','Quick & filling','Meals'],['🍿','Snacks','Study fuel','Snacks'],['🥤','Drinks','Cold beverages & refreshments','Drinks'],['📚','Book Shop','Textbooks & materials','Bookshop']].map((c,i)=>`<a class="cat" href="#/browse?cat=${c[3]}"><span class="cat__icon">${c[0]}</span><b>${c[1]}</b><small>${c[2]}</small></a>`).join('')}</div></section><section class="section container"><div class="page-head"><div><h2>Popular around campus</h2><p>Student favourites, ready when you are.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">See all items →</a></div><div class="grid grid--4">${data().products.slice(0,4).map(productCard).join('')}</div></section>${drinks.length?`<section class="section container"><div class="page-head"><div><h2>🥤 Drinks & Beverages</h2><p>Cold drinks, juices and refreshments delivered fast.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Drinks">View all drinks →</a></div><div class="grid grid--4">${drinks.slice(0,4).map(productCard).join('')}</div></section>`:''}${books.length?`<section class="section container"><div class="page-head"><div><h2>📚 Book Shop</h2><p>Textbooks, stationery and study essentials.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Bookshop">Visit the Book Shop →</a></div><div class="grid grid--4">${books.slice(0,4).map(productCard).join('')}</div></section>`:''}<section class="section container"><div class="page-head"><div><h2>ABUAD restaurants</h2><p>Reliable campus kitchens students love.</p></div><a class="btn btn--ghost btn--sm" href="#/vendors">View restaurants →</a></div><div class="scroll-x">${data().vendors.map(vendorCard).join('')}</div></section>`;
 }
 
 function browse() {
@@ -501,119 +1037,160 @@ function browse() {
   const cats = ['All','Food','Meals','Snacks','Drinks','Bookshop'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
   const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
-  return `<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${q}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
+  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${q}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
 }
 
 function vendors() {
-  const allOpen = data().vendors.every(v => v.open);
-  return `<section class="section container"><div class="page-head"><div><h1>ABUAD Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">● ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${data().vendors.map(vendorCard).join('')}</div></section>`;
+  const list = data().vendors;
+  const allOpen = list.length > 0 && list.every(v => vendorOpenStatus(v).open);
+  return `<section class="section container"><div class="page-head"><div><h1>ABUAD Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">● ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${list.map(vendorCard).join('')}</div></section>`;
 }
-function vendorView(id) { const v = vendor(id); if (!v) return notFound(); const items = data().products.filter(p=>p.vendor===id); return `<section class="section container"><a href="#/vendors" class="muted small">← All vendors</a><div class="card mt-1" style="background:linear-gradient(135deg,${v.cover},var(--surface));"><div class="row"><div class="vcard__cover" style="width:74px;height:74px;background:var(--surface);border-radius:16px;flex:none">${v.icon}</div><div><h1>${v.name}</h1><div class="vcard__meta"><span class="stars">★★★★★</span><b>${v.rating}</b><span>• ${v.type}</span><span>• ${v.time}</span></div><p class="muted small mb-0">Open now · Campus delivery available</p></div></div></div><div class="page-head mt-3"><div><h2>Menu</h2><p>Tap add to include items in your order.</p></div></div><div class="grid grid--4">${items.map(productCard).join('')}</div></section>`; }
+function vendorView(id) {
+  const v = vendor(id);
+  if (!v) return notFound();
+  const items = data().products.filter(p => p.vendor === id);
+  const status = vendorOpenStatus(v);
+  const img = safeImageUrl(v.image);
+  return `<section class="section container">
+    <a href="#/vendors" class="muted small">← All vendors</a>
+    <div class="card mt-1" style="background:linear-gradient(135deg,${esc(v.cover)},var(--surface));">
+      <div class="row">
+        <div class="vcard__cover" style="width:74px;height:74px;background:var(--surface);border-radius:16px;flex:none;position:relative;overflow:hidden">
+          <span class="vcard__cover-fallback">${esc(v.icon)}</span>
+          ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:relative;z-index:1">` : ''}
+        </div>
+        <div>
+          <h1>${esc(v.name)}</h1>
+          <div class="vcard__meta"><span class="stars">★★★★★</span><b>${esc(v.rating)}</b><span>• ${esc(v.type)}</span><span>• ${esc(v.time)}</span></div>
+          <p class="muted small mb-0">${status.open ? 'Open now' : 'Closed'} · Campus delivery available</p>
+          ${status.hint ? `<p class="muted small mb-0">${esc(status.hint)}</p>` : ''}
+        </div>
+      </div>
+      ${v.description ? `<p class="mt-2 mb-0">${esc(v.description)}</p>` : ''}
+    </div>
+    <div class="page-head mt-3"><div><h2>Menu</h2><p>Tap a product for details, or add it straight to your order.</p></div></div>
+    <div class="grid grid--4">${items.length ? items.map(productCard).join('') : empty('🍽️','No menu items yet','This vendor has not added any products.')}</div>
+  </section>`;
+}
+
+// Product detail page (ACTION 8): image, name, vendor, category, description,
+// price and availability. Missing images fall back to the product icon; a
+// missing product renders the standard not-found state.
+function productView(id) {
+  const p = product(id);
+  if (!p) return notFound();
+  const v = vendor(p.vendor);
+  const status = vendorOpenStatus(v);
+  const img = safeImageUrl(p.image);
+  const available = p.active !== false;
+  return `<section class="section container">
+    <a href="#/browse" class="muted small">← Back to browse</a>
+    <div class="card product-detail mt-1">
+      <div class="product-detail__media">
+        <span class="product-detail__fallback">${esc(p.icon)}</span>
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" onerror="this.remove()">` : ''}
+      </div>
+      <div class="product-detail__body">
+        <div class="row row--between row--wrap">
+          <span class="badge badge--brand">${esc(p.category)}</span>
+          <span class="badge ${available ? 'badge--success' : 'badge--warn'}">${available ? 'Available' : 'Currently unavailable'}</span>
+        </div>
+        <h1 class="mt-1 mb-0">${esc(p.name)}</h1>
+        <a class="muted small" href="#/vendor/${esc(v ? v.id : '')}">${esc(v ? v.name : 'Campus vendor')}${v && status.hint ? ` · ${esc(status.hint)}` : ''}</a>
+        <p class="mt-2">${esc(p.desc) || 'No description provided yet.'}</p>
+        <div class="product-detail__price"><span class="price price--lg">${money(p.price)}</span><span class="muted small">${esc(v ? v.time : '')}</span></div>
+        ${available
+          ? `<button class="btn btn--lg" data-add="${p.id}">Add to cart · ${money(p.price)}</button>`
+          : `<button class="btn btn--lg" disabled>Currently unavailable</button>`}
+      </div>
+    </div>
+  </section>`;
+}
 
 function cart() {
   const items = cartItems();
-  const subtotal = cartTotal(), fee = items.length ? 500 : 0;
-  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${items.map(x=>`<div class="line"><div class="line__thumb">${x.icon}</div><div class="line__main"><div class="line__name">${x.name}</div><div class="line__sub">${(vendor(x.vendor) || { name: 'Campus vendor' }).name} · ${money(x.price)}</div></div><div class="qty"><button data-qty="${x.id}" data-delta="-1">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1">+</button></div><b>${money(x.qty*x.price)}</b></div>`).join('')}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div><span>Service fee</span><span>₦0</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div><a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p></aside></div>`}</section>`;
+  const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
+  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${items.map(x=>`<div class="line"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} · ${money(x.price)}</div></div><div class="qty"><button data-qty="${x.id}" data-delta="-1">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1">+</button></div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">✕</button></div>`).join('')}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div><span>Service fee</span><span>₦0</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div><a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p></aside></div>`}</section>`;
 }
 
 // Get the current Supabase user id (or null if not signed in via Supabase).
 async function getSupabaseUserId() {
-  console.log('[TEST] getSupabaseUserId() is running');
-  // DIAGNOSTIC: Check if the Supabase client is available
   if (typeof supabase === 'undefined' || !supabase) {
-    console.error('[CHECKOUT-DIAG] Supabase client is MISSING — `supabase` is undefined or null. Check that config.js loaded correctly after the Supabase CDN script.');
+    console.error('Supabase client is missing — check that config.js loaded correctly after the Supabase CDN script.');
     return null;
   }
   try {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
-      console.error('[CHECKOUT-DIAG] Failed to get Supabase session:', sessionError);
+      console.error('Failed to get Supabase session:', sessionError);
       return null;
     }
     if (!session || !session.user) {
-      console.error('[CHECKOUT-DIAG] No authenticated Supabase session found. The user is NOT signed in via Supabase auth. state.user exists but there is no Supabase session — the user may have logged in via demo mode (hardcoded credentials) instead of Supabase auth.');
+      console.error('No authenticated Supabase session found — the user must be signed in via Supabase auth to place an order.');
       return null;
     }
-    console.log('[TEST] getSupabaseUserId() returned user_id =', session.user.id);
     return session.user.id;
   } catch (err) {
-    console.error('[CHECKOUT-DIAG] Unexpected error getting Supabase session:', err);
+    console.error('Unexpected error getting Supabase session:', err);
     return null;
   }
 }
 
-// Save an order to Supabase (orders + order_items). Returns the order row or null on failure.
+// Save an order to Supabase (ACTION 12: server-side pricing).
+// The client sends ONLY product ids + quantities + the delivery spot —
+// never prices, totals or fees. The place_order RPC re-prices every line
+// from the authoritative products table, rejects inactive/unknown
+// products, applies the flat ₦1,000 delivery fee, generates the order
+// number server-side and inserts the order + items atomically.
+// Returns the authoritative order row, or null on failure.
 async function saveOrderToSupabase(order) {
-  console.log('[TEST] saveOrderToSupabase() is running. Order =', order.id, '| user_id =', order.user_id);
-  // DIAGNOSTIC: Check if the Supabase client is available
   if (typeof supabase === 'undefined' || !supabase) {
-    console.error('[CHECKOUT-DIAG] Supabase client is MISSING in saveOrderToSupabase — cannot insert order.');
+    console.error('Supabase client is missing in saveOrderToSupabase — cannot place order.');
     return null;
   }
-  
-  // DIAGNOSTIC: Log the order payload being sent
-  console.log('[CHECKOUT-DIAG] Attempting to insert order into public.orders:', {
-    order_number: order.id,
-    user_id: order.user_id,
-    total: order.total,
-    fee: order.fee,
-    status: order.status,
-    spot: order.spot
+
+  // Client-side sanity only (the DB re-validates everything server-side).
+  const lines = (order.items || []).map(it => ({ id: String(it.id), qty: Number(it.qty) }));
+  if (!lines.length || lines.some(l => !l.id || !Number.isInteger(l.qty) || l.qty < 1)) {
+    console.error('Checkout rejected client-side: invalid cart lines.');
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc('place_order', {
+    p_items: lines,
+    p_spot: order.spot
   });
 
-  // 1. Insert the order
-  console.log('[TEST] BEFORE orders insert');
-  const { data: orderData, error: orderError } = await supabase
-    .from('orders')
-    .insert({
-      order_number: order.id,
-      user_id: order.user_id,
-      total: order.total,
-      fee: order.fee,
-      status: order.status,
-      spot: order.spot,
-      delivery_method: order.delivery_method || 'rider'
-    })
-    .select()
-    .single();
-  console.log('[TEST] AFTER orders insert. orderError =', orderError ? orderError.message : 'null', '| orderData =', orderData ? JSON.stringify(orderData) : 'null');
-
-  if (orderError) {
-    console.error('[CHECKOUT-DIAG] ORDERS INSERT FAILED:', orderError);
-    console.error('[CHECKOUT-DIAG] Error code:', orderError.code, '| Message:', orderError.message, '| Details:', orderError.details, '| Hint:', orderError.hint);
+  if (error) {
+    console.error('place_order RPC failed:', error);
     return null;
   }
-  console.log('[CHECKOUT-DIAG] Order inserted successfully. order row id =', orderData.id);
-
-  // 2. Insert all order items
-  const orderId = orderData.id;
-  const orderItems = order.items.map(item => ({
-    order_id: orderId,
-    product_id: item.id,
-    qty: item.qty,
-    price: item.price,
-    name: item.name,
-    icon: item.icon,
-    vendor_id: item.vendor
-  }));
-
-  // DIAGNOSTIC: Log the order_items payload being sent
-  console.log('[CHECKOUT-DIAG] Attempting to insert', orderItems.length, 'items into public.order_items:', orderItems);
-
-  console.log('[TEST] BEFORE order_items insert');
-  const { error: itemsError } = await supabase
-    .from('order_items')
-    .insert(orderItems);
-  console.log('[TEST] AFTER order_items insert. itemsError =', itemsError ? itemsError.message : 'null');
-
-  if (itemsError) {
-    console.error('[CHECKOUT-DIAG] ORDER_ITEMS INSERT FAILED:', itemsError);
-    console.error('[CHECKOUT-DIAG] Error code:', itemsError.code, '| Message:', itemsError.message, '| Details:', itemsError.details, '| Hint:', itemsError.hint);
+  if (!data || !data.order) {
+    console.error('place_order returned no order row.');
     return null;
   }
-  console.log('[CHECKOUT-DIAG] All', orderItems.length, 'order_items inserted successfully.');
 
-  return orderData;
+  // Adopt the SERVER-authoritative values — the local cart math is only
+  // a preview and is never persisted.
+  order.id = data.order.order_number;   // server-generated order number
+  order.dbId = data.order.id;           // DB uuid, used by later updates
+  order.subtotal = Number(data.order.subtotal);
+  order.fee = Number(data.order.fee);
+  order.total = Number(data.order.total);
+  order.status = data.order.status || order.status;
+  order.payment_status = data.order.payment_status || 'pending';
+  order.createdAt = data.order.created_at || order.createdAt || null;
+
+  // Re-price the displayed lines from what was actually persisted.
+  const serverItems = Array.isArray(data.items) ? data.items : [];
+  if (serverItems.length) {
+    order.items = order.items.map(it => {
+      const s = serverItems.find(x => String(x.product_id) === String(it.id));
+      return s ? { ...it, price: Number(s.price), name: s.name, icon: s.icon, vendor: s.vendor_id } : it;
+    });
+  }
+
+  return data.order;
 }
 
 // ============================================
@@ -625,6 +1202,7 @@ async function saveOrderToSupabase(order) {
 // so Vendor A can never see Vendor B's data through these queries.
 async function loadVendorDataFromSupabase() {
   state.vendorLoaded = true;
+  state.vendorLoadError = null;
   if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return false;
   if (typeof supabase === 'undefined' || !supabase) return false;
   try {
@@ -675,11 +1253,13 @@ async function loadVendorDataFromSupabase() {
       dbId: o.id,
       items: itemsByOrder[o.id] || [],
       total: o.total,
-      fee: o.fee || 500,
+      fee: o.fee || DELIVERY_FEE,
       status: o.status || 'Order confirmed',
       spot: o.spot || '',
       delivery_method: o.delivery_method || 'rider',
-      created: formatOrderCreated(o.created_at)
+      rider_id: o.rider_id || null,
+      created: formatOrderCreated(o.created_at),
+      createdAt: o.created_at || null
     }));
     store('vendor_orders', state.vendorOrders);
 
@@ -697,6 +1277,7 @@ async function loadVendorDataFromSupabase() {
       price: p.price,
       icon: p.icon,
       category: p.category,
+      image: p.image || '',
       active: p.active !== false
     }));
     store('vendor_products', state.vendorProducts);
@@ -704,6 +1285,7 @@ async function loadVendorDataFromSupabase() {
     return true;
   } catch (err) {
     console.error('Vendor data load failed:', err);
+    state.vendorLoadError = err.message || 'Unknown error';
     return false;
   }
 }
@@ -715,10 +1297,201 @@ async function ensureVendorLoaded() {
 }
 
 // ============================================
+// Vendor Dashboard: product management (own products only)
+// ============================================
+// Every operation below is scoped to the signed-in vendor's own vendor_id
+// (profiles.vendor_id) — and RLS (products_select/insert/update_vendor)
+// independently enforces the same restriction, so a vendor can never read or
+// modify another vendor's products. "Delete" is a soft delete (active=false)
+// because RLS grants vendors no products DELETE policy; this mirrors the
+// admin panel's deactivateProductInSupabase() pattern and keeps order_items
+// foreign keys intact. Supabase is always the source of truth; the
+// localStorage vendor_products copy is only a cache/fallback.
+async function refreshVendorProducts() {
+  if (typeof supabase === 'undefined' || !supabase) return false;
+  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return false;
+  try {
+    const vid = state.user.vendor_id;
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('vendor_id', vid);
+    if (error) throw error;
+    state.vendorProducts = (data || []).map(p => ({
+      id: p.id,
+      vendor: p.vendor_id,
+      name: p.name,
+      desc: p.desc,
+      price: p.price,
+      icon: p.icon,
+      category: p.category,
+      image: p.image || '',
+      active: p.active !== false
+    }));
+    store('vendor_products', state.vendorProducts);
+    return true;
+  } catch (err) {
+    console.error('Vendor products refresh failed:', err);
+    toast('Could not refresh your products: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+
+// New product ids: products.id is numeric with no client-usable server
+// default, so mirror the admin panel's max-id + 1 approach. The public
+// products SELECT policy (active = true) plus products_select_vendor let the
+// vendor read existing product ids to compute the next one.
+async function nextVendorProductId() {
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id')
+      .order('id', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const maxId = data && data.length ? Number(data[0].id) : 0;
+    return maxId + 1;
+  } catch (err) {
+    console.error('Could not determine the next product id:', err);
+    return null;
+  }
+}
+
+// Handle the vendor Add/Edit product form. A hidden "id" field decides
+// between INSERT (new product) and UPDATE (own product only).
+async function submitVendorProductForm(form) {
+  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return;
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
+  const f = new FormData(form);
+  const editId = (f.get('id') || '').toString().trim();
+  const name = (f.get('name') || '').trim();
+  const priceRaw = (f.get('price') || '').toString().trim();
+  const category = (f.get('category') || '').trim();
+  const icon = (f.get('icon') || '').trim() || '🍽️';
+  const desc = (f.get('desc') || '').trim();
+  const image = safeImageUrl(f.get('image')); // empty string when blank/invalid
+
+  // Validation: non-blank name/category, non-negative numeric price.
+  if (!name) { toast('Product name cannot be blank', 'error'); return; }
+  const price = Number(priceRaw);
+  if (priceRaw === '' || !Number.isFinite(price) || price < 0) { toast('Price must be a non-negative number', 'error'); return; }
+  if (!category) { toast('Category cannot be blank', 'error'); return; }
+
+  try {
+    if (editId) {
+      // UPDATE: .eq('vendor_id', ...) guarantees we only ever touch this
+      // vendor's own row (RLS products_update_vendor enforces the same).
+      const { error } = await supabase
+        .from('products')
+        .update({ name, price, category, icon, desc, image: image || null })
+        .eq('id', Number(editId))
+        .eq('vendor_id', state.user.vendor_id);
+      if (error) throw error;
+      toast('Product updated');
+    } else {
+      const id = await nextVendorProductId();
+      if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
+      const { error } = await supabase
+        .from('products')
+        .insert({ id, vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true });
+      if (error) throw error;
+      toast('Product added');
+    }
+    form.reset();
+    form.querySelector('input[name="id"]').value = '';
+    const title = document.getElementById('vendorProductFormTitle');
+    if (title) title.textContent = 'Add Product';
+    await refreshVendorProducts();
+    await loadCatalogFromSupabase(); // refresh the shared customer catalog cache
+    render();
+  } catch (err) {
+    console.error('Vendor product save failed:', err);
+    toast('Product save failed: ' + (err.message || 'unknown error'), 'error');
+  }
+}
+
+function editVendorProduct(productId) {
+  const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
+  if (!p) return;
+  const form = document.getElementById('vendorProductForm');
+  if (!form) return;
+  form.querySelector('input[name="id"]').value = p.id;
+  form.querySelector('input[name="name"]').value = p.name;
+  form.querySelector('input[name="price"]').value = p.price;
+  form.querySelector('input[name="category"]').value = p.category;
+  form.querySelector('input[name="icon"]').value = p.icon;
+  form.querySelector('input[name="image"]').value = p.image || '';
+  form.querySelector('textarea[name="desc"]').value = p.desc || '';
+  const title = document.getElementById('vendorProductFormTitle');
+  if (title) title.textContent = 'Edit Product';
+  form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function resetVendorProductForm() {
+  const form = document.getElementById('vendorProductForm');
+  if (!form) return;
+  form.reset();
+  form.querySelector('input[name="id"]').value = '';
+  const title = document.getElementById('vendorProductFormTitle');
+  if (title) title.textContent = 'Add Product';
+}
+
+// Toggle availability: flips products.active for the vendor's OWN product.
+async function toggleVendorProductActive(productId) {
+  const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
+  if (!p) return;
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — availability could not be updated', 'error'); return; }
+  const newActive = !(p.active !== false);
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ active: newActive })
+      .eq('id', p.id)
+      .eq('vendor_id', state.user.vendor_id);
+    if (error) throw error;
+    toast(newActive ? 'Product is now live' : 'Product hidden from customers', 'info');
+    await refreshVendorProducts();
+    await loadCatalogFromSupabase();
+    render();
+  } catch (err) {
+    console.error('Vendor product availability toggle failed:', err);
+    toast('Could not update availability: ' + (err.message || 'unknown error'), 'error');
+  }
+}
+
+// Delete = soft delete (active = false) with a confirmation step. Vendors
+// have no products DELETE RLS policy, so the row is kept for order_items
+// foreign-key integrity and simply hidden from the customer catalog.
+async function deleteVendorProduct(productId) {
+  const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
+  if (!p) return;
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
+  if (!confirm(`Delete "${p.name}"? It will be removed from the customer menu. This cannot be undone from the vendor dashboard.`)) return;
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ active: false })
+      .eq('id', p.id)
+      .eq('vendor_id', state.user.vendor_id);
+    if (error) throw error;
+    toast('Product deleted');
+    if (document.getElementById('vendorProductForm') && document.querySelector('#vendorProductForm input[name="id"]').value === String(p.id)) {
+      resetVendorProductForm();
+    }
+    await refreshVendorProducts();
+    await loadCatalogFromSupabase();
+    render();
+  } catch (err) {
+    console.error('Vendor product delete failed:', err);
+    toast('Delete failed: ' + (err.message || 'unknown error'), 'error');
+  }
+}
+
+// ============================================
 // Vendor Dashboard: views
 // ============================================
 function vendorOrderCard(o, activeTab) {
-  const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${item.icon}</span><span class="line__main"><b>${item.name}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
+  const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
   const statusBadge = `<span class="badge badge--${o.status==='Delivered'||o.status==='Cancelled'?'info':'warn'}">${o.status}</span>`;
   const deliveryBadge = `<span class="badge badge--brand">${o.delivery_method||'rider'}</span>`;
 
@@ -741,12 +1514,23 @@ function vendorOrderCard(o, activeTab) {
         </div>`;
     }
   } else if (o.status === 'Preparing') {
-    actions = o.delivery_method === 'rider'
-      ? `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Ready for pickup">Ready for pickup</button>`
-      : `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Delivered">Mark delivered</button>`;
+    if (o.delivery_method === 'rider') {
+      actions = `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Ready for pickup">Ready for pickup</button>`;
+    } else if (o.delivery_method === 'vendor_self') {
+      actions = `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Delivered">Mark delivered</button>`;
+    } else {
+      // 'both': the vendor must still choose rider vs self-delivery before
+      // progressing — the DB only permits vendor 'Delivered' on vendor_self
+      // deliveries; rider-delivery orders are completed by the rider.
+      actions = `
+        <div class="row mt-1">
+          <button class="btn btn--sm" data-vendor-delivery="${o.id}" data-method="rider">Use rider</button>
+          <button class="btn btn--sm" data-vendor-delivery="${o.id}" data-method="vendor_self">Self deliver</button>
+        </div>`;
+    }
   } else if (o.status === 'Ready for pickup') {
     actions = `<span class="muted small">Awaiting rider pickup</span>`;
-  } else if (o.status === 'Rider assigned' || o.status === 'Picked up') {
+  } else if (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') {
     actions = `<span class="muted small">In transit with rider</span>`;
   }
 
@@ -755,7 +1539,7 @@ function vendorOrderCard(o, activeTab) {
       <div>
         ${statusBadge} ${deliveryBadge}
         <h3 class="mt-1">Order #${o.id}</h3>
-        <p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.total)} · ${o.spot}</p>
+        <p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.total)} · ${esc(o.spot)}</p>
       </div>
       <div class="right">
         <b class="price price--lg">${money(o.total)}</b>
@@ -773,7 +1557,7 @@ function vendorDashboard() {
   const name = vobj ? vobj.name : 'Your vendor storefront';
   const orders = state.vendorOrders || [];
   const pending = orders.filter(o => o.status === 'Order confirmed');
-  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up'].includes(o.status));
+  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
   const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
   const earnings = orders.filter(o => o.status === 'Delivered').reduce((n,o)=> n + (o.total || 0), 0);
   const products = state.vendorProducts || [];
@@ -789,11 +1573,11 @@ function vendorDashboard() {
     : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
 
   const productsHtml = products.length
-    ? products.map(p => `<tr><td>${p.icon} <b>${p.name}</b></td><td>${p.category}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active?'success':'warn'}">${p.active?'Live':'Hidden'}</span></td></tr>`).join('')
-    : '<tr><td colspan="4" class="muted center">No products yet.</td></tr>';
+    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${p.category}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
 
   return `<section class="section container">
-    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${name}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
     <div class="grid grid--stats">
       <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
       <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
@@ -803,8 +1587,24 @@ function vendorDashboard() {
     <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
     <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
     <div class="page-head mt-3"><div><h2>Completed orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
-    <div class="page-head mt-3"><div><h2>Products</h2><p>Your live product catalog.</p></div></div>
-    <div class="card mt-1"><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th></tr></thead><tbody>${productsHtml}</tbody></table></div></div>
+    <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or hide the items on your menu.</p></div></div>
+    ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${state.vendorLoadError}</span></div>` : ''}
+    <div class="split mt-1">
+      <form class="card stack" id="vendorProductForm">
+        <div class="card__head"><h3 id="vendorProductFormTitle">Add Product</h3><button class="link-btn" type="button" id="vendorProductClear">Clear</button></div>
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <div class="field"><label>Product name</label><input class="input" name="name" required placeholder="e.g. Jollof Rice"></div>
+          <div class="field"><label>Price (₦)</label><input class="input" name="price" type="number" min="0" step="0.01" required placeholder="1000"></div>
+          <div class="field"><label>Category</label><input class="input" name="category" required placeholder="Food"></div>
+          <div class="field"><label>Icon</label><input class="input" name="icon" value="🍽️" maxlength="8"></div>
+          <div class="field col-2"><label>Image URL (optional)</label><input class="input" name="image" placeholder="https://… (shown when available, else the icon)"></div>
+          <div class="field col-2"><label>Description</label><textarea class="textarea" name="desc" placeholder="A short description for customers."></textarea></div>
+        </div>
+        <button class="btn btn--block" type="submit">Save Product</button>
+      </form>
+      <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>${productsHtml}</tbody></table></div></div>
+    </div>
   </section>`;
 }
 
@@ -816,44 +1616,296 @@ function checkout() {
     location.hash = '#/login';
     return '';
   }
-  const total = cartTotal()+500;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">Demo payment — no money will be charged.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${x.icon}</span><span class="line__main"><b>${x.name}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>₦500</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  const fee = DELIVERY_FEE;
+  const total = cartTotal()+fee;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">Demo payment — no money will be charged.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 async function orders() {
+  if (!state.ordersLoadedFromSupabase) {
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your orders…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
   await ensureOrdersLoaded();
-  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${!state.orders.length ? empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>') : `<div class="stack">${state.orders.map(o=>`<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${o.created}</p></div><div class="right"><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/track/${o.id}">Track order →</a></div></div><div class="divider"></div>${o.items.map(item=>`<div class="line"><span class="line__thumb">${item.icon}</span><span class="line__main"><b>${item.name}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price*item.qty)}</b></div>`).join('')}</article>`).join('')}</div>`}</section>`;
+  if (state.ordersLoadError && !state.orders.length) {
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div></div><div class="card"><b>Could not load your orders</b><span class="muted">Showing offline data if available. Please check your connection and try again.</span></div></section>`;
+  }
+  if (!state.orders.length) {
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>')}</section>`;
+  }
+  const cards = state.orders.map(o => {
+    const vnames = orderVendorNames(o);
+    const cancellable = ['Order confirmed','Preparing'].includes(o.status);
+    const reorderable = ['Delivered','Rated'].includes(o.status);
+    const riderLine = o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : (o.rider_id ? ' · 🛵 Rider assigned' : '');
+    const items = (o.items || []).map(item =>
+      `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price*item.qty)}</b></div>`
+    ).join('');
+    const cancelBtn = cancellable ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel order</button>` : '';
+    const reorderBtn = reorderable ? `<br><button class="link-btn small" data-reorder="${o.id}">🔁 Reorder</button>` : '';
+    return `<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':o.status==='Cancelled'?'danger':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+  }).join('');
+  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
 async function track(id) {
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
   if (!o) return notFound();
-  const stages = ['Order confirmed','Rider assigned','Picked up','Delivered'];
-  const current = o.status==='Delivered'?3:o.status==='Picked up'?2:o.status==='Rider assigned'?1:0;
-  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--info">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">Delivering to ${o.spot}</p><div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div></div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">A</span><div><b>Amara Okoye</b><div><span class="stars">★★★★★</span> <span class="small">4.9 · 126 deliveries</span></div></div></div><div class="divider"></div><p class="small muted">Estimated arrival</p><b>About 12 minutes</b><button class="btn btn--ghost btn--block mt-2" onclick="toast('Rider call is simulated in this demo','info')">📞 Contact rider</button></aside></div></section>`;
+  const stages = ['Order confirmed','Preparing','Ready for pickup','Rider assigned','Picked up','On the Way','Delivered'];
+  const stageIndex = { 'Order confirmed':0,'Preparing':1,'Ready for pickup':2,'Rider assigned':3,'Picked up':4,'On the Way':5,'Delivered':6 };
+  const current = o.status==='Rated' ? 6 : (stageIndex[o.status] ?? 0);
+  const cancelled = o.status === 'Cancelled';
+  const vendorNames = orderVendorNames(o);
+  const riderInitial = o.rider_name ? o.rider_name.charAt(0).toUpperCase() : '🚵';
+  const riderTitle = o.rider_name || (o.rider_id ? 'Rider assigned' : 'No rider assigned yet');
+  // The assigned rider's phone is shown only during an ACTIVE delivery
+  // (Rider assigned → On the Way). This is already permitted by RLS
+  // (riders_select_order_assigned + profiles_select_rider_details) and is
+  // intentionally hidden once the order is completed so contact details are
+  // not left exposed unnecessarily.
+  const riderIsActive = ['Rider assigned', 'Picked up', 'On the Way'].includes(o.status);
+  const riderMeta = o.rider_name
+    ? (riderIsActive && o.rider_phone ? `Your delivery rider · 📞 ${esc(o.rider_phone)}` : 'Your delivery rider')
+    : 'A rider will be assigned once your order is ready';
+  const canCancel = ['Order confirmed','Preparing'].includes(o.status);
+
+  // Rider rating: only for the customer's own DELIVERED order that had an
+  // assigned rider (rider-delivery only — vendor-self orders have no rider).
+  // The existing rider_ratings RLS (rider_ratings_insert_own) re-validates
+  // ownership/Delivered/assigned-rider server-side, and UNIQUE(order_id,
+  // reviewer_id) plus the client-side state.ratingCompleteOrder guard prevent
+  // duplicate submissions. 'Rated' order status also hides the form.
+  let ratingUi = '';
+  if (o.rider_id && o.status === 'Delivered') {
+    if (state.ratingCompleteOrder === o.dbId) {
+      ratingUi = `<div class="card"><div class="row row--between row--wrap"><div><b>Your rating was submitted</b><div class="small muted">Thanks for rating your rider!</div></div><span class="badge badge--success">★ Rated</span></div></div>`;
+    } else {
+      ratingUi = `
+      <div class="card">
+        <h3>Rate your rider</h3>
+        <p class="muted small">How was your delivery from ${esc(riderTitle)}? Tap a star to choose, then submit.</p>
+        <form id="riderRatingForm" class="stack mt-1">
+          <input type="hidden" name="orderId" value="${o.dbId}">
+          <input type="hidden" name="riderId" value="${o.rider_id}">
+          <div class="stars stars--input" id="ratingStars">
+            ${[1,2,3,4,5].map(n=>`<button type="button" data-star-order="${o.dbId}" data-rating="${n}" aria-label="${n} star${n>1?'s':''}">★</button>`).join('')}
+          </div>
+          <div class="field"><label>Comment (optional)</label><textarea class="textarea" name="review" maxlength="500" placeholder="Tell others about your delivery experience…"></textarea></div>
+          <button class="btn" type="submit">Submit rating</button>
+        </form>
+      </div>`;
+    }
+  }
+
+  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--${cancelled?'danger':'info'}">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
+// ============================================
+// Order details view (ACTION 9)
+// ============================================
+// Full receipt-style view of a single past order: items with quantities, the
+// price actually paid (from order_items), the CURRENT catalog price when it
+// differs, subtotal, the flat ₦1,000 delivery fee, total, status, delivery
+// method, vendor(s) and the placed-at timestamp. Loading / not-found / empty
+// states mirror the orders() view.
+async function orderView(id) {
+  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.ordersLoadedFromSupabase) {
+    return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
+  await ensureOrdersLoaded();
+  const o = state.orders.find(x=>x.id===id);
+  if (!o) return notFound();
+  const items = o.items || [];
+  const vnames = orderVendorNames(o);
+  const canReorder = ['Delivered','Rated'].includes(o.status);
+  const subtotal = o.subtotal != null ? o.subtotal : items.reduce((n,it)=>n+(it.price||0)*(it.qty||0),0);
+  const fee = o.fee != null ? o.fee : DELIVERY_FEE;
+  const total = o.total != null ? o.total : subtotal + fee;
+  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || '—');
+  const rows = items.length ? items.map(it => {
+    const p = product(it.id);
+    const ordered = it.price != null ? it.price : (p ? p.price : null);
+    const changed = p && ordered != null && p.price !== ordered;
+    return `<tr>
+      <td><b>${esc(p ? p.name : (it.name || `Item #${it.id}`))}</b>${p ? `<div class="small muted">${esc(p.category || '')}</div>` : '<div class="small muted">No longer available</div>'}</td>
+      <td>× ${it.qty || 0}</td>
+      <td>${ordered != null ? money(ordered) : '—'}${changed ? `<div class="small muted">Now ${money(p.price)}</div>` : ''}</td>
+      <td><b>${ordered != null ? money(ordered * (it.qty || 0)) : '—'}</b></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="4" class="muted center">No items recorded for this order.</td></tr>`;
+  const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
+  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card stack">
+    <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div><span class="badge badge--${badge}">${esc(o.status)}</span></div>
+    <p class="muted small mb-0">🏪 ${esc(vnames)} · ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} · 📍 ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : ''}</p>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
+    <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
+  </div>
+  <aside class="card sticky-side stack">
+    <h3 class="mb-0">Order actions</h3>
+    <a class="btn btn--ghost btn--block" href="#/track/${esc(o.id)}">Track order</a>
+    ${canReorder ? `<button class="btn btn--block" data-reorder="${esc(o.id)}">🔁 Reorder</button><p class="muted xs center mb-0">Rebuilds your cart at today's prices — unavailable items are skipped.</p>` : `<p class="muted xs mb-0">Reordering is available for completed (delivered) orders.</p>`}
+    <div class="divider"></div>
+    <div><span class="muted small">Delivery location</span><div><b>${esc(o.spot || '—')}</b></div></div>
+    <div><span class="muted small">Payment status</span><div><b>${esc(o.payment_status || 'pending')}</b></div></div>
+    <div><span class="muted small">Placed</span><div><b>${esc(placedAt)}</b></div></div>
+  </aside></div></section>`;
+}
+
+}
+
+// ============================================
+// Reorder (ACTION 9)
+// ============================================
+// Rebuilds the cart from a previous Delivered/Rated order using the CURRENT
+// catalog — prices and availability come from live products, never from the
+// historical order_items rows. Items that no longer resolve in the live
+// catalog (deleted, deactivated by the vendor/admin, or dropped by the
+// active=true customer query) are skipped and clearly reported — they are
+// never silently added.
+function reorder(orderId) {
+  if (!state.user) { toast('Please sign in to reorder', 'info'); location.hash = '#/login'; return; }
+  const o = state.orders.find(x => x.id === orderId);
+  if (!o) { toast('Order not found', 'error'); return; }
+  if (!['Delivered', 'Rated'].includes(o.status)) { toast('Only completed orders can be reordered', 'info'); return; }
+  const items = o.items || [];
+  if (!items.length) { toast('This order has no items to reorder', 'info'); return; }
+  const merged = new Map();   // product id -> qty (duplicate lines combined)
+  const unavailable = [];
+  items.forEach(it => {
+    const p = product(it.id);
+    if (!p || !p.price) { unavailable.push(it.name || `item #${it.id}`); return; }
+    merged.set(p.id, (merged.get(p.id) || 0) + (it.qty || 1));
+  });
+  if (!merged.size) {
+    toast('None of the items in this order are available anymore', 'error');
+    return;
+  }
+  // Merge into the existing cart rather than wiping it.
+  merged.forEach((qty, id) => {
+    const existing = state.cart.find(x => x.id === id);
+    if (existing) existing.qty += qty; else state.cart.push({ id, qty });
+  });
+  save();
+  const shown = unavailable.slice(0, 3).join(', ');
+  const skippedNote = unavailable.length
+    ? ` Skipped ${unavailable.length} unavailable item${unavailable.length > 1 ? 's' : ''}: ${shown}${unavailable.length > 3 ? ` and ${unavailable.length - 3} more` : ''}.`
+    : '';
+  toast(`Added ${merged.size} item${merged.size > 1 ? 's' : ''} to your cart at today's prices.${skippedNote}`, unavailable.length ? 'info' : 'success');
+  location.hash = '#/cart';
 }
 
 function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@abuad.edu.ng"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
+// ============================================
+// Customer Profile
+// ============================================
+// Shows full name, email (read-only), phone and hostel. Phone and hostel are
+// editable and saved to the existing profiles table via RLS
+// (profiles_update_own: id = auth.uid(); the prevent_profile_role_escalation
+// trigger blocks any role/id/vendor_id tampering). Email is read-only because
+// changing it requires Supabase auth email-change flows that are not part of
+// this app's auth architecture. state.user is refreshed after a successful
+// save. Loading / success / error states are shown.
+function profile() {
+  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (state.profileLoading) {
+    return `<section class="section container"><div class="page-head"><div><h1>My profile</h1><p>Loading your details…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
+  const u = state.user;
+  const phone = u.phone || '';
+  const hostel = u.hostel || '';
+  return `<section class="section container">
+    <div class="page-head"><div><h1>My profile</h1><p>Manage your personal details.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    ${state.profileError ? `<div class="card mb-2"><b>Could not load your profile:</b> <span class="muted">${esc(state.profileError)}</span></div>` : ''}
+    ${state.profileSaved ? `<div class="card mb-2"><b>Profile updated</b> <span class="muted">Your changes were saved.</span></div>` : ''}
+    <div class="split">
+      <form id="profileForm" class="card stack">
+        <div class="card__head"><h3>Account details</h3></div>
+        <div class="field"><label>Full name</label><input class="input" value="${esc(u.name)}" disabled></div>
+        <div class="field"><label>Email</label><input class="input" type="email" value="${esc(u.email)}" disabled><p class="muted xs">Email cannot be changed here.</p></div>
+        <div class="field"><label>Phone</label><input class="input" name="phone" value="${esc(phone)}" placeholder="080..."></div>
+        <div class="field"><label>Hostel / Residence</label><input class="input" name="hostel" value="${esc(hostel)}" placeholder="e.g. Adams Hall"></div>
+        <button class="btn btn--block" type="submit">Save changes</button>
+      </form>
+      <div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div>
+    </div>
+  </section>`;
+}
+
+// Save phone/hostel to the existing profiles table. Only the caller's own row
+// is updated (RLS profiles_update_own + the role-escalation trigger keep
+// role/vendor_id/id untouched). state.user is refreshed from the returned row.
+async function submitProfileForm(form) {
+  if (!state.user) { toast('Please sign in to edit your profile', 'info'); location.hash = '#/login'; return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — profile could not be saved', 'error'); return; }
+  const f = new FormData(form);
+  const phone = (f.get('phone') || '').trim();
+  const hostel = (f.get('hostel') || '').trim();
+  if (phone && !/^[0-9+\-\s()]{7,20}$/.test(phone)) { toast('Please enter a valid phone number', 'error'); return; }
+  if (hostel && hostel.length > 120) { toast('Hostel / residence is too long', 'error'); return; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Please sign in to edit your profile', 'info'); location.hash = '#/login'; return; }
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ phone, hostel })
+      .eq('id', session.user.id)
+      .select('full_name, phone, hostel, role, vendor_id')
+      .single();
+    if (error) throw error;
+    if (data) {
+      state.user = { ...state.user, name: data.full_name || state.user.name, phone: data.phone || '', hostel: data.hostel || '', role: data.role || state.user.role, vendor_id: data.vendor_id || null };
+    }
+    state.profileSaved = true;
+    state.profileError = null;
+    save();
+    toast('Profile updated');
+    render();
+  } catch (err) {
+    console.error('Profile update failed:', err);
+    state.profileError = err.message || 'Unknown error';
+    state.profileSaved = false;
+    render();
+    toast('Profile update failed: ' + (err.message || 'unknown error'), 'error');
+  }
+}
+
 function rider() {
   const riderStatus = state.rider ? state.rider.status : null;
+  if (!state.riderLoaded) {
+    return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
   const isApprovedRider = riderStatus === 'approved';
-  const pending=state.riderPool.filter(o=>o.status==='Order confirmed'&&(o.delivery_method??'rider')!=='vendor_self');
-  const active=state.riderPool.filter(o=>(o.status==='Rider assigned'||o.status==='Picked up')&&(o.delivery_method??'rider')!=='vendor_self');
-  const done=state.riderPool.filter(o=>o.status==='Delivered'&&(o.delivery_method??'rider')!=='vendor_self');
-  const earnings=done.reduce((n,o)=>n+(o.fee||500),0);
-  const pickupName=o=>{const v=o.items[0]?vendor(o.items[0].vendor):null;return `${v?v.name:'Campus vendor'} → ${o.spot}`;};
-  const statusBadge = riderStatus === 'approved'
-    ? '<span class="badge badge--success">● Approved rider</span>'
+  const isOnline = !!(state.rider && state.rider.available === true);
+  const pending = state.riderPool.filter(o => (o.status === 'Order confirmed' || o.status === 'Ready for pickup') && !o.rider_id && (o.delivery_method ?? 'rider') !== 'vendor_self');
+  const active = state.riderPool.filter(o => (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') && (o.delivery_method ?? 'rider') !== 'vendor_self');
+  const done = riderCompletedDeliveries();
+  const isBusy = active.length > 0;
+  const earnings = riderPendingEarnings();
+  const pendingRequestsTotal = riderPendingRequestsTotal();
+  const pendingRequestsCount = (state.withdrawals || []).filter(w => w.status === 'pending').length;
+  const pickupName = o => { const v = o.items[0] ? vendor(o.items[0].vendor) : null; return `${esc(v ? v.name : 'Campus vendor')} → ${esc(o.spot)}`; };
+  // Transparent ETA estimate: exact routing data is unavailable, so the figure
+  // is derived from the order size + queue position and is always clearly
+  // labelled as an ESTIMATE — never presented as a guaranteed ETA.
+  const pickupEstimate = (o, i) => `≈ ${10 + ((o.items && o.items.length) || 1) * 2 + i * 3} min (est.)`;
+  const statusBadge = !state.rider
+    ? '<span class="badge badge--warn">● Not a rider yet</span>'
     : riderStatus === 'pending'
       ? '<span class="badge badge--warn">● Application pending review</span>'
       : riderStatus === 'rejected'
         ? '<span class="badge badge--danger">● Application rejected — you can reapply</span>'
         : riderStatus === 'suspended'
           ? '<span class="badge badge--danger">● Account suspended</span>'
-          : '<span class="badge badge--warn">● Not a rider yet</span>';
-  const actionBtn = riderStatus === 'approved'
-    ? '<button class="btn btn--soft" id="riderToggle">Go offline / online</button>'
+          : isBusy
+            ? '<span class="badge badge--info">● On a delivery — busy</span>'
+            : isOnline
+              ? '<span class="badge badge--success">● Online — available</span>'
+              : '<span class="badge badge--warn">● Offline — unavailable</span>';
+
+  const actionBtn = isApprovedRider
+    ? (isBusy
+        ? '<button class="btn btn--soft" disabled title="Finish your active delivery first">On delivery…</button>'
+        : `<button class="btn btn--soft" id="riderToggle">${isOnline ? 'Go offline' : 'Go online'}</button>`)
     : riderStatus === 'pending'
       ? '<button class="btn btn--ghost" disabled>Application pending</button>'
       : '<a class="btn btn--soft" href="#/rider/apply">Become a rider</a>';
@@ -861,22 +1913,65 @@ function rider() {
     <div class="card mt-3">
       <div class="card__head"><h3>My rider profile</h3></div>
       <div class="row"><span class="avatar avatar--lg">🛵</span><div>
-        <b>${state.user ? state.user.name : 'Rider'}</b>
-        <div class="small muted">Matric: ${state.rider.matric_number || '—'} · Phone: ${state.rider.phone || '—'}</div>
+        <b>${esc(state.user ? state.user.name : 'Rider')}</b>
+        <div class="small muted">Matric: ${esc(state.rider.matric_number || '—')} · Phone: ${esc(state.rider.phone || '—')}</div>
         <div class="small"><span class="stars">${'★'.repeat(Math.round(Number(state.rider.rating_avg) || 5))}${'☆'.repeat(5 - Math.round(Number(state.rider.rating_avg) || 5))}</span>
         <b>${state.rider.rating_avg ? Number(state.rider.rating_avg).toFixed(1) : '5.0'}</b>
         <span class="muted">(${state.rider.rating_count || 0} ratings)</span></div>
       </div></div>
     </div>` : '';
-  const availableHtml = pending.length && isApprovedRider
-    ? `<div class="grid grid--2">${pending.map((o,i)=>`<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(o.fee||500)} earnings</span><span class="small muted">${i+2} min away</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+
+  const errorBanner = state.riderLoadError
+    ? '<div class="card mt-3"><b>Could not refresh rider status</b><span class="muted">Showing the last known status. Check your connection and try again.</span></div>'
+    : '';
+
+  // Available deliveries — only shown to an approved rider who is ONLINE.
+  // Eligibility is enforced by RLS (orders_select_unassigned): the server only
+  // returns unassigned rider-delivery orders to approved riders.
+  const availableHtml = (isApprovedRider && isOnline)
+    ? (pending.length
+        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(o.fee || DELIVERY_FEE)} earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
-      ? `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`
+      ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o=>{const picked=o.status==='Picked up';return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.fee||500)} earnings</p>${picked?`<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`:`<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>`}</article>`;}).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(o.fee || DELIVERY_FEE)} earnings</p>${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
-  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Today’s earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length===1?'':'ies'}</span></div><div class="stat"><span class="stat__label">Deliveries today</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Acceptance rate</span><span class="stat__value">96%</span><span class="stat__hint">Great work!</span></div></div>${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Accept one when you’re ready.</p></div>${isApprovedRider?'<span class="badge badge--success">● You\'re online</span>':'<span class="badge badge--warn">● Applying required</span>'}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}</section>`;
+  const historyHtml = done.length
+    ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Delivery fee</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(o.fee || DELIVERY_FEE)}</b></td></tr>`).join('')}</tbody></table></div>`
+    : `<div class="empty"><div class="empty__icon">📦</div><b>No completed deliveries yet</b><span>Your delivery history and estimated earnings will appear here.</span></div>`;
+
+  // Withdrawal foundation — approved riders only. Requests are pending /
+  // admin-reviewed records; nothing in this UI transfers money.
+  let withdrawalHtml = '';
+  if (isApprovedRider) {
+    const list = state.withdrawals || [];
+    const rowsHtml = !state.withdrawalsLoaded
+      ? '<div class="muted center" style="padding:16px">Loading your requests…</div>'
+      : state.withdrawalsError
+        ? '<div class="muted center" style="padding:16px">Could not load your requests — please try again.</div>'
+        : list.length
+          ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
+          : `<div class="empty"><div class="empty__icon">🏦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
+    const requestable = Math.max(0, earnings - pendingRequestsTotal);
+    withdrawalHtml = `
+      <div class="card mt-3">
+        <div class="card__head"><h3>Withdrawals</h3><span class="muted small">Pending admin review — no money moves in-app</span></div>
+        ${rowsHtml}
+        <div class="divider"></div>
+        <form id="withdrawalForm" class="row row--wrap row--between" style="gap:8px">
+          <div class="muted small">Requestable now (estimated): <b>${money(requestable)}</b></div>
+          <div class="row row--wrap" style="gap:8px">
+            <input class="input" name="amount" type="number" min="1" step="any" placeholder="Amount (₦)" style="max-width:180px" required>
+            <button class="btn" type="submit" ${state.withdrawalSubmitting ? 'disabled' : ''}>${state.withdrawalSubmitting ? 'Submitting…' : 'Request withdrawal'}</button>
+          </div>
+        </form>
+        <p class="muted xs mb-0 mt-1">Requests are validated against your estimated earnings and stay pending until an admin reviews them.</p>
+      </div>`;
+  }
+
+  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} · pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
 }
 function riderApply() {
   if (state.rider && ['pending','approved','suspended'].includes(state.rider.status)) {
@@ -889,33 +1984,9 @@ function riderApply() {
   }
   return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required placeholder="e.g. 23/1234"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required placeholder="080... "></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
 }
-function saveAdminForm(form) {
-  const f=new FormData(form), isVendor=form.id==='vendorForm', id=f.get('id');
-  if(isVendor) { const item={id:id||`${f.get('name').toLowerCase().replace(/[^a-z0-9]+/g,'-')}-${Date.now().toString().slice(-4)}`,name:f.get('name').trim(),type:f.get('type').trim(),icon:f.get('icon').trim()||'🏪',time:f.get('time').trim()||'15–25 min',rating:f.get('rating')||'4.5',cover:f.get('cover')||'#d9f5e9',open:f.get('open')==='on'}, i=data().vendors.findIndex(v=>v.id===id); i<0?data().vendors.push(item):data().vendors[i]=item; }
-  else { const item={id:id?Number(id):Math.max(0,...data().products.map(p=>p.id))+1,vendor:f.get('vendor'),name:f.get('name').trim(),price:Number(f.get('price')),category:f.get('category').trim(),icon:f.get('icon').trim()||'🍽️',desc:f.get('desc').trim()},i=data().products.findIndex(p=>p.id===Number(id)); i<0?data().products.push(item):data().products[i]=item; }
-  saveCatalog(); render(); toast(`${isVendor?'Vendor':'Product'} saved and now live`); return false;
-}
-function adminWorkspace() {
-  setTimeout(() => {
-    $('#resetCatalog')?.addEventListener('click', ()=>adminAction('reset'));
-    document.querySelectorAll('[data-edit-vendor]').forEach(b=>b.addEventListener('click',()=>adminAction('vendor',b.dataset.editVendor)));
-    document.querySelectorAll('[data-edit-product]').forEach(b=>b.addEventListener('click',()=>adminAction('product',b.dataset.editProduct)));
-    document.querySelectorAll('[data-delete-vendor]').forEach(b=>b.addEventListener('click',()=>adminAction('deleteVendor',b.dataset.deleteVendor)));
-    document.querySelectorAll('[data-delete-product]').forEach(b=>b.addEventListener('click',()=>adminAction('deleteProduct',b.dataset.deleteProduct)));
-    document.querySelectorAll('[data-toggle-vendor]').forEach(b=>b.addEventListener('click',()=>adminAction('toggle',b.dataset.toggleVendor)));
-    document.querySelectorAll('[data-clear-form]').forEach(b=>b.addEventListener('click',()=>adminAction(b.dataset.clearForm)));
-  }, 0);
-  const vendors = data().vendors, products = data().products;
-  return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">Platform control</span><h1 class="mt-1">Content manager</h1><p>Changes are saved instantly and appear across the customer pages.</p></div><button class="btn btn--ghost" id="resetCatalog">Restore demo catalog</button></div>
-  <div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Vendors</span><span class="stat__value">${vendors.length}</span><span class="stat__hint">Visible on the marketplace</span></div><div class="stat"><span class="stat__label">Products</span><span class="stat__value">${products.length}</span><span class="stat__hint">Available menu items</span></div><div class="stat"><span class="stat__label">Orders</span><span class="stat__value">${state.orders.length}</span><span class="stat__hint">Stored on this device</span></div></div>
-  <div class="split mt-3"><form class="card stack" id="vendorForm"><div class="card__head"><h3 id="vendorFormTitle">Add vendor</h3><button class="link-btn" type="button" data-clear-form="vendor">Clear</button></div><input type="hidden" name="id"><div class="form-grid"><div class="field"><label>Vendor name</label><input class="input" name="name" required placeholder="e.g. Campus Pharmacy"></div><div class="field"><label>Type</label><input class="input" name="type" required placeholder="e.g. Essentials"></div><div class="field"><label>Icon</label><input class="input" name="icon" value="🏪" maxlength="8"></div><div class="field"><label>Delivery time</label><input class="input" name="time" value="15–25 min"></div><div class="field"><label>Rating</label><input class="input" name="rating" type="number" min="0" max="5" step="0.1" value="4.5"></div><div class="field"><label>Cover colour</label><input class="input" name="cover" value="#d9f5e9" pattern="#[0-9a-fA-F]{6}"></div></div><label class="radio-card"><input name="open" type="checkbox" checked> Open for orders</label><button class="btn btn--block" type="submit">Save vendor</button></form>
-  <form class="card stack" id="productForm"><div class="card__head"><h3 id="productFormTitle">Add product</h3><button class="link-btn" type="button" data-clear-form="product">Clear</button></div><input type="hidden" name="id"><div class="form-grid"><div class="field"><label>Product name</label><input class="input" name="name" required placeholder="e.g. Meat pie"></div><div class="field"><label>Vendor</label><select class="select" name="vendor" required>${vendors.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')}</select></div><div class="field"><label>Price (₦)</label><input class="input" name="price" required min="0" type="number" placeholder="1000"></div><div class="field"><label>Category</label><input class="input" name="category" required placeholder="Food"></div><div class="field"><label>Icon</label><input class="input" name="icon" value="🍽️" maxlength="8"></div><div class="field col-2"><label>Description</label><textarea class="textarea" name="desc" required placeholder="A short description for customers."></textarea></div></div><button class="btn btn--block" type="submit">Save product</button></form></div>
-  <div class="card mt-3"><div class="card__head"><h3>Vendors</h3><span class="muted small">Edit availability or details</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Vendor</th><th>Type</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>${vendors.map(v=>`<tr><td>${v.icon} <b>${v.name}</b></td><td>${v.type}</td><td>${v.time}</td><td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open?'Open':'Closed'}</button></td><td><button class="link-btn" data-edit-vendor="${v.id}">Edit</button> · <button class="link-btn" data-delete-vendor="${v.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div>
-  <div class="card mt-3"><div class="card__head"><h3>Products</h3><span class="muted small">${products.length} live items</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Vendor</th><th>Category</th><th>Price</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td>${p.icon} <b>${p.name}</b></td><td>${vendor(p.vendor)?.name || '—'}</td><td>${p.category}</td><td>${money(p.price)}</td><td><button class="link-btn" data-edit-product="${p.id}">Edit</button> · <button class="link-btn" data-delete-product="${p.id}">Delete</button></td></tr>`).join('')}</tbody></table></div></div></section>`;
-}
 function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; $('#notifDot').hidden=!state.notifications.some(n=>n.unread); $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${state.user.name}</b><br><span class="muted small">${state.user.email}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=state.notifications.map(n=>`<div class="notif ${n.unread?'notif--unread':''}"><span>🔔</span><div><div class="notif__title">${n.title}</div><div class="notif__body">${n.body}</div><div class="notif__time">${n.time}</div></div></div>`).join(''); 
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">👤 My profile</a><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
   // Show/hide Admin link based on user role (profiles.role === 'admin')
   const adminLink = document.getElementById('adminLink');
   if (adminLink) {
@@ -931,10 +2002,13 @@ async function render() {
   else if (parts[0]==='browse') view = browse();
   else if (parts[0]==='vendors') view = vendors();
   else if (parts[0]==='vendor' && parts[1]) view = vendorView(parts[1]);
+  else if (parts[0]==='product' && parts[1]) view = productView(parts[1]);
   else if (parts[0]==='cart') view = cart();
   else if (parts[0]==='checkout') view = checkout();
   else if (parts[0]==='orders') view = await orders();
   else if (parts[0]==='track') view = await track(parts[1]);
+  else if (parts[0]==='order' && parts[1]) view = await orderView(parts[1]);
+  else if (parts[0]==='profile') view = profile();
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
@@ -951,7 +2025,11 @@ async function render() {
       </div></div></section>`;
     } else {
       await ensureVendorLoaded();
-      view = vendorDashboard();
+      if (!state.vendorLoaded) {
+        view = `<section class="section container"><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+      } else {
+        view = vendorDashboard();
+      }
     }
   }
   else if (parts[0]==='admin') {
@@ -973,7 +2051,16 @@ async function render() {
 
 document.addEventListener('click', e=>{
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
+  const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
+  // Rider rating: star selection (visual only — submit is the only mutation)
+  const star=e.target.closest('[data-star-order]'); if(star){ const orderId=star.dataset.starOrder; document.querySelectorAll(`[data-star-order="${orderId}"]`).forEach(b=>{ b.classList.toggle('is-on', Number(b.dataset.rating)<=Number(star.dataset.rating)); }); }
+  // Vendor product management (own products only, enforced by RLS + vendor_id filter)
+  const vpEdit=e.target.closest('[data-vp-edit]'); if(vpEdit){ editVendorProduct(vpEdit.dataset.vpEdit); }
+  const vpToggle=e.target.closest('[data-vp-toggle]'); if(vpToggle){ toggleVendorProductActive(vpToggle.dataset.vpToggle); }
+  const vpDelete=e.target.closest('[data-vp-delete]'); if(vpDelete){ deleteVendorProduct(vpDelete.dataset.vpDelete); }
+  if(e.target.id==='vendorProductClear'){ resetVendorProductForm(); }
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
+  const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
     const prevStatus=o.status;
     o.status='Rider assigned'; save();
@@ -994,6 +2081,30 @@ document.addEventListener('click', e=>{
         .catch(err=>console.error('Rider pickup sync error:', err));
     }
     toast('Order marked as picked up'); render();
+  }}
+  const onway=e.target.closest('[data-onway]'); if(onway){const o=state.riderPool.find(x=>x.id===onway.dataset.onway); if(o){
+    o.status='On the Way'; save();
+    addNotification('Order on the way',`Order #${o.id} is on the way to the customer.`);
+    if(typeof supabase!=='undefined' && supabase && o.dbId){
+      supabase.from('orders').update({ status:'On the Way' }).eq('id',o.dbId)
+        .then(({ error })=>{ if(error) console.error('Rider on-the-way sync failed:', error); })
+        .catch(err=>console.error('Rider on-the-way sync error:', err));
+    }
+    toast('Order marked as on the way'); render();
+  }}
+  // Customer cancellation: only while the order is still cancellable
+  // ('Order confirmed' / 'Preparing'). The order is never deleted — its status
+  // becomes 'Cancelled' locally and in Supabase (orders_update_own_cancel RLS).
+  const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && ['Order confirmed','Preparing'].includes(o.status)){
+    const prevStatus=o.status;
+    o.status='Cancelled'; save();
+    addNotification('Order cancelled',`Your order #${o.id} has been cancelled.`);
+    if(typeof supabase!=='undefined' && supabase && o.dbId){
+      supabase.from('orders').update({ status:'Cancelled' }).eq('id',o.dbId)
+        .then(({ error })=>{ if(error){ console.error('Customer cancel sync failed:', error); o.status=prevStatus; save(); } })
+        .catch(err=>console.error('Customer cancel sync error:', err));
+    }
+    toast('Order cancelled','info'); render();
   }}
   const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.riderPool.find(x=>x.id===delivered.dataset.delivered); if(o){
     o.status='Delivered'; save();
@@ -1043,6 +2154,13 @@ document.addEventListener('click', e=>{
     render();
   }
   if(e.target.id==='riderToggle' && state.rider){
+    // Safety guard: never toggle availability while carrying an active
+    // delivery (the UI also disables the button in this case).
+    const hasActive = (state.riderPool || []).some(o =>
+      (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way')
+      && (o.delivery_method ?? 'rider') !== 'vendor_self'
+    );
+    if (hasActive) { toast('Finish your active delivery before going offline', 'info'); render(); return; }
     state.rider.available = !state.rider.available;
     save();
     if (typeof supabase !== 'undefined' && supabase && state.rider.id) {
@@ -1057,7 +2175,9 @@ document.addEventListener('click', e=>{
 });
 
 document.addEventListener('submit', e=>{
-  if(e.target.id==='vendorForm'||e.target.id==='productForm'){e.preventDefault(); saveAdminForm(e.target); return;}
+  if(e.target.id==='profileForm'){e.preventDefault(); submitProfileForm(e.target); return;}
+  if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
+  if(e.target.id==='vendorProductForm'){e.preventDefault(); submitVendorProductForm(e.target); return;}
   if(e.target.id==='heroSearch'||e.target.id==='browseSearch'){e.preventDefault(); location.hash=`#/browse?q=${encodeURIComponent(new FormData(e.target).get('q'))}`;}
   if(e.target.id==='authForm'){
     e.preventDefault();
@@ -1108,7 +2228,7 @@ document.addEventListener('submit', e=>{
             save();
             addNotification('You\'re signed in','Start exploring what\'s available around campus.');
             location.hash='#/';
-            toast('Welcome to CampusRun!');
+            toast('Welcome to Dropzyy!');
           } else {
             // Email confirmation is required — the account is created but not
             // yet active, so ask the user to confirm before signing in.
@@ -1159,35 +2279,35 @@ document.addEventListener('submit', e=>{
           state.user={name,email,role,vendor_id};
           save();
           addNotification('You\'re signed in','Start exploring what\'s available around campus.');
+          // A session now exists: load this user's notifications and start the
+          // realtime subscription for them (no-op-safe, re-uses the channel).
+          loadNotificationsFromSupabase();
+          subscribeNotificationsRealtime();
           location.hash='#/';
-          toast('Welcome to CampusRun!');
+          toast('Welcome to Dropzyy!');
         });
     }
   }
   if(e.target.id==='checkoutForm'){
     e.preventDefault();
-    console.log('[TEST] Checkout submit handler started');
     // Require the user to be logged in before placing an order
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
-    const f=new FormData(e.target), total=cartTotal()+500;
-    const orderNumber=`CR-${Math.floor(1000+Math.random()*8999)}`;
+    const f=new FormData(e.target);
+    const subtotal=cartTotal();
+    const fee=DELIVERY_FEE;
+    const total=subtotal+fee;
+    const orderNumber=generateOrderNumber();
     const items=cartItems();
-    const order={id:orderNumber,items,total,fee:500,status:'Order confirmed',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
+    const order={id:orderNumber,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
     
-    // DIAGNOSTIC: Log the checkout flow start
-    console.log('[CHECKOUT-DIAG] Checkout form submitted. Order number =', orderNumber, '| Cart items =', order.items.length, '| Total =', total);
     
-    // DIAGNOSTIC: Check if Supabase client is available
     if (typeof supabase === 'undefined' || !supabase) {
-      console.error('[CHECKOUT-DIAG] FATAL: Supabase client is MISSING at checkout time. Cannot save order to public.orders. Check that config.js loaded correctly.');
       toast('Order failed: Supabase client not available', 'error');
       return;
     }
     
-    // DIAGNOSTIC: Check if user is authenticated via Supabase
     getSupabaseUserId().then(async userId => {
       if(!userId){
-        console.error('[CHECKOUT-DIAG] FATAL: No Supabase user_id obtained. Order NOT saved to public.orders. The user must be signed in via Supabase auth (not demo mode) to place an order.');
         toast('Order failed: Not authenticated with Supabase', 'error');
         return;
       }
@@ -1205,8 +2325,6 @@ document.addEventListener('submit', e=>{
         return;
       }
       
-      // DIAGNOSTIC: saveOrderToSupabase already logged the specific error
-      console.error('[CHECKOUT-DIAG] FATAL: Order was NOT saved to Supabase. See error above. Cart NOT cleared.');
       toast('Order failed: Could not save to Supabase', 'error');
     });
   }
@@ -1214,10 +2332,14 @@ document.addEventListener('submit', e=>{
     e.preventDefault();
     submitRiderApplication(new FormData(e.target));
   }
+  if(e.target.id==='withdrawalForm'){
+    e.preventDefault();
+    requestWithdrawal(new FormData(e.target).get('amount'));
+  }
 });
 
 $('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
-$('#notifBtn').addEventListener('click',()=>$('#notifPanel').hidden=!$('#notifPanel').hidden); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>{state.notifications.forEach(n=>n.unread=false); save();});
+$('#notifBtn').addEventListener('click',()=>{ $('#notifPanel').hidden=!$('#notifPanel').hidden; loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
 document.addEventListener('click',e=>{if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
 
 // Cross-tab sync: when another tab/page (e.g. the admin panel) writes to
@@ -1225,13 +2347,13 @@ document.addEventListener('click',e=>{if(!e.target.closest('#notifWrap'))$('#not
 // site reflects admin changes live. Also refresh when the tab becomes visible.
 window.addEventListener('storage', (e) => {
   if (e.key === 'campusrun_catalog_v3') {
-    state.catalog = mergeSeedIntoStored(load('catalog_v3', clone(SEED_DATA)));
+    state.catalog = load('catalog_v3', clone(SEED_DATA));
     render();
   }
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    state.catalog = mergeSeedIntoStored(load('catalog_v3', clone(SEED_DATA)));
+    state.catalog = load('catalog_v3', clone(SEED_DATA));
     render();
   }
 });
@@ -1246,6 +2368,18 @@ loadOrdersFromSupabase();
 
 // Load the authenticated user's rider status from Supabase.
 loadRiderFromSupabase();
+
+// Load the authenticated rider's own withdrawal requests from Supabase
+// (RLS: own rows only). No-op for non-riders.
+loadWithdrawalsFromSupabase();
+
+// Load the signed-in user's notifications from Supabase (RLS: own rows only).
+loadNotificationsFromSupabase();
+
+// Realtime (push): subscribe to this user's notifications so the unread badge
+// and list update without a manual refresh. Falls back to the pull-based
+// loader above (panel open / login / boot) when Realtime is unavailable.
+subscribeNotificationsRealtime();
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).

@@ -33,17 +33,17 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 // Seed data (mirrors SEED_DATA in assets/js/app.js)
 // ============================================
 const vendors = [
-  { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, delivery_method: 'rider' },
-  { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, delivery_method: 'rider' },
-  { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, delivery_method: 'rider' },
-  { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, delivery_method: 'rider' },
-  { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, delivery_method: 'rider' },
-  { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, delivery_method: 'rider' },
-  { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider' },
-  { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider' },
-  { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider' },
-  { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider' },
-  { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider' }
+  { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, delivery_method: 'rider', description: 'Campus favourite for rice, chicken and hearty plates.', opening_hours: 'Mon–Sun 08:00–21:00' },
+  { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, delivery_method: 'rider', description: 'Sandwiches, deli-style meals and quick bites.', opening_hours: 'Mon–Sat 09:00–19:00' },
+  { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, delivery_method: 'rider', description: 'Reliable cafeteria meals for the whole campus.', opening_hours: 'Mon–Fri 07:00–18:00, Sat 08:00–14:00' },
+  { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, delivery_method: 'rider', description: 'Wide menu of Nigerian classics and snacks.', opening_hours: 'Mon–Sun 08:00–20:00' },
+  { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, delivery_method: 'rider', description: 'Rice, pasta and shared favourites.', opening_hours: 'Mon–Sun 08:00–20:00' },
+  { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, delivery_method: 'rider', description: 'Grilled options and daily specials.', opening_hours: 'Mon–Fri 08:00–18:00, Sat 10:00–16:00' },
+  { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider', description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
+  { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider', description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
+  { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider', description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
+  { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider', description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
+  { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider', description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
 ];
 
 const products = [
@@ -153,7 +153,42 @@ const products = [
 // ============================================
 // Seed logic (upsert — safe to run repeatedly)
 // ============================================
+// ACCIDENTAL-OVERWRITE GUARD (ACTION 13): by default the script ABORTS if
+// any seed id already exists in Supabase, because upsert would silently
+// REPLACE live vendor/product rows (prices, names, active flags). To
+// intentionally refresh the seeded rows from this file, run:
+//   SEED_ALLOW_OVERWRITE=1 node scripts/seed_catalog.js
+// (or pass --allow-overwrite). Production data is never deleted.
 async function seed() {
+  const allowOverwrite =
+    process.env.SEED_ALLOW_OVERWRITE === '1' ||
+    process.argv.includes('--allow-overwrite');
+
+  const existingVendors = new Set();
+  const existingProducts = new Set();
+  if (!allowOverwrite) {
+    const { data: vRows, error: vErr } = await supabase.from('vendors').select('id');
+    if (vErr) { console.error('Could not check existing vendors:', vErr.message); process.exit(1); }
+    (vRows || []).forEach(r => existingVendors.add(r.id));
+    const { data: pRows, error: pErr } = await supabase.from('products').select('id');
+    if (pErr) { console.error('Could not check existing products:', pErr.message); process.exit(1); }
+    (pRows || []).forEach(r => existingProducts.add(r.id));
+    const clashes = [
+      ...vendors.filter(v => existingVendors.has(v.id)).map(v => 'vendor:' + v.id),
+      ...products.filter(p => existingProducts.has(p.id)).map(p => 'product:' + p.id)
+    ];
+    if (clashes.length) {
+      console.error('ABORT: ' + clashes.length + ' seed id(s) already exist in Supabase (e.g. ' +
+        clashes.slice(0, 5).join(', ') + ').');
+      console.error('The upsert below would OVERWRITE live rows. If this is intentional, re-run with');
+      console.error('  SEED_ALLOW_OVERWRITE=1 node scripts/seed_catalog.js   (or --allow-overwrite)');
+      process.exit(1);
+    }
+    console.log('✓ No id clashes — seeding will only INSERT new rows.');
+  } else {
+    console.log('⚠ Overwrite mode enabled (SEED_ALLOW_OVERWRITE) — existing seed rows will be updated.');
+  }
+
   // 1. Upsert vendors (preserves id, name, icon, type, rating, time, cover, open)
   const { error: vendorError } = await supabase
     .from('vendors')

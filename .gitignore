@@ -1,0 +1,14 @@
+# Node / tooling
+node_modules/
+npm-debug.log*
+
+# Environment & secrets (NEVER commit keys)
+.env
+.env.*
+*.pem
+supabase/.temp/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -631,6 +631,111 @@ html[data-theme="dark"] .badge--brand {
   padding: 26px 0;
 }
 
+/* ---------------------------------- ADMIN FILTERS ------------------------ */
+.admin-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-tab {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+
+.filter-tab:hover {
+  background: var(--surface);
+  border-color: var(--brand);
+}
+
+.filter-tab.is-active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.filter-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-date__label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.input--sm {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  max-width: 150px;
+}
+
+.select--sm {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  max-width: 200px;
+  border-radius: var(--r-sm);
+}
+
+/* ---------------------------------- ORDER STATUS BADGES -------------------- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.status--completed {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.status--cancelled {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.status--active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------------------------------- ORDERS ERROR --------------------------- */
+.orders-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 12px 0;
+}
+
 /* ---------------------------------- REDUCED MOTION ------------------------ */
 @media (prefers-reduced-motion: reduce) {
   * {

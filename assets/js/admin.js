@@ -14,9 +14,31 @@ let state = {
   isAuthenticated: false,
   catalog: null,
   orders: [],
+  ordersLoading: false,
+  ordersError: null,
   riders: [],
-  users: []
+  users: [],
+  withdrawals: [],
+  withdrawalsLoading: false,
+  withdrawalsError: null
 };
+
+// Order filtering state (presentational only — the full order set is always
+// fetched fresh from Supabase, so there are never phantom/stale localStorage
+// orders influencing the statistics or the order list.)
+let orderFilter = {
+  status: 'all',
+  dateFrom: '',
+  dateTo: ''
+};
+
+// Canonical set of order status values used in the status update dropdown.
+const ORDER_STATUS_OPTIONS = ['Order confirmed', 'Preparing', 'Ready for pickup', 'Rider assigned', 'Picked up', 'On the Way', 'Delivered', 'Rated', 'Cancelled'];
+
+// Statuses that represent a terminal, completed order (no longer active).
+const COMPLETED_STATUSES = ['Delivered', 'Rated'];
+// Status that represents a cancelled order.
+const CANCELLED_STATUS = 'Cancelled';
 
 // Supabase authentication tracking
 let supabaseAdminUser = null;
@@ -35,6 +57,22 @@ const load = (key, fallback) => {
   }
 };
 const clone = value => JSON.parse(JSON.stringify(value));
+
+// Only http(s) / protocol-relative / absolute-or-relative safe URLs are allowed
+// into an <img src> (mirrors the customer-site helper in app.js). Dangerous
+// schemes (javascript:, data:, vbscript:, file:) are rejected up-front.
+const safeImageUrl = url => {
+  if (!url) return '';
+  const s = String(url).trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') ||
+      lower.startsWith('vbscript:') || lower.startsWith('file:')) return '';
+  if (/^(https?:)?\/\//i.test(s)) return s;
+  if (/^\/[a-z0-9._~:/?#[\]@!$&'()*+,;=%-]*$/i.test(s)) return s;
+  if (/^[a-z0-9][a-z0-9._~:/?#[\]@!$&'()*+,;=%-]*$/i.test(s)) return s;
+  return '';
+};
 
 // ============================================
 // Supabase Sync Helpers
@@ -55,7 +93,10 @@ function vendorToRow(v) {
     time: v.time,
     cover: v.cover,
     open: v.open,
-    delivery_method: v.delivery_method || 'rider'
+    delivery_method: v.delivery_method || 'rider',
+    image: v.image || null,
+    description: v.description || null,
+    opening_hours: v.opening_hours || null
   };
 }
 
@@ -70,7 +111,8 @@ function productToRow(p) {
     price: p.price,
     icon: p.icon,
     category: p.category,
-    active: true
+    active: true,
+    image: p.image || null
   };
 }
 
@@ -157,11 +199,14 @@ async function loadCatalogFromSupabase() {
     const vendors = vendorsRes.data.map(v => ({
       id: v.id, name: v.name, icon: v.icon, type: v.type,
       rating: v.rating, time: v.time, cover: v.cover, open: v.open,
-      delivery_method: v.delivery_method || 'rider'
+      delivery_method: v.delivery_method || 'rider',
+      image: v.image || '', description: v.description || '',
+      opening_hours: v.opening_hours || ''
     }));
     const products = productsRes.data.map(p => ({
       id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc,
-      price: p.price, icon: p.icon, category: p.category
+      price: p.price, icon: p.icon, category: p.category,
+      image: p.image || ''
     }));
     return { vendors, products };
   } catch (err) {
@@ -173,17 +218,17 @@ async function loadCatalogFromSupabase() {
 // Seed data (same as main app)
 const SEED_DATA = {
   vendors: [
-    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, delivery_method: 'rider' },
-    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, delivery_method: 'rider' },
-    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, delivery_method: 'rider' },
-    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, delivery_method: 'rider' },
-    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, delivery_method: 'rider' },
-    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, delivery_method: 'rider' },
-    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider' },
-    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider' },
-    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider' },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider' },
-    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider' }
+    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, delivery_method: 'rider', description: 'Campus favourite for rice, chicken and hearty plates.', opening_hours: 'Mon–Sun 08:00–21:00' },
+    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, delivery_method: 'rider', description: 'Sandwiches, deli-style meals and quick bites.', opening_hours: 'Mon–Sat 09:00–19:00' },
+    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, delivery_method: 'rider', description: 'Reliable cafeteria meals for the whole campus.', opening_hours: 'Mon–Fri 07:00–18:00, Sat 08:00–14:00' },
+    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, delivery_method: 'rider', description: 'Wide menu of Nigerian classics and snacks.', opening_hours: 'Mon–Sun 08:00–20:00' },
+    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, delivery_method: 'rider', description: 'Rice, pasta and shared favourites.', opening_hours: 'Mon–Sun 08:00–20:00' },
+    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, delivery_method: 'rider', description: 'Grilled options and daily specials.', opening_hours: 'Mon–Fri 08:00–18:00, Sat 10:00–16:00' },
+    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider', description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
+    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider', description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
+    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider', description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
+    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider', description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
+    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider', description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
   ],
   products: [
     { id: 1, vendor: 'caf-1', name: 'Jollof Rice', desc: 'Caf 1 serving.', price: 400, icon: '🍛', category: 'Food' },
@@ -471,37 +516,6 @@ function saveCatalog() {
   store('catalog_v3', state.catalog);
 }
 
-async function resetCatalog() {
-  if (confirm('Restore the original demo catalog? All changes will be lost.')) {
-    state.catalog = clone(SEED_DATA);
-    saveCatalog();
-
-    // Sync the restored catalog back to Supabase
-    if (supabaseAvailable()) {
-      try {
-        // Upsert all seed vendors
-        const { error: vendorError } = await supabase
-          .from('vendors')
-          .upsert(state.catalog.vendors.map(vendorToRow), { onConflict: 'id' });
-        if (vendorError) throw vendorError;
-
-        // Upsert all seed products
-        const { error: productError } = await supabase
-          .from('products')
-          .upsert(state.catalog.products.map(productToRow), { onConflict: 'id' });
-        if (productError) throw productError;
-
-        toast('Catalog restored and synced to Supabase');
-      } catch (err) {
-        console.error('Supabase catalog reset sync failed:', err);
-        toast('Catalog restored locally (Supabase sync failed)', 'error');
-      }
-    }
-
-    renderAdminWorkspace();
-  }
-}
-
 // ============================================
 // Vendor Management
 // ============================================
@@ -515,7 +529,10 @@ async function addVendor(formData) {
     rating: formData.get('rating') || '4.5',
     cover: formData.get('cover') || '#d9f5e9',
     open: formData.get('open') === 'on',
-    delivery_method: formData.get('delivery_method') || 'rider'
+    delivery_method: formData.get('delivery_method') || 'rider',
+    image: safeImageUrl(formData.get('image')),
+    description: (formData.get('description') || '').trim(),
+    opening_hours: (formData.get('opening_hours') || '').trim()
   };
 
   const existingIndex = state.catalog.vendors.findIndex(v => v.id === vendor.id);
@@ -594,7 +611,8 @@ async function addProduct(formData) {
     price: Number(formData.get('price')),
     category: formData.get('category').trim(),
     icon: formData.get('icon').trim() || '🍽️',
-    desc: formData.get('desc').trim()
+    desc: formData.get('desc').trim(),
+    image: safeImageUrl(formData.get('image'))
   };
 
   const existingIndex = state.catalog.products.findIndex(p => p.id === product.id);
@@ -656,11 +674,24 @@ async function init() {
   // first admin entry). loadAssignableUsers requires admin auth, which
   // checkAuth() already enforced above.
   if (!state.catalog) {
+    // Show a loading shell so the admin gets immediate visual feedback while
+    // the Supabase queries resolve.
+    state.ordersLoading = true;
+    state.ordersError = null;
+    $('#app').innerHTML =
+      `${adminNav()}` +
+      `<section class="section container">` +
+        `<div class="card"><div class="muted center" style="padding:32px">Loading admin dashboard…</div></div>` +
+      `</section>`;
     await loadCatalog();
     await loadOrders();
     await loadRiders();
     await loadAssignableUsers();
   }
+  // Withdrawal requests are always refreshed on admin entry so newly
+  // submitted rider requests appear even after the first lazy load.
+  await loadWithdrawalsFromSupabase();
+  // If orders failed to load, the error banner renders here.
   renderAdminWorkspace();
   return true;
 }
@@ -723,6 +754,21 @@ function renderAdminWorkspace() {
   const vendors = state.catalog ? state.catalog.vendors : [];
   const products = state.catalog ? state.catalog.products : [];
   const orders = state.orders;
+  const riders = state.riders;
+
+  // ---- Compute order statistics from the Supabase-sourced order set ----
+  // These numbers are always derived from state.orders, which loadOrders()
+  // populates exclusively from Supabase (never from localStorage).
+  const totalOrders = orders.length;
+  const activeOrders = orders.filter(isOrderActive).length;
+  const completedOrders = orders.filter(isOrderCompleted).length;
+  const cancelledOrders = orders.filter(isOrderCancelled).length;
+  const orderValue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+
+  // ---- Apply the active client-side filter for the order table ----
+  // Filtering is purely presentational — the source of truth is still the
+  // full Supabase load in state.orders.
+  const filteredOrders = applyOrderFilter(orders);
 
   const app = $('#app');
   app.innerHTML = `
@@ -734,12 +780,36 @@ function renderAdminWorkspace() {
           <h1 class="mt-1">Content Manager</h1>
           <p class="muted">Changes are saved instantly and appear across the customer pages.</p>
         </div>
-        <button class="btn btn--ghost" id="resetCatalog">Restore Demo Catalog</button>
       </div>
 
       <!-- Stats -->
       <div class="grid grid--stats">
         <div class="stat stat--brand">
+          <span class="stat__label">Total Orders</span>
+          <span class="stat__value">${totalOrders}</span>
+          <span class="stat__hint">${activeOrders} active · ${completedOrders} delivered</span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">Active Orders</span>
+          <span class="stat__value">${activeOrders}</span>
+          <span class="stat__hint">Pending, preparing, on the way…</span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">Delivered Orders</span>
+          <span class="stat__value">${completedOrders}</span>
+          <span class="stat__hint">Delivered or rated</span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">Cancelled Orders</span>
+          <span class="stat__value">${cancelledOrders}</span>
+          <span class="stat__hint">Cancelled by customer or admin</span>
+        </div>
+        <div class="stat">
+          <span class="stat__label">Order Value</span>
+          <span class="stat__value">${money(orderValue)}</span>
+          <span class="stat__hint">Total value across all orders</span>
+        </div>
+        <div class="stat">
           <span class="stat__label">Vendors</span>
           <span class="stat__value">${vendors.length}</span>
           <span class="stat__hint">Visible on the marketplace</span>
@@ -750,9 +820,9 @@ function renderAdminWorkspace() {
           <span class="stat__hint">Available menu items</span>
         </div>
         <div class="stat">
-          <span class="stat__label">Status</span>
-          <span class="stat__value">●</span>
-          <span class="stat__hint">Live and synced</span>
+          <span class="stat__label">Riders</span>
+          <span class="stat__value">${riders.length}</span>
+          <span class="stat__hint">Registered rider applications</span>
         </div>
       </div>
 
@@ -788,6 +858,18 @@ function renderAdminWorkspace() {
             <div class="field">
               <label>Cover Colour</label>
               <input class="input" name="cover" value="#d9f5e9" pattern="#[0-9a-fA-F]{6}">
+            </div>
+            <div class="field">
+              <label>Image URL (optional)</label>
+              <input class="input" name="image" placeholder="https://… shown on vendor cards when set">
+            </div>
+            <div class="field">
+              <label>Opening Hours (optional)</label>
+              <input class="input" name="opening_hours" placeholder="e.g. Mon–Fri 08:00–18:00, Sat 09:00–14:00">
+            </div>
+            <div class="field col-2">
+              <label>Description (optional)</label>
+              <textarea class="textarea" name="description" placeholder="A short blurb shown on the vendor card."></textarea>
             </div>
             <div class="field">
               <label>Delivery Method</label>
@@ -833,6 +915,10 @@ function renderAdminWorkspace() {
             <div class="field">
               <label>Icon</label>
               <input class="input" name="icon" value="🍽️" maxlength="8">
+            </div>
+            <div class="field col-2">
+              <label>Image URL (optional)</label>
+              <input class="input" name="image" placeholder="https://… shown on product cards when set">
             </div>
             <div class="field col-2">
               <label>Description</label>
@@ -922,13 +1008,36 @@ function renderAdminWorkspace() {
       <div class="card mt-3">
         <div class="card__head">
           <h3>Orders</h3>
-          <span class="muted small">${orders.length} order${orders.length === 1 ? '' : 's'}</span>
+          <span class="muted small">${filteredOrders.length} of ${orders.length} order${orders.length !== 1 ? 's' : ''}</span>
         </div>
+
+        ${state.ordersError
+          ? `<div class="orders-error">⚠ ${state.ordersError}</div>`
+          : ''}
+
+        <!-- Order Status Filters / Tabs -->
+        <div class="admin-filters">
+          <div class="filter-tabs">
+            <button type="button" class="filter-tab ${orderFilter.status === 'all' ? 'is-active' : ''}" data-order-filter="all">All Orders</button>
+            <button type="button" class="filter-tab ${orderFilter.status === 'active' ? 'is-active' : ''}" data-order-filter="active">Active</button>
+            <button type="button" class="filter-tab ${orderFilter.status === 'completed' ? 'is-active' : ''}" data-order-filter="completed">Completed</button>
+            <button type="button" class="filter-tab ${orderFilter.status === 'cancelled' ? 'is-active' : ''}" data-order-filter="cancelled">Cancelled</button>
+          </div>
+          <div class="filter-date">
+            <label for="orderDateFrom" class="filter-date__label">From</label>
+            <input type="date" class="input input--sm" id="orderDateFrom" value="${orderFilter.dateFrom}">
+            <label for="orderDateTo" class="filter-date__label">To</label>
+            <input type="date" class="input input--sm" id="orderDateTo" value="${orderFilter.dateTo}">
+            <button type="button" class="btn btn--ghost btn--sm" data-order-filter-reset>Reset</button>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table class="table">
             <thead>
               <tr>
                 <th>Order</th>
+                <th>Date</th>
                 <th>Items</th>
                 <th>Delivery</th>
                 <th>Total</th>
@@ -937,20 +1046,28 @@ function renderAdminWorkspace() {
               </tr>
             </thead>
             <tbody>
-              ${orders.length ? orders.map(order => `
-                <tr>
-                  <td><b>#${order.id}</b></td>
-                  <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
-                  <td>${order.spot || '—'}</td>
-                  <td>${money(order.total)}</td>
-                  <td>
-                    <select class="select" data-order-status="${order.id}">
-                      ${['Order confirmed', 'Rider assigned', 'Picked up', 'Delivered'].map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
-                    </select>
-                  </td>
-                  <td><button class="link-btn" data-save-order-status="${order.id}">Save</button></td>
-                </tr>
-              `).join('') : '<tr><td colspan="6" class="muted center">No orders yet.</td></tr>'}
+              ${state.ordersLoading
+                ? '<tr><td colspan="7" class="muted center">Loading orders…</td></tr>'
+                : filteredOrders.length
+                  ? filteredOrders.map(order => `
+                    <tr>
+                      <td><b>#${order.id}</b></td>
+                      <td class="muted small">${formatDate(order.created)}</td>
+                      <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
+                      <td>${order.spot || '—'}</td>
+                      <td>${money(order.total)}</td>
+                      <td>
+                        <span class="status-badge ${orderStatusClass(order.status)}">${order.status || 'Order confirmed'}</span>
+                      </td>
+                      <td>
+                        <select class="select select--sm" data-order-status="${order.id}">
+                          ${ORDER_STATUS_OPTIONS.map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
+                        </select>
+                        <button class="link-btn" data-save-order-status="${order.id}">Save</button>
+                      </td>
+                    </tr>
+                  `).join('')
+                  : '<tr><td colspan="7" class="muted center">No orders match the current filters.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1031,6 +1148,31 @@ function renderAdminWorkspace() {
         </div>
       </div>
 
+      <!-- Withdrawal Requests Section (admin review only) -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Rider Withdrawal Requests</h3>
+          <span class="muted small">Pending / admin-reviewed records only — no money moves in-app</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Rider</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Requested</th>
+                <th>Reviewed</th>
+                <th style="min-width:320px">Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderWithdrawalRows()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Vendor Assignment Section (admin only) -->
       <div class="card mt-3">
         <div class="card__head">
@@ -1076,8 +1218,6 @@ function renderAdminWorkspace() {
 }
 
 function attachAdminEventListeners() {
-  // Reset catalog
-  $('#resetCatalog')?.addEventListener('click', resetCatalog);
 
   // Vendor form submission
   $('#vendorForm')?.addEventListener('submit', (e) => {
@@ -1131,6 +1271,26 @@ function attachAdminEventListeners() {
     });
   });
 
+  // Order status filter tabs (All / Active / Completed / Cancelled)
+  document.querySelectorAll('[data-order-filter]').forEach(tab => {
+    tab.addEventListener('click', () => setOrderFilter('status', tab.dataset.orderFilter));
+  });
+
+  // Order date filters
+  const dateFromInput = document.getElementById('orderDateFrom');
+  if (dateFromInput) {
+    dateFromInput.addEventListener('change', () => setOrderFilter('dateFrom', dateFromInput.value));
+  }
+  const dateToInput = document.getElementById('orderDateTo');
+  if (dateToInput) {
+    dateToInput.addEventListener('change', () => setOrderFilter('dateTo', dateToInput.value));
+  }
+
+  // Reset all order filters
+  document.querySelectorAll('[data-order-filter-reset]').forEach(btn => {
+    btn.addEventListener('click', resetOrderFilter);
+  });
+
   // Approve/Reject Rider Applications
   document.querySelectorAll('[data-approve-rider]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1148,6 +1308,19 @@ function attachAdminEventListeners() {
   document.querySelectorAll('[data-suspend-rider]').forEach(btn => {
     btn.addEventListener('click', () => {
       suspendRider(btn.dataset.suspendRider);
+    });
+  });
+
+  // Review a withdrawal request (approve / reject / mark paid). Reads the
+  // status select and admin-note input from the same row as the button.
+  document.querySelectorAll('[data-review-withdrawal]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const requestId = btn.dataset.reviewWithdrawal;
+      const row = btn.closest('[data-withdrawal-row]');
+      const select = row ? row.querySelector('[data-withdrawal-status]') : null;
+      const noteInput = row ? row.querySelector('[data-withdrawal-note]') : null;
+      const newStatus = select ? select.value : null;
+      reviewWithdrawal(requestId, newStatus, noteInput ? noteInput.value : '');
     });
   });
 
@@ -1176,6 +1349,9 @@ function editVendor(vendorId) {
   form.querySelector('input[name="time"]').value = vendor.time;
   form.querySelector('input[name="rating"]').value = vendor.rating;
   form.querySelector('input[name="cover"]').value = vendor.cover;
+  form.querySelector('input[name="image"]').value = vendor.image || '';
+  form.querySelector('input[name="opening_hours"]').value = vendor.opening_hours || '';
+  form.querySelector('textarea[name="description"]').value = vendor.description || '';
   form.querySelector('select[name="delivery_method"]').value = vendor.delivery_method || 'rider';
   form.querySelector('input[name="open"]').checked = vendor.open;
   $('#vendorFormTitle').textContent = 'Edit Vendor';
@@ -1193,6 +1369,7 @@ function editProduct(productId) {
   form.querySelector('input[name="price"]').value = product.price;
   form.querySelector('input[name="category"]').value = product.category;
   form.querySelector('input[name="icon"]').value = product.icon;
+  form.querySelector('input[name="image"]').value = product.image || '';
   form.querySelector('textarea[name="desc"]').value = product.desc;
   $('#productFormTitle').textContent = 'Edit Product';
   form.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1251,6 +1428,134 @@ async function assignUserToVendor(userId, vendorId) {
 }
 
 // ============================================
+// Withdrawal Requests (admin review) — ACTION 10
+// ============================================
+// The `withdrawal_requests` table holds PENDING / admin-reviewed RECORDS only.
+// Reviewing here records an approval/rejection/paid decision (with an optional
+// admin note) — no money is transferred in-app. RLS only permits admins to
+// UPDATE these rows (withdrawal_requests_update_admin), so a rider can never
+// approve/reject/pay their own request. The rider-supplied amount is kept
+// verbatim; it is never recomputed or trusted as an earnings figure here.
+async function loadWithdrawalsFromSupabase() {
+  if (!supabaseAvailable()) return null;
+  try {
+    state.withdrawalsLoading = true;
+    state.withdrawalsError = null;
+    const { data, error } = await supabase
+      .from('withdrawal_requests')
+      .select('*')
+      .order('requested_at', { ascending: false });
+    if (error) throw error;
+    state.withdrawals = (data || []).map(w => ({
+      id: w.id,
+      rider_id: w.rider_id,
+      amount: Number(w.amount || 0),
+      status: w.status || 'pending',
+      requested_at: w.requested_at || null,
+      reviewed_at: w.reviewed_at || null,
+      reviewed_by: w.reviewed_by || null,
+      admin_note: w.admin_note || ''
+    }));
+    state.withdrawalsLoading = false;
+    return state.withdrawals;
+  } catch (err) {
+    console.error('Supabase withdrawal requests load failed:', err);
+    state.withdrawalsLoading = false;
+    state.withdrawalsError = err.message || 'Load failed';
+    return null;
+  }
+}
+
+async function loadWithdrawals() {
+  await loadWithdrawalsFromSupabase();
+}
+
+// Admin decides a withdrawal request (pending → approved/rejected/paid). The
+// request's amount is never changed — only its review outcome. reviewed_by is
+// the authenticated admin's own auth.uid(), set on the client but gated by the
+// admin-only UPDATE policy server-side.
+async function reviewWithdrawal(requestId, newStatus, note) {
+  if (!requestId) return false;
+  if (!['pending', 'approved', 'rejected', 'paid'].includes(newStatus)) {
+    toast('Invalid review status', 'error');
+    return false;
+  }
+  if (!supabaseAvailable()) {
+    toast('Review unavailable: Supabase is not configured.', 'error');
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required to review', 'error'); return false; }
+    const { error } = await supabase
+      .from('withdrawal_requests')
+      .update({
+        status: newStatus,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: session.user.id,
+        admin_note: (note || '').trim() || null
+      })
+      .eq('id', requestId);
+    if (error) throw error;
+    toast(`Withdrawal request marked ${newStatus}`);
+    await loadWithdrawalsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Withdrawal review failed:', err);
+    toast('Review failed: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+
+// Status badge for a withdrawal request row.
+function withdrawalStatusBadge(status) {
+  const map = { pending: 'warn', approved: 'success', rejected: 'danger', paid: 'info' };
+  return `<span class="badge badge--${map[status] || 'warn'}">${status || 'pending'}</span>`;
+}
+
+// Render the Withdrawal Requests table body. Loading / empty / error states
+// are all represented explicitly.
+function renderWithdrawalRows() {
+  if (state.withdrawalsLoading && !state.withdrawals.length) {
+    return '<tr><td colspan="6" class="muted center">Loading withdrawal requests…</td></tr>';
+  }
+  if (!state.withdrawalsLoading && state.withdrawalsError) {
+    return `<tr><td colspan="6" class="muted center">Could not load withdrawal requests (${String(state.withdrawalsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+  }
+  if (!state.withdrawals.length) {
+    return '<tr><td colspan="6" class="muted center">No withdrawal requests yet.</td></tr>';
+  }
+  const riderFor = id => state.riders.find(r => r.id === id);
+  return state.withdrawals.map(w => {
+    const rider = riderFor(w.rider_id);
+    const ident = rider
+      ? `${rider.matric_number || '—'}<div class="muted small">${rider.phone || ''}</div>`
+      : '<span class="muted">Unknown rider</span>';
+    return `
+      <tr data-withdrawal-row="${w.id}">
+        <td>${ident}</td>
+        <td><b>${money(w.amount)}</b></td>
+        <td>${withdrawalStatusBadge(w.status)}</td>
+        <td>${w.requested_at ? new Date(w.requested_at).toLocaleDateString('en-NG') : '—'}</td>
+        <td>${w.reviewed_at ? new Date(w.reviewed_at).toLocaleDateString('en-NG') : '—'}</td>
+        <td>
+          <div class="row row--wrap" style="gap:6px">
+            <select class="select" data-withdrawal-status="${w.id}" style="max-width:130px">
+              <option value="pending" ${w.status === 'pending' ? 'selected' : ''}>Pending</option>
+              <option value="approved" ${w.status === 'approved' ? 'selected' : ''}>Approved</option>
+              <option value="rejected" ${w.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+              <option value="paid" ${w.status === 'paid' ? 'selected' : ''}>Paid</option>
+            </select>
+            <input class="input" style="max-width:170px;min-width:120px" placeholder="Admin note" data-withdrawal-note="${w.id}" value="${String(w.admin_note || '').replace(/"/g, '&quot;')}">
+            <button class="link-btn" data-review-withdrawal="${w.id}" ${w.status === 'paid' ? 'disabled' : ''}>Save</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+// ============================================
 // Exposed API for the unified admin flow
 // ============================================
 // The admin panel is embedded inside the main app (index.html) rather than a
@@ -1274,16 +1579,20 @@ window.AdminHub = {
   addProduct,
   deleteProduct,
   editProduct,
-  resetCatalog,
   updateOrderStatus,
   loadCatalog,
   loadOrders,
   loadRiders,
+  loadWithdrawals,
+  loadWithdrawalsFromSupabase,
+  reviewWithdrawal,
   approveRider,
   rejectRider,
   suspendRider,
   assignUserToVendor,
-  loadAssignableUsers
+  loadAssignableUsers,
+  setOrderFilter,
+  resetOrderFilter
 };
 
 // Admin logout button (uses a unique ID to avoid conflict with the customer
@@ -1306,6 +1615,85 @@ if (window.location.pathname.includes('admin.html')) {
   } else {
     init();
   }
+}
+
+// ============================================
+// Admin Order Statistics & Filtering
+// ============================================
+// These helpers derive aggregate statistics and apply client-side filtering
+// over the Supabase-sourced order set. The order DATA itself always comes
+// from Supabase (see loadOrdersFromSupabase) — no localStorage fallback is
+// ever mixed in, so stats and lists never include phantom/stale orders.
+
+// Returns true for orders that are still in flight (not completed / cancelled).
+function isOrderActive(order) {
+  const s = order.status || 'Order confirmed';
+  return !COMPLETED_STATUSES.includes(s) && s !== CANCELLED_STATUS;
+}
+
+// Returns true for terminal completed orders (Delivered or Rated).
+function isOrderCompleted(order) {
+  return COMPLETED_STATUSES.includes(order.status || 'Order confirmed');
+}
+
+// Returns true for cancelled orders.
+function isOrderCancelled(order) {
+  return (order.status || 'Order confirmed') === CANCELLED_STATUS;
+}
+
+// Map an order status string to a CSS badge class.
+function orderStatusClass(status) {
+  const s = status || 'Order confirmed';
+  if (s === CANCELLED_STATUS) return 'status--cancelled';
+  if (COMPLETED_STATUSES.includes(s)) return 'status--completed';
+  if ([ 'On the Way', 'Rider assigned', 'Picked up' ].includes(s)) return 'status--active';
+  return 'status--pending';
+}
+
+// Apply the active client-side filter to a list of orders.
+// Returns a new array; the original order objects are never mutated.
+function applyOrderFilter(orders) {
+  if (!orders || !Array.isArray(orders)) return [];
+  return orders.filter(order => {
+    const status = order.status || 'Order confirmed';
+
+    // --- Status group filter ---
+    if (orderFilter.status === 'active' && !isOrderActive(order)) return false;
+    if (orderFilter.status === 'completed' && !isOrderCompleted(order)) return false;
+    if (orderFilter.status === 'cancelled' && !isOrderCancelled(order)) return false;
+
+    // --- Date filter ---
+    // Compare YYYY-MM-DD date parts (order.created is a full ISO timestamp, so
+    // a plain string compare of the raw strings would make the "To" boundary
+    // exclusive). Slice both sides to the date so From and To are inclusive.
+    const createdDate = order.created ? String(order.created).slice(0, 10) : '';
+    if (orderFilter.dateFrom && createdDate && createdDate < orderFilter.dateFrom) return false;
+    if (orderFilter.dateTo && createdDate && createdDate > orderFilter.dateTo) return false;
+
+    return true;
+  });
+}
+
+// Update a single filter key and re-render the workspace.
+function setOrderFilter(key, value) {
+  if (key in orderFilter) {
+    orderFilter[key] = value;
+    renderAdminWorkspace();
+  }
+}
+
+// Reset all order filters back to their defaults.
+function resetOrderFilter() {
+  orderFilter = { status: 'all', dateFrom: '', dateTo: '' };
+  renderAdminWorkspace();
+}
+
+// Format an ISO date string into a short locale date for the table.
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 // Load all orders and their items for the admin workspace. The public order
@@ -1347,7 +1735,7 @@ async function loadOrdersFromSupabase() {
       dbId: order.id,
       items: itemsByOrder[order.id] || [],
       total: order.total,
-      fee: order.fee || 500,
+      fee: order.fee || 1000,
       status: order.status || 'Order confirmed',
       spot: order.spot || '',
       created: order.created_at
@@ -1358,28 +1746,43 @@ async function loadOrdersFromSupabase() {
   }
 }
 
+// Load all orders from Supabase. Supabase is the sole source of truth for
+// admin orders — we deliberately do NOT merge with localStorage here, because
+// doing so would surface phantom/stale orders that no longer exist (or never
+// existed) in the database. If Supabase is unavailable or the query fails, we
+// surface an empty list with an error flag so the admin is never shown stale
+// data. Admin access itself requires Supabase auth, so the unavailable case
+// only occurs transiently.
 async function loadOrders() {
-  const localOrders = load('orders', []);
+  state.ordersLoading = true;
+  state.ordersError = null;
+
   const supabaseOrders = await loadOrdersFromSupabase();
+
   if (!supabaseOrders) {
-    state.orders = localOrders;
+    // Supabase returned null → unavailable or query failed. Do NOT fall back
+    // to localStorage; that is exactly what produces phantom/stale orders.
+    state.orders = [];
+    state.ordersError = 'Could not load orders from Supabase. Please try again.';
+    state.ordersLoading = false;
     return;
   }
 
-  const remoteOrderNumbers = new Set(supabaseOrders.map(order => order.id));
-  state.orders = [...supabaseOrders, ...localOrders.filter(order => !remoteOrderNumbers.has(order.id))];
-  store('orders', state.orders);
+  state.orders = supabaseOrders;
+  state.ordersLoading = false;
 }
 
 async function updateOrderStatus(orderId, status) {
   const order = state.orders.find(item => item.id === orderId);
   if (!order) return;
 
+  // Optimistically update the in-memory order so the UI responds immediately.
+  const prevStatus = order.status;
   order.status = status;
-  store('orders', state.orders);
 
+  // Supabase is the source of truth — we never write orders to localStorage.
   if (!order.dbId || !supabaseAvailable()) {
-    toast('Order status saved locally');
+    toast('Order status saved locally (offline mode)', 'error');
     renderAdminWorkspace();
     return;
   }
@@ -1393,7 +1796,10 @@ async function updateOrderStatus(orderId, status) {
     toast('Order status updated');
   } catch (err) {
     console.error('Supabase order status update failed:', err);
-    toast('Order status saved locally (Supabase sync failed)', 'error');
+    // Roll back to the previous status so the UI never shows a value that
+    // was never persisted to the database.
+    order.status = prevStatus;
+    toast('Could not update order status: ' + (err.message || 'Unknown error'), 'error');
   }
 
   renderAdminWorkspace();
