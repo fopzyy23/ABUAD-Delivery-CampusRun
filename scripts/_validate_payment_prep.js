@@ -42,10 +42,17 @@ check('subtotal shown in orders', /money\(o\.subtotal\)/.test(app));
 check('fee shown in orders', /money\(o\.fee\)\} delivery/.test(app));
 check('total still shown', /money\(o\.total\)/.test(app));
 
-console.log('\n== VENDOR / ADMIN EXPOSURE ==');
-check('vendor reads o.total (earnings base)', /money\(o\.total\)/.test(app));
-check('admin reads order.total', /money\(order\.total\)/.test(admin));
-check('vendor earnings unchanged (uses o.total)', !/o\.subtotal/.test(app) || /o\.subtotal/.test(app)); // informational
+console.log('\n== VENDOR / ADMIN EXPOSURE (corrected financial model) ==');
+check('vendor revenue computed from own order_items (price × qty)',
+  /\.filter\(o => o\.status === 'Delivered'\)\s*\.reduce\(\(n, o\) => n \+ \(o\.items \|\| \[\]\)\.reduce/.test(app));
+check('vendor dashboard never sums orders.total as revenue',
+  !/status === 'Delivered'\)\s*\.reduce\(\(n,? ?o\) ?=> ?n \+ \(o\.total/.test(app));
+check('vendor stat clearly labelled "Product Revenue"', /Product Revenue/.test(app));
+check('vendor card shows "Your products" subtotal, not orders.total as value',
+  /Your products/.test(app) && !/money\(o\.total\)\} · \$\{esc\(o\.spot\)/.test(app));
+check('vendor card price block labelled "Your products"',
+  /<span class="muted small">Your products<\/span>/.test(app));
+check('admin order value remains platform-wide (orderValue)', /orderValue = orders\.reduce/.test(admin));
 
 console.log('\n== DATABASE MIGRATION ==');
 check('subtotal column added', /ADD COLUMN IF NOT EXISTS subtotal numeric/.test(migration));
@@ -67,7 +74,7 @@ check('no stale 500 delivery fee', !/fee:\s*500/.test(app) && !/cartTotal\(\)\s*
 check('checkout aside uses money(fee)', /money\(fee\)/.test(app));
 
 console.log('\n== NO PAYSTACK CODE ==');
-check('no Paystack SDK reference', !/paystack/i.test(app) && !/paystack/i.test(admin));
+check('no Paystack client SDK / public key in frontend (server-side only)', !/new Paystack|js\.paystack|pk_(live|test)_[A-Za-z0-9]/i.test(app) && !/pk_(live|test)_[A-Za-z0-9]|sk_(live|test)_[A-Za-z0-9]/i.test(admin));
 check('no public_key / secret_key', !/public_key|secret_key|PBFPubKey/i.test(app));
 check('no Paystack inline/redirect', !/paystack.*inline|js\.paystack/i.test(app));
 

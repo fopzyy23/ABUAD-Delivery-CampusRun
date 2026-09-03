@@ -26,6 +26,21 @@ and what is required to reproduce the current live database from scratch.
 | `20260904_add_discovery_fields.sql` | vendors.image/description/opening_hours, products.image | yes |
 | `20260905_create_withdrawal_requests.sql` | withdrawal_requests + RLS + grants | yes |
 | `20260906_secure_order_pricing.sql` | ACTION 12: place_order RPC, write lockdown, pricing trigger, vendor/rider policy fixes | yes |
+| `20260907_lock_order_payment_columns.sql` | B1: payment_status/payment_reference/transaction_id/subtotal locked from all client roles (trigger + app.order_server_update GUC escape hatch for future server-side payment code) | yes |
+| `20260908_order_identifier_uniqueness.sql` | B2: audit + legacy resolution, orders_order_number_key UNIQUE + NOT NULL, partial UNIQUE index on transaction_id, payment_reference constraint re-asserted, collision-safe place_order order numbers | yes |
+| `20260909_create_payments_ledger.sql` | B4A: `payments` ledger table, `orders.paid_at`, RLS (customers read own, no client writes), secure server-side RPCs (`handle_paystack_payment_success`/`failed`, `create_pending_payment`) using the `app.order_server_update` GUC from B1 | yes |
+| `20260910_create_settlement_ledger.sql` | B4B: `vendor_settlements`, `delivery_settlements`, `refunds` ledger tables, `generate_settlement` RPC (authoritative order_items pricing, 80/20 delivery fee split, row-locked idempotent settlement generation, RLS blocks all client writes) | yes |
+| `20260911_rider_80_20_earnings_cutover.sql` | B5: rider earnings cutover from 100% of `orders.fee` to authoritative 80% rider share (`delivery_settlements.rider_amount`), `get_rider_earnings` RPC (server-authoritative pending earnings / pending withdrawals / available balance) | yes |
+| `20260912_add_payment_checkout_fields.sql` | B4A+: `payments.authorization_url` / `payments.access_code` columns for safe Paystack checkout reuse; updated `create_pending_payment` RPC to accept and store them | yes |er-authoritative pending earnings / pending withdrawals / available balance, security-checked on rider ownership) | yes |
+
+## 1b. Edge Functions (supabase/functions/, deploy via `supabase functions deploy`)
+
+| Directory | Purpose |
+|---|---|
+| `paystack-initialize/` | Server-side Paystack transaction initialization. Authenticates the caller from the JWT, reads the order server-side, verifies ownership + `payment_status='pending'` + items, derives the amount from `orders.total` (never trusts the browser), calls `POST https://api.paystack.co/transaction/initialize`, and returns only `authorization_url`/`access_code`/`reference`. |
+| `paystack-webhook/` | Paystack webhook receiver. Validates `x-paystack-signature` with HMAC SHA512 + the Paystack secret (rejects invalid signatures with HTTP 401), validates event shape, maps events to payment status, and delegates to the secure server-side RPCs (`handle_paystack_payment_success`/`failed`) which verify reference→order association, amount, currency, and idempotency before updating order payment status. |
+
+Secrets (Dashboard → Edge Functions → Secrets, never hardcoded): `PAYSTACK_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGIN`.
 
 ## 2. Pre-migration "base" tables (existed before 20260814)
 

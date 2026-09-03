@@ -55,6 +55,12 @@ const structural = [
   'scripts/validate_vendor_migration.js',
   'scripts/validate_discovery_migration.js',
   'scripts/_validate_payment_prep.js',
+  'scripts/validate_b1_b2.js',
+  'scripts/validate_b3.js',
+  'scripts/validate_b4a.js',
+  'scripts/validate_b4b.js',
+  'scripts/validate_b5.js',
+  'scripts/validate_paystack_checkout.js',
   'scripts/validate_action10.js',
   'scripts/_smoke_action12_sql.js',
   'scripts/validate_action12.js',
@@ -70,7 +76,8 @@ if (live) {
   for (const rel of [
     'scripts/verify_rls_readonly.js',
     'scripts/validate_action11_live.js',
-    'scripts/validate_action12_live.js'
+    'scripts/validate_action12_live.js',
+    'scripts/validate_b1_b2_live.js'
   ]) {
     if (fs.existsSync(path.join(root, rel))) run(rel + ' (--live)', process.execPath, [rel]);
   }

@@ -5,9 +5,12 @@ students order food, drinks, books and essentials from campus vendors, and
 approved student riders deliver them. Built as a **static frontend +
 Supabase backend** — no custom server, no build step.
 
-> **Payment status: Paystack is NOT implemented yet.** Checkout places the
-> order and records `payment_status: 'pending'` only. No payment processing,
-> payouts, or revenue splitting exists anywhere in the codebase.
+> **Payment status: Paystack checkout is integrated.** Checkout places the
+> order (server-priced via the `place_order` RPC) and redirects the customer
+> to Paystack for payment. Payment state is server-authoritative: the webhook
+> updates `payment_status` only after HMAC signature verification and amount
+> validation. No payouts, refunds, or revenue splitting happen yet — those
+> are B4B/B5.
 
 ## Features
 
@@ -81,6 +84,65 @@ server-side scripts (e.g. `SUPABASE_SERVICE_ROLE_KEY` for the seeder).
 This is a static Netlify site with no build step, so there is no
 env-substitution — the file *is* the configuration.
 
+
+## Paystack server-side infrastructure (B3)
+
+Payment processing uses **Supabase Edge Functions** so that no Paystack
+secret ever reaches the browser. The frontend only ever calls these
+functions with an order id + email; the amount is read from the
+authoritative `orders` table server-side and can never be set by the
+client.
+
+```
+supabase/functions/
+  paystack-initialize/   POST  initialize a Paystack transaction
+  paystack-webhook/      POST  receive + validate Paystack webhooks
+```
+
+### Required Edge Function secrets
+
+Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
+(they are injected at runtime — never hardcoded in any file):
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `PAYSTACK_SECRET_KEY` | both | Paystack secret key (`sk_live_xxx` / `sk_test_xxx`) — authorize API calls + verify webhook signatures |
+| `SUPABASE_URL` | initialize | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | initialize | Service-role key — server-side only; reads/verifies the order before calling Paystack |
+| `ALLOWED_ORIGIN` | initialize | Frontend origin for CORS (defaults to `*`; set to your Netlify domain in production) |
+
+> **No secret value is stored in this repository.** The Edge Functions
+> read them from `Deno.env.get(...)`. The publishable/anon key in
+> `assets/js/config.js` is the only key that appears in the codebase,
+> and it is public by design (all access is guarded by RLS).
+
+### How it works
+
+- **`paystack-initialize`** — authenticates the caller from the Bearer
+  JWT, fetches the order by id, verifies it belongs to that user, that
+  `payment_status = 'pending'`, and that the order has items. The amount
+  comes from `orders.total` (never the request body). It calls
+  `POST https://api.paystack.co/transaction/initialize` server-side and
+  returns only `authorization_url`, `access_code`, and `reference`.
+- **`paystack-webhook`** — reads the raw body, validates the
+  `x-paystack-signature` header using HMAC SHA512 + the Paystack secret,
+  rejects invalid signatures with HTTP 401, and validates the event shape
+  (`event`, `data.reference`, `data.status`) before acknowledging with
+  HTTP 200. It is a safe scaffold for B3: it does **not** mutate any
+  order status. Order success/failure handling and settlement are
+  deferred to B4.
+
+### Deploy
+
+```bash
+supabase functions deploy paystack-initialize
+supabase functions deploy paystack-webhook
+```
+
+The frontend checkout/payment UI is intentionally unchanged in B3 —
+wire-up of `paystack-initialize` to the checkout flow happens after B4.
+
+
 ## Migration order
 
 Apply `supabase/migrations/*.sql` in filename order:
@@ -143,12 +205,19 @@ Hash routing (`#/browse`, `#/cart`, `#/orders`, `#/vendor`, `#/rider`,
 
 Role escalation is blocked server-side by `prevent_profile_role_escalation`.
 
-## Payment status
+## Payment status (B5)
 
-**Not implemented.** Orders carry `payment_status: 'pending'`; the checkout
-screen says "Demo payment — no money will be charged." There is no Paystack
-(or any gateway) code, no payouts, no commission splitting. The ₦1,000 flat
-delivery fee is applied server-side in `place_order`.
+Paystack integration is partially implemented server-side (B1–B5 complete):
+
+* **B1–B2** — payment columns locked from all client roles; `order_number`/`payment_reference`/`transaction_id` uniqueness enforced.
+* **B3** — Edge Functions `paystack-initialize` + `paystack-webhook` (signature validation, event handling).
+* **B4A** — `payments` ledger table + secure server-side RPCs (`handle_paystack_payment_success`, `handle_paystack_payment_failed`, `create_pending_payment`) that validate amount/currency/order-ownership and update order payment status through the `app.order_server_update` GUC escape hatch.
+* **B4B** — Settlement ledger: `vendor_settlements`, `delivery_settlements`, `refunds` tables + `generate_settlement` RPC. Vendor settlement = authoritative `SUM(price*qty)` from `order_items`. Delivery fee (₦1,000) split: rider 80% (₦800) + platform 20% (₦200). All settlement amounts derived server-side from `orders.fee`, never from browser input.
+* **B5** — Rider 80/20 earnings cutover: rider earnings shifted from 100% of `orders.fee` to the authoritative 80% rider share (`delivery_settlements.rider_amount`). Frontend uses `riderShareAmount()` (80% of fee) for all earnings displays. New `get_rider_earnings` RPC exposes server-authoritative pending earnings, pending withdrawals, and available balance. Existing withdrawal requests preserved; new withdrawal cap uses 80% rider earnings. `vendor_self` and cancelled/undelivered orders produce no rider earnings.
+
+Settlement model: **Customer payment → `payments` ledger → eligible (Delivered + paid) order → pending vendor/delivery/platform settlement → future Paystack transfer.**
+
+The checkout button IS wired to Paystack: customers are redirected to Paystack for payment. Payment success is confirmed only via the webhook (HMAC-verified, amount-validated). No actual Paystack transfers, payouts, or refund API calls exist yet (B4B/B5 handle settlement logic).
 
 ## Testing / validation
 

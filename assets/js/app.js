@@ -235,6 +235,15 @@ function generateOrderNumber() {
 // from the product subtotal everywhere it is used.
 const DELIVERY_FEE = 1000;
 
+// B5: rider/deliverer receives 80% of the delivery fee, Dropzyy 20%.
+// For the flat ₦1,000 fee: rider = ₦800, Dropzyy = ₦200.
+// Authoritative rider share — never derived from browser input.
+const RIDER_FEE_SHARE = 0.8;
+// Rider earnings for a single delivery (authoritative 80% of the DB fee).
+function riderShareAmount(fee) {
+  return Math.round((fee || DELIVERY_FEE) * RIDER_FEE_SHARE);
+}
+
 // ============================================
 // Rider Hub: load rider application status from Supabase
 // ============================================
@@ -315,21 +324,25 @@ async function submitRiderApplication(formData) {
 }
 
 // ============================================
-// Rider earnings & withdrawal requests (ACTION 10)
+// Rider earnings & withdrawal requests (ACTION 10, B5 cutover)
 // ============================================
 // Earnings are NEVER client-supplied. They are always DERIVED from the
-// delivery-fee rule (orders.fee) on the rider's completed (Delivered)
-// deliveries — the same flat-fee rule used at checkout. Because no
-// settlement/payout has occurred, every figure is clearly labelled as an
-// ESTIMATE and PENDING.
+// authoritative 80% rider share of the delivery fee (B5: rider = 80%,
+// Dropzyy = 20%) on the rider's completed (Delivered) deliveries.
+// The rider share is computed by riderShareAmount() — exactly the same
+// rounding rule the server-side settlement RPC uses — so the figure always
+// matches the delivery_settlements.rider_amount that backs real payouts.
+// Because no settlement/payout has occurred, every figure is clearly
+// labelled as an ESTIMATE and PENDING.
 function riderCompletedDeliveries() {
   return (state.riderPool || []).filter(o =>
     o.status === 'Delivered' && (o.delivery_method || 'rider') !== 'vendor_self'
   );
 }
-// Estimated pending earnings = sum of delivery fees on completed deliveries.
+// Estimated pending earnings = sum of the authoritative 80% rider share
+// on completed deliveries (B5: rider/deliverer = 80% of delivery fee).
 function riderPendingEarnings() {
-  return riderCompletedDeliveries().reduce((n, o) => n + (o.fee || DELIVERY_FEE), 0);
+  return riderCompletedDeliveries().reduce((n, o) => n + riderShareAmount(o.fee), 0);
 }
 // Sum of withdrawal requests still awaiting admin review (status 'pending'),
 // so the rider sees how much of their estimate is already requested.
@@ -1492,6 +1505,12 @@ async function deleteVendorProduct(productId) {
 // ============================================
 function vendorOrderCard(o, activeTab) {
   const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
+  // Your products subtotal = ONLY this vendor's own lines on this order
+  // (price × qty). `orders.total` is deliberately NOT shown as the vendor's
+  // value: it includes the ₦1,000 delivery fee and, on multi-vendor orders,
+  // other vendors' items. o.items is the RLS-scoped own-lines list from
+  // loadVendorDataFromSupabase().
+  const mySubtotal = (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
   const statusBadge = `<span class="badge badge--${o.status==='Delivered'||o.status==='Cancelled'?'info':'warn'}">${o.status}</span>`;
   const deliveryBadge = `<span class="badge badge--brand">${o.delivery_method||'rider'}</span>`;
 
@@ -1539,10 +1558,11 @@ function vendorOrderCard(o, activeTab) {
       <div>
         ${statusBadge} ${deliveryBadge}
         <h3 class="mt-1">Order #${o.id}</h3>
-        <p class="muted small mb-0">${o.items.length} item${o.items.length>1?'s':''} · ${money(o.total)} · ${esc(o.spot)}</p>
+        <p class="muted small mb-0">${o.items.length} of your item${o.items.length>1?'s':''} · Your products: <b>${money(mySubtotal)}</b> · ${esc(o.spot)}</p>
       </div>
       <div class="right">
-        <b class="price price--lg">${money(o.total)}</b>
+        <span class="muted small">Your products</span><br>
+        <b class="price price--lg">${money(mySubtotal)}</b>
       </div>
     </div>
     <div class="divider"></div>
@@ -1559,7 +1579,17 @@ function vendorDashboard() {
   const pending = orders.filter(o => o.status === 'Order confirmed');
   const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
   const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
-  const earnings = orders.filter(o => o.status === 'Delivered').reduce((n,o)=> n + (o.total || 0), 0);
+  // Vendor revenue = ONLY this vendor's own order_items (price × qty) on
+  // Delivered orders. `orders.total` is deliberately NEVER used here: it
+  // includes the flat ₦1,000 delivery fee (which belongs to the
+  // deliverer/platform, not the vendor) and, on multi-vendor orders, other
+  // vendors' items. `o.items` contains ONLY this vendor's own lines — they
+  // are grouped in loadVendorDataFromSupabase() from the RLS-scoped
+  // order_items query (order_items_select_vendor) — so this sum can never
+  // include the delivery fee or another vendor's products.
+  const revenue = orders
+    .filter(o => o.status === 'Delivered')
+    .reduce((n, o) => n + (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0), 0);
   const products = state.vendorProducts || [];
 
   const pendingHtml = pending.length
@@ -1582,7 +1612,7 @@ function vendorDashboard() {
       <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
       <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
       <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
-      <div class="stat"><span class="stat__label">Revenue</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">Delivered order value</span></div>
+      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,000 delivery fee</span></div>
     </div>
     <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
     <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
@@ -1618,7 +1648,7 @@ function checkout() {
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">Demo payment — no money will be charged.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 async function orders() {
@@ -1930,16 +1960,16 @@ function rider() {
   // returns unassigned rider-delivery orders to approved riders.
   const availableHtml = (isApprovedRider && isOnline)
     ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(o.fee || DELIVERY_FEE)} earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount(o.fee))} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
         : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(o.fee || DELIVERY_FEE)} earnings</p>${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
-    ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Delivery fee</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(o.fee || DELIVERY_FEE)}</b></td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings (80%)</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><div class="empty__icon">📦</div><b>No completed deliveries yet</b><span>Your delivery history and estimated earnings will appear here.</span></div>`;
 
   // Withdrawal foundation — approved riders only. Requests are pending /
@@ -1994,6 +2024,62 @@ function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('
   }
 }
 
+
+async function supabaseEdgeFunctionRequest(functionName, body) {
+  // Call a Supabase Edge Function with the user's JWT.
+  // Used for Paystack initialization — secret never leaves the server.
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) {
+    toast('Please sign in to continue', 'info');
+    location.hash = '#/login';
+    return null;
+  }
+  const edgeUrl = window.SUPABASE_EDGE_URL + '/functions/v1/' + functionName;
+  const res = await fetch(edgeUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const result = await res.json();
+  if (!res.ok) {
+    toast((result && result.error) || ('Payment init failed (' + res.status + ')'), 'error');
+    return null;
+  }
+  return result;
+}
+
+function moneyStatusBadge(p) {
+  const m = { pending:['Awaiting payment','badge--info'], success:['Payment successful','badge--success'], failed:['Payment failed','badge--danger'] };
+  const [l,cls] = m[p]||['Pending','badge--info'];
+  return '<span class="badge '+cls+'">'+l+'</span>';
+}
+
+async function pay(orderId) {
+  if (!state.user) { toast('Please sign in to view payment','info'); location.hash='#/login'; return ''; }
+  await ensureOrdersLoaded();
+  const order = state.orders.find(x => x.dbId === orderId) || state.orders.find(x => x.id === orderId);
+  if (!order) return notFound();
+  const ps = order.payment_status;
+  const tid = order.dbId || order.id;
+  if (ps === 'success') {
+    return '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(ps)+'</span><span class="muted small">Ref: '+esc(order.payment_reference||'—')+'</span></div><div class="divider"></div><p><span class="muted small">Paid at</span> '+esc(order.paid_at?formatDate(order.paid_at):'—')+'</p></div></section>';
+  }
+  if (ps === 'pending') {
+    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Complete your payment</h3><p class="muted">Your order total: <b>'+money(order.total)+'</b></p><p class="muted small">Click below to pay securely with Paystack.</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay '+money(order.total)+' with Paystack</button><p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
+    setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', async()=>{ b.disabled=true; b.textContent='Redirecting to Paystack...'; const r=await supabaseEdgeFunctionRequest('paystack-initialize',{order_id:tid,email:state.user.email}); if(r&&r.authorization_url) window.location.href=r.authorization_url; }); },50);
+    return html;
+  }
+  if (ps === 'failed') {
+    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Payment failed</h3><p class="muted">Your payment attempt was not completed. You can retry below.</p><button class="btn btn--block btn--lg mt-2" id="paystackRetry">Retry payment</button></div></section>';
+    setTimeout(()=>{ const b=document.getElementById('paystackRetry'); if(!b) return; b.addEventListener('click', async()=>{ b.disabled=true; b.textContent='Redirecting...'; const r=await supabaseEdgeFunctionRequest('paystack-initialize',{order_id:tid,email:state.user.email}); if(r&&r.authorization_url) window.location.href=r.authorization_url; }); },50);
+    return html;
+  }
+  return '<section class="section container"><div class="page-head"><div><h1>Payment</h1>'+moneyStatusBadge(ps)+'</div></section>';
+}
 async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
@@ -2008,6 +2094,7 @@ async function render() {
   else if (parts[0]==='orders') view = await orders();
   else if (parts[0]==='track') view = await track(parts[1]);
   else if (parts[0]==='order' && parts[1]) view = await orderView(parts[1]);
+  else if (parts[0]==='pay' && parts[1]) view = await pay(parts[1]);
   else if (parts[0]==='profile') view = profile();
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
@@ -2320,8 +2407,9 @@ document.addEventListener('submit', e=>{
         state.cart=[];
         addNotification('Order confirmed',`Your order #${order.id} is being matched with a rider.`);
         save();
-        location.hash=`#/track/${order.id}`;
-        toast('Order placed successfully!');
+        // Redirect to the payment page for this order
+        location.hash=`#/pay/${order.id}`;
+        toast('Order placed — redirecting to payment...');
         return;
       }
       

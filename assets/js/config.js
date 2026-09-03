@@ -24,3 +24,8 @@ const supabaseKey = 'sb_publishable_B1Akr8vzkzZvAZdTaxqgDA_BalvZXHi';
 // Initialize Supabase client globally
 // Make sure the Supabase CDN script is included before this file
 window.supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+// Edge Function base URL (same project, no secrets needed).
+// Read-only: Edge Function env vars (PAYSTACK_SECRET_KEY etc.) are set
+// server-side via `supabase functions deploy` — never in frontend code.
+window.SUPABASE_EDGE_URL = supabaseUrl;

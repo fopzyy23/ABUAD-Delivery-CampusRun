@@ -65,8 +65,8 @@ check('paid requests cannot be re-reviewed (Save disabled)', /w\.status === 'pai
 
 console.log('\n== SECURITY INVARIANTS ==');
 check('no riders self-approve path in app.js (no withdrawal_requests update)', !/from\('withdrawal_requests'\)[\s\S]{0,120}update/i.test(app));
-check('no Paystack / payout / transfer code introduced', !/paystack/i.test(app) && !/paystack/i.test(admin));
-check('no 80/20 split logic (no multiplication by 0.8, no commission split)', !/\*\s*0\.8|0\.8\s*\*/i.test(app) && !/\*\s*0\.8|0\.8\s*\*/i.test(admin));
+check('no Paystack SDK / secret key in app/admin (gateway runs server-side)', !/new Paystack|js\.paystack|pk_(live|test)_[A-Za-z0-9]|sk_(live|test)_[A-Za-z0-9]/i.test(app) && !/pk_(live|test)_[A-Za-z0-9]|sk_(live|test)_[A-Za-z0-9]/i.test(admin));
+check('80/20 rider split uses approved RIDER_FEE_SHARE constant only', /RIDER_FEE_SHARE\s*=\s*0\.8/.test(app));
 
 console.log('\n== MIGRATION 20260905 (withdrawal_requests) ==');
 check('creates withdrawal_requests table', /CREATE TABLE IF NOT EXISTS public\.withdrawal_requests/.test(migration));

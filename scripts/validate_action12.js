@@ -100,7 +100,7 @@ check('DELIVERY_FEE still 1000 client-side (display only)', /const DELIVERY_FEE 
 
 console.log('\n== SECURITY INVARIANTS ==');
 check('no service_role anywhere in the migration', !/service_role/i.test(mig));
-check('no payment-gateway code in app.js/admin.js/migration', !/paystack|flutterwave|stripe/i.test(app + admin + mig));
+check('no gateway SDK/secret keys in frontend (gateway runs server-side)', !/pk_(live|test)_[A-Za-z0-9]|sk_(live|test)_[A-Za-z0-9]/i.test(app + admin) && !/flutterwave|stripe/i.test(app + admin + mig));
 check('no destructive DDL (DROP TABLE/DROP COLUMN/TRUNCATE)', !/DROP TABLE|DROP COLUMN|TRUNCATE/i.test(migNC));
 check('no new secret or key material', !/(secret|api[_-]?key|password)\s*[:=]\s*['"][^'"]{8,}/i.test(mig));
 check('admin.js unchanged paths (still RPC-based, no profiles.update)', !/from\('profiles'\)\s*[\s\S]{0,120}\.update\(/.test(admin));
