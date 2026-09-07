@@ -1,4 +1,4 @@
-# Database Reproducibility (ACTION 12 — findings, no destructive baseline)
+﻿# Database Reproducibility (ACTION 12 â€” findings, no destructive baseline)
 
 This document records what existed **before** the repo's migration history
 and what is required to reproduce the current live database from scratch.
@@ -13,7 +13,7 @@ and what is required to reproduce the current live database from scratch.
 | File | Purpose | Self-contained? |
 |---|---|---|
 | `20260814_add_delivery_method_to_vendors.sql` | vendors.delivery_method column | additive, idempotent |
-| `20260815_current_rls_backup.sql` | point-in-time backup of policies (documentation) | no-op (reference only) |
+| `20260815_current_rls_backup.sql.bak` | point-in-time backup of policies (documentation) — **archived to `supabase/archive/`** (`.bak` is never executed by the migration runner) | no-op (reference only) |
 | `20260815_fix_rls_security.sql` | is_admin(), protection triggers, drops ALL policies on the 6 base tables and recreates them; re-enables RLS | recreates the full base policy set |
 | `20260818_add_vendor_order_workflow.sql` | orders.delivery_method, orders.vendor_id, profiles.vendor_id + first vendor policies | **superseded by 20260820** (its orders.vendor_id policies were replaced; the column remains but is unused) |
 | `20260819_restore_rider_hub.sql` | creates riders + rider_ratings (IF NOT EXISTS), full RLS, grants | yes |
@@ -31,16 +31,22 @@ and what is required to reproduce the current live database from scratch.
 | `20260909_create_payments_ledger.sql` | B4A: `payments` ledger table, `orders.paid_at`, RLS (customers read own, no client writes), secure server-side RPCs (`handle_paystack_payment_success`/`failed`, `create_pending_payment`) using the `app.order_server_update` GUC from B1 | yes |
 | `20260910_create_settlement_ledger.sql` | B4B: `vendor_settlements`, `delivery_settlements`, `refunds` ledger tables, `generate_settlement` RPC (authoritative order_items pricing, 80/20 delivery fee split, row-locked idempotent settlement generation, RLS blocks all client writes) | yes |
 | `20260911_rider_80_20_earnings_cutover.sql` | B5: rider earnings cutover from 100% of `orders.fee` to authoritative 80% rider share (`delivery_settlements.rider_amount`), `get_rider_earnings` RPC (server-authoritative pending earnings / pending withdrawals / available balance) | yes |
-| `20260912_add_payment_checkout_fields.sql` | B4A+: `payments.authorization_url` / `payments.access_code` columns for safe Paystack checkout reuse; updated `create_pending_payment` RPC to accept and store them | yes |er-authoritative pending earnings / pending withdrawals / available balance, security-checked on rider ownership) | yes |
+| `20260912_add_payment_checkout_fields.sql` | B4A+: `payments.authorization_url` / `payments.access_code` columns for safe Paystack checkout reuse; updated `create_pending_payment` RPC to accept and store them | yes |
+| `20260913_create_transfer_ledger.sql` | B6: payout infrastructure - `transfer_recipients` (Paystack recipient codes, one per payee) + `transfers` ledger (status pending/processing/success/failed/reversed, UNIQUE paystack_reference, UNIQUE transfer_code, xor one-settlement-per-transfer check), identity-immutable guard trigger (`app.transfer_server_update` GUC), RLS blocks all client writes, `create_transfer_recipient`/`create_pending_transfer` RPCs (SECURITY DEFINER, service-role EXECUTE only, amounts from authoritative settlements, vendor_self/no-rider rejected, idempotent) | yes |
+| `20260914_create_transfer_execution.sql` | B7: transfer execution - `prepare_transfer_for_payout` (FOR UPDATE row lock; validates transfer pending + settlement pending + order Delivered; refuses vendor_self/unassigned rider; returns authoritative amount/recipient/reference), `mark_transfer_processing` (pending->processing only, GUC-guarded, race-safe), `apply_transfer_webhook_event` (status whitelist, reference + transfer-code match, terminal-state idempotency). All SECURITY DEFINER, EXECUTE revoked from anon/authenticated (service-role only). No transfer initiated. | yes |
+| `20260916_require_paid_orders_for_rider_claim.sql` | Rider Hub server-side payment-eligibility: `orders_update_claim` RLS policy recreated with the added `AND payment_status = 'success'` in USING (all existing claim conditions preserved: status IN ('Order confirmed','Ready for pickup'), rider_id IS NULL, delivery_method = 'rider', approved+available rider check, WITH CHECK caller_owns_rider + status = 'Rider assigned')。 Unpaid orders can never be claimed by riders server-side. | yes |
 
 ## 1b. Edge Functions (supabase/functions/, deploy via `supabase functions deploy`)
 
 | Directory | Purpose |
 |---|---|
 | `paystack-initialize/` | Server-side Paystack transaction initialization. Authenticates the caller from the JWT, reads the order server-side, verifies ownership + `payment_status='pending'` + items, derives the amount from `orders.total` (never trusts the browser), calls `POST https://api.paystack.co/transaction/initialize`, and returns only `authorization_url`/`access_code`/`reference`. |
-| `paystack-webhook/` | Paystack webhook receiver. Validates `x-paystack-signature` with HMAC SHA512 + the Paystack secret (rejects invalid signatures with HTTP 401), validates event shape, maps events to payment status, and delegates to the secure server-side RPCs (`handle_paystack_payment_success`/`failed`) which verify reference→order association, amount, currency, and idempotency before updating order payment status. |
+| `paystack-webhook/` | Paystack webhook receiver. Validates `x-paystack-signature` with HMAC SHA512 + the Paystack secret (rejects invalid signatures with HTTP 401), validates event shape, maps events to payment status, and delegates to the secure server-side RPCs (`handle_paystack_payment_success`/`failed`) which verify referenceâ†’order association, amount, currency, and idempotency before updating order payment status. |
+| `paystack-transfer-recipient/` | B6: registers Paystack transfer recipients (`POST /transferrecipient`) for vendors/riders. Admin JWT required. Never calls `/transfer`. |
+| `paystack-transfer/` | B7: initiates a payout transfer (`POST /transfer`) for a pending transfer row. Admin JWT required; accepts only `transfer_id`; amount/recipient/reference loaded authoritatively via `prepare_transfer_for_payout` (never from the client); refuses already-processing/successful transfers and ineligible settlements; flips the ledger to `processing` only after Paystack accepts. |
+| `paystack-transfer-webhook/` | B7: transfer-event webhook. HMAC SHA512 signature validation over the raw body (401 on invalid), handles `transfer.success`/`transfer.failed`/`transfer.reversed` via `apply_transfer_webhook_event` (reference + transfer-code matched, idempotent, terminal states final). **Deploy with `supabase functions deploy paystack-transfer-webhook --no-verify-jwt`** - Paystack cannot send a Supabase JWT; the HMAC signature is the authentication. |
 
-Secrets (Dashboard → Edge Functions → Secrets, never hardcoded): `PAYSTACK_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGIN`.
+Secrets (Dashboard â†’ Edge Functions â†’ Secrets, never hardcoded): `PAYSTACK_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGIN` (comma-separated CORS origin allowlist â€” no wildcard; requests from non-allowlisted origins get no `Access-Control-Allow-Origin` header).
 
 ## 2. Pre-migration "base" tables (existed before 20260814)
 
@@ -49,18 +55,18 @@ NOT covered by any migration. The authoritative snapshot is documented in
 the header of `20260820_add_vendor_dashboard_workflow.sql` (validated against
 the live schema via PostgREST probes):
 
-- **orders** — id (uuid), order_number (text), user_id (uuid → auth.users),
+- **orders** â€” id (uuid), order_number (text), user_id (uuid â†’ auth.users),
   status (text), total (numeric), fee (numeric), spot (text), created_at
   (timestamptz). (rider_id was added before 20260819 references it; 20260820
   lists it as live.)
-- **order_items** — id, order_id (→ orders.id), product_id (→ products.id),
-  qty, price, name, icon, vendor_id (text → vendors.id), created_at.
-- **profiles** — id (uuid, mirrors auth.users), created_at, full_name, phone,
+- **order_items** â€” id, order_id (â†’ orders.id), product_id (â†’ products.id),
+  qty, price, name, icon, vendor_id (text â†’ vendors.id), created_at.
+- **profiles** â€” id (uuid, mirrors auth.users), created_at, full_name, phone,
   hostel, email, role (text, default 'user').
-- **vendors** — id (text PK), name, icon, type, rating, time, cover, open.
-- **products** — id, vendor_id (text), name, desc, price (numeric), icon,
+- **vendors** â€” id (text PK), name, icon, type, rating, time, cover, open.
+- **products** â€” id, vendor_id (text), name, desc, price (numeric), icon,
   category, active (boolean), created_at.
-- **riders / rider_ratings** — *not* base tables; 20260819 recreates them
+- **riders / rider_ratings** â€” *not* base tables; 20260819 recreates them
   idempotently (`CREATE TABLE IF NOT EXISTS`).
 - **notifications** (20260903) and **withdrawal_requests** (20260905) are
   fully migration-owned.
@@ -69,27 +75,27 @@ the live schema via PostgREST probes):
 
 1. `CREATE TABLE` statements for the 5 base tables (exact PK/FK/type DDL,
    including whether products.id is integer or bigint).
-2. Initial `ENABLE ROW LEVEL SECURITY` on the base tables — **but**
+2. Initial `ENABLE ROW LEVEL SECURITY` on the base tables â€” **but**
    `20260815_fix_rls_security.sql` re-runs `ENABLE ROW LEVEL SECURITY` on
    profiles/riders/orders/order_items/vendors/products, so applying the
    migration chain closes this gap automatically.
-3. Initial table GRANTs (`GRANT ALL ... TO anon/authenticated` — the
+3. Initial table GRANTs (`GRANT ALL ... TO anon/authenticated` â€” the
    Supabase default for dashboard-created tables). Migrations grant only
    riders/rider_ratings/withdrawal_requests explicitly. **Note:** since
    `20260906_secure_order_pricing.sql`, direct INSERT on orders and
    INSERT/UPDATE/DELETE on order_items is *intentionally* revoked; a fresh
    reproduction must run 20260906 (not re-grant) for the checkout RPC flow
    to be the only path.
-4. Live data (vendors/products catalog — reproducible via
+4. Live data (vendors/products catalog â€” reproducible via
    `npm run seed:catalog` with a service-role env var).
 
 ## 4. Reproduction procedure (fresh Supabase project)
 
-1. Create the 5 base tables per the snapshot in §2 (enable RLS; default
+1. Create the 5 base tables per the snapshot in Â§2 (enable RLS; default
    Supabase grants to anon/authenticated are fine at this stage).
 2. Create the `auth`-schema-linked columns exactly as listed (profiles.id
    mirrors auth.users.id; orders.user_id / rider tables reference it).
-3. Apply every migration in §1 in filename order (all are idempotent;
+3. Apply every migration in Â§1 in filename order (all are idempotent;
    20260815 drops and recreates all base-table policies, so any interim
    policy state self-heals).
 4. Seed the catalog: `npm run seed:catalog`
@@ -108,7 +114,7 @@ The Supabase REST API on this project does **not** expose system schemas:
 spec returns no table definitions. Exact base-column types therefore cannot
 be captured with the publishable key alone.
 
-To complete §2, run this in the **Supabase Dashboard → SQL Editor** and
+To complete Â§2, run this in the **Supabase Dashboard â†’ SQL Editor** and
 paste the output below (read-only query, no changes):
 
 ```sql
@@ -134,12 +140,12 @@ order by conrelid::regclass::text, conname;
 
 ## 6. Accuracy confirmation (ACTION 13)
 
-- §1 migration list re-checked against `supabase/migrations/` on disk —
+- Â§1 migration list re-checked against `supabase/migrations/` on disk â€”
   complete and correctly ordered (filenames sort chronologically; apply
   order = filename order).
-- §2 base-table snapshot re-checked against the live-schema documentation
+- Â§2 base-table snapshot re-checked against the live-schema documentation
   in the `20260820` migration header and the policy set in `20260815` /
-  `20260821` — consistent.
+  `20260821` â€” consistent.
 - Since `20260906`, checkout inserts flow through the `place_order` RPC;
   a reproduced database must apply all migrations including 20260906
   before seeding, or checkout will fail (INSERT on orders is revoked).

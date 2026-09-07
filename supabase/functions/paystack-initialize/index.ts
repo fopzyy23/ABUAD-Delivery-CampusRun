@@ -10,7 +10,8 @@
 //   PAYSTACK_SECRET_KEY        Paystack secret key (starts with sk_live_ or sk_test_)
 //   SUPABASE_URL               Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY  Supabase service-role key (server-side ONLY)
-//   ALLOWED_ORIGIN             Frontend origin for CORS (default "*")
+//   ALLOWED_ORIGIN             Comma-separated CORS origin allowlist
+//                              (defaults to the production site + local dev)
 //
 // Deploy:  supabase functions deploy paystack-initialize
 // Invoke:  POST {SUPABASE_URL}/functions/v1/paystack-initialize
@@ -23,14 +24,36 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "*";
+// ---- CORS: env-driven origin allowlist (NO wildcard) ----
+// ALLOWED_ORIGIN is a comma-separated list of browser origins allowed to
+// call this function, read from Edge Function environment/secrets, e.g.:
+//   ALLOWED_ORIGIN=https://dropzyyy.netlify.app,http://127.0.0.1:5500
+// The request Origin is echoed back ONLY when it is on the allowlist;
+// requests from any other origin (or with no Origin header) get NO
+// Access-Control-Allow-Origin header at all — never "*".
+const ALLOWED_ORIGINS: string[] = (
+  Deno.env.get("ALLOWED_ORIGIN") ??
+    "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  // Echo the origin only for allowlisted callers; otherwise omit the
+  // header entirely so the browser blocks the response.
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    // Caches must not serve a CORS response keyed to a different Origin.
+    "Vary": "Origin",
+  };
+  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
+  return headers;
+}
 
 // Paystack amounts are in kobo (1 Naira = 100 kobo).
 function nairaToKobo(naira: number): number {
@@ -40,13 +63,13 @@ function nairaToKobo(naira: number): number {
 Deno.serve(async (req: Request): Promise<Response> => {
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders(req) });
   }
 
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 
@@ -57,7 +80,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
     return new Response(JSON.stringify({ error: "Server configuration error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 
@@ -69,7 +92,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: "Missing or invalid Authorization header" }),
         {
           status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -82,7 +105,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (authErr || !user) {
       return new Response(JSON.stringify({ error: "Invalid or expired session" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -93,7 +116,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -105,7 +128,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: "order_id and email are required" }),
         {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -120,7 +143,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (orderErr || !order) {
       return new Response(JSON.stringify({ error: "Order not found" }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -128,7 +151,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (order.user_id !== user.id) {
       return new Response(JSON.stringify({ error: "Order does not belong to you" }), {
         status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -138,7 +161,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: `Order is not awaiting payment (status: ${order.payment_status})` }),
         {
           status: 409,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -154,7 +177,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: "Order has no items" }),
         {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -180,7 +203,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }),
         {
           status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -218,7 +241,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
       return new Response(JSON.stringify({ error: "Payment provider error" }), {
         status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -232,7 +255,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         JSON.stringify({ error: "Payment initialization failed" }),
         {
           status: 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -248,6 +271,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         p_reference: reference,
         p_amount: Number(order.total),
         p_currency: "NGN",
+        p_authorization_url: paystackBody.data.authorization_url,
+        p_access_code: paystackBody.data.access_code,
       },
     );
 
@@ -257,10 +282,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
         paymentErr,
       );
       return new Response(
-        JSON.stringify({ error: "Failed to create payment record" }),
+        JSON.stringify({
+          error: "Failed to create payment record",
+          details: paymentErr.message,
+        }),
         {
           status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
     }
@@ -283,14 +311,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }),
       {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       },
     );
   } catch (err) {
     console.error("paystack-initialize: unexpected error", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

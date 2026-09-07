@@ -51,7 +51,7 @@ check('audit groups duplicate transaction_id', /GROUP BY transaction_id\s+HAVING
 check('resolution opts in via the B1 server GUC (transaction-local)',
   /set_config\('app\.order_server_update', 'on', true\)/.test(b2nc));
 check('NULL/blank order_number resolved deterministically', /md5\('legacy:' \|\| r\.id::text \|\| ':' \|\| v_attempt::text\)/.test(b2nc));
-check('duplicate order_number resolution is collision-checked', /EXIT WHEN NOT EXISTS \(SELECT 1 FROM public\.orders WHERE order_number = v_new\)/.test(b2nc));
+check('duplicate order_number resolution is collision-checked', /EXIT WHEN NOT EXISTS \(SELECT 1 FROM public\.orders( \w+)? WHERE (\w+\.)?order_number = v_new\)/.test(b2nc));
 check('resolution keeps rows (no DELETE / TRUNCATE / DROP COLUMN)',
   !/DELETE FROM public\.orders|TRUNCATE|DROP COLUMN/i.test(b2nc));
 check('blank transaction_id normalized to NULL', /SET transaction_id = NULL\s+WHERE transaction_id IS NOT NULL AND btrim\(transaction_id\) = ''/.test(b2nc));

@@ -83,15 +83,15 @@ BEGIN
 
   -- -------- Resolve NULL / blank order_number --------
   FOR r IN
-    SELECT id
-    FROM public.orders
-    WHERE order_number IS NULL OR btrim(order_number) = ''
-    ORDER BY created_at, id
+    SELECT o.id
+    FROM public.orders o
+    WHERE o.order_number IS NULL OR btrim(o.order_number) = ''
+    ORDER BY o.created_at, o.id
   LOOP
     v_attempt := 0;
     LOOP
       v_new := 'CR-' || upper(substr(md5('legacy:' || r.id::text || ':' || v_attempt::text), 1, 12));
-      EXIT WHEN NOT EXISTS (SELECT 1 FROM public.orders WHERE order_number = v_new);
+      EXIT WHEN NOT EXISTS (SELECT 1 FROM public.orders po WHERE po.order_number = v_new);
       v_attempt := v_attempt + 1;
     END LOOP;
     UPDATE public.orders SET order_number = v_new WHERE id = r.id;
@@ -101,21 +101,27 @@ BEGIN
   -- -------- Resolve duplicate order_number --------
   -- Keep the EARLIEST row's number untouched; deterministically rename
   -- the later duplicates (never touching any other column).
+  -- NOTE: created_at must be projected by the subquery (and every
+  -- column qualified) — the outer ORDER BY can only see what the
+  -- subquery selects, which is what caused the original
+  -- 'column "created_at" does not exist' error.
   FOR r IN
-    SELECT id, order_number
+    SELECT ranked.id, ranked.order_number
     FROM (
-      SELECT id, order_number,
-             row_number() OVER (PARTITION BY order_number ORDER BY created_at, id) AS rn
-      FROM public.orders
-      WHERE order_number IS NOT NULL
+      SELECT o.id,
+             o.order_number,
+             o.created_at,
+             row_number() OVER (PARTITION BY o.order_number ORDER BY o.created_at, o.id) AS rn
+      FROM public.orders o
+      WHERE o.order_number IS NOT NULL
     ) ranked
-    WHERE rn > 1
-    ORDER BY order_number, created_at, id
+    WHERE ranked.rn > 1
+    ORDER BY ranked.order_number, ranked.created_at, ranked.id
   LOOP
     v_attempt := 0;
     LOOP
       v_new := r.order_number || '-' || upper(substr(md5('dup:' || r.id::text || ':' || v_attempt::text), 1, 6));
-      EXIT WHEN NOT EXISTS (SELECT 1 FROM public.orders WHERE order_number = v_new);
+      EXIT WHEN NOT EXISTS (SELECT 1 FROM public.orders po WHERE po.order_number = v_new);
       v_attempt := v_attempt + 1;
     END LOOP;
     UPDATE public.orders SET order_number = v_new WHERE id = r.id;
@@ -132,14 +138,15 @@ BEGIN
   -- Keep the earliest row's id; clear later duplicates. Rows (and all
   -- other data, including payment_reference) are preserved.
   FOR r IN
-    SELECT id, transaction_id
+    SELECT ranked.id, ranked.transaction_id
     FROM (
-      SELECT id, transaction_id,
-             row_number() OVER (PARTITION BY transaction_id ORDER BY created_at, id) AS rn
-      FROM public.orders
-      WHERE transaction_id IS NOT NULL AND btrim(transaction_id) <> ''
+      SELECT o.id,
+             o.transaction_id,
+             row_number() OVER (PARTITION BY o.transaction_id ORDER BY o.created_at, o.id) AS rn
+      FROM public.orders o
+      WHERE o.transaction_id IS NOT NULL AND btrim(o.transaction_id) <> ''
     ) ranked
-    WHERE rn > 1
+    WHERE ranked.rn > 1
   LOOP
     UPDATE public.orders SET transaction_id = NULL WHERE id = r.id;
     RAISE WARNING 'B2: duplicate transaction_id "%" on order % cleared (row preserved)',

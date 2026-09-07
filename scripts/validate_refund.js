@@ -1,0 +1,48 @@
+// Refund infrastructure validator — GAP 1 Stage 1 (database layer)
+const fs = require("fs");
+const path = require("path");
+const root = path.join(__dirname, "..");
+let fail = 0;
+function check(name, cond) {
+  console.log((cond ? "PASS" : "FAIL") + " — " + name);
+  if (!cond) fail++;
+}
+const mig = fs.readFileSync(path.join(root, "supabase/migrations/20260919_create_refund_infrastructure.sql"), "utf8");
+console.log("== FILES ==");
+check("migration exists", fs.existsSync(path.join(root, "supabase/migrations/20260919_create_refund_infrastructure.sql")));
+console.log("\n== PAYMENT STATUS CHECK ==");
+check("orders allows 'refunded'", /orders_payment_status_check[\s\S]*?'refunded'/i.test(mig));
+console.log("\n== INITIATE_REFUND RPC ==");
+check("fn exists", /CREATE OR REPLACE FUNCTION public\.initiate_refund/i.test(mig));
+check("SECURITY DEFINER", /initiate_refund[\s\S]*?SECURITY DEFINER/i.test(mig));
+check("search_path public", /initiate_refund[\s\S]*?SET search_path = public/i.test(mig));
+check("RETURNS json", /initiate_refund[\s\S]*?RETURNS json/i.test(mig));
+check("locks payment FOR UPDATE", /initiate_refund[\s\S]*?WHERE id = p_payment_id[\s\S]*?FOR UPDATE/i.test(mig));
+check("verifies payment exists", /initiate_refund[\s\S]*?Payment % not found/i.test(mig));
+check("verifies status success", /initiate_refund[\s\S]*?only payments with status/i.test(mig));
+check("verifies transaction_id present", /initiate_refund[\s\S]*?no transaction_id/i.test(mig));
+check("checks existing refund", /initiate_refund[\s\S]*?ORDER BY created_at DESC/i.test(mig));
+check("inserts pending refund", /initiate_refund[\s\S]*?INSERT INTO public\.refunds/i.test(mig));
+check("does not call Paystack", !/initiate_refund[\s\S]*?https:\/\/api\.paystack/i.test(mig));
+console.log("\n== APPLY_REFUND_RESULT RPC ==");
+check("fn exists", /CREATE OR REPLACE FUNCTION public\.apply_refund_result/i.test(mig));
+check("SECURITY DEFINER", /apply_refund_result[\s\S]*?SECURITY DEFINER/i.test(mig));
+check("RETURNS json", /apply_refund_result[\s\S]*?RETURNS json/i.test(mig));
+check("locks refund FOR UPDATE", /apply_refund_result[\s\S]*?WHERE id = p_refund_id[\s\S]*?FOR UPDATE/i.test(mig));
+check("terminal idempotency guard", /apply_refund_result[\s\S]*?already processed/i.test(mig));
+check("uses order_server_update guard", /apply_refund_result[\s\S]*?app\.order_server_update/i.test(mig));
+check("sets payment refunded on success", /apply_refund_result[\s\S]*?status = 'refunded'/i.test(mig));
+check("sets order payment_status refunded", /apply_refund_result[\s\S]*?payment_status = 'refunded'/i.test(mig));
+check("failed refund preserves payment state", /apply_refund_result[\s\S]*?intentionally left/i.test(mig));
+console.log("\n== SECURITY ==");
+check("initiate REVOKE from PUBLIC", /REVOKE ALL ON FUNCTION public\.initiate_refund[\s\S]*?FROM PUBLIC/i.test(mig));
+check("initiate GRANT service_role", /GRANT EXECUTE ON FUNCTION public\.initiate_refund[\s\S]*?TO service_role/i.test(mig));
+check("apply REVOKE from PUBLIC", /REVOKE ALL ON FUNCTION public\.apply_refund_result[\s\S]*?FROM PUBLIC/i.test(mig));
+check("apply GRANT service_role", /GRANT EXECUTE ON FUNCTION public\.apply_refund_result[\s\S]*?TO service_role/i.test(mig));
+console.log("\n== NO AMOUNT FROM CALLER ==");
+check("initiate has no p_amount param", !/p_amount/i.test(mig));
+check("apply has no p_amount param", !/p_amount/.test(mig.replace(/p_payment_id|payment_id/g, '')));
+console.log("\n==============================");
+console.log(fail ? "REFUND VALIDATION FAILED" : "REFUND ALL CHECKS PASSED");
+console.log("==============================");
+process.exit(fail ? 1 : 0);

@@ -719,7 +719,7 @@ function renderLogin() {
           <form id="loginForm" class="stack mt-2">
             <div class="field">
               <label>Admin email</label>
-              <input required class="input" type="email" name="email" placeholder="admin@abuad.edu.ng" autocomplete="email">
+              <input required class="input" type="email" name="email" placeholder="admin@dropzyy.app" autocomplete="email">
             </div>
             <div class="field">
               <label>Admin password</label>
@@ -1116,7 +1116,7 @@ function renderAdminWorkspace() {
       <div class="card mt-3">
         <div class="card__head">
           <h3>Active Riders</h3>
-          <span class="muted small">Approved riders currently eligible to deliver — you can suspend one</span>
+          <span class="muted small">Approved riders can be suspended; suspended riders can be reactivated with Unsuspend</span>
         </div>
         <div class="table-wrap">
           <table class="table">
@@ -1130,19 +1130,22 @@ function renderAdminWorkspace() {
             </thead>
             <tbody>
               ${state.riders.length ? state.riders.map(rider => {
-                // Show only approved riders
-                if (rider.status !== 'approved') return '';
+                // Show approved (active) and suspended riders (suspended ones are reactivated here)
+                if (rider.status !== 'approved' && rider.status !== 'suspended') return '';
+                const isSuspended = rider.status === 'suspended';
                 return `
                 <tr>
                   <td>${rider.matric_number || '—'}</td>
                   <td>${rider.phone || '—'}</td>
-                  <td><span class="status--approved">Approved</span></td>
+                  <td><span class="status--${isSuspended ? 'cancelled' : 'approved'}">${isSuspended ? 'Suspended' : 'Approved'}</span></td>
                   <td>
-                    <button class="link-btn btn--danger" data-suspend-rider="${rider.id}">Suspend</button>
+                    ${isSuspended
+                      ? `<button class="link-btn" data-unsuspend-rider="${rider.id}">Unsuspend</button>`
+                      : `<button class="link-btn btn--danger" data-suspend-rider="${rider.id}">Suspend</button>`}
                   </td>
                 </tr>
                 `;
-              }).join('') : '<tr><td colspan="4" class="muted center">No approved riders.</td></tr>'}
+              }).join('') : '<tr><td colspan="4" class="muted center">No active or suspended riders.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1308,6 +1311,13 @@ function attachAdminEventListeners() {
   document.querySelectorAll('[data-suspend-rider]').forEach(btn => {
     btn.addEventListener('click', () => {
       suspendRider(btn.dataset.suspendRider);
+    });
+  });
+
+  // Unsuspend a suspended rider
+  document.querySelectorAll('[data-unsuspend-rider]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      unsuspendRider(btn.dataset.unsuspendRider);
     });
   });
 
@@ -1589,6 +1599,7 @@ window.AdminHub = {
   approveRider,
   rejectRider,
   suspendRider,
+  unsuspendRider,
   assignUserToVendor,
   loadAssignableUsers,
   setOrderFilter,
@@ -1929,6 +1940,41 @@ async function suspendRider(riderId) {
     toast('Rider suspended locally (Supabase sync failed)', 'error');
   }
 
+  renderAdminWorkspace();
+}
+
+// Unsuspend a rider whose status is 'suspended'. Sets status to 'approved' and
+// available to true so the rider regains access to the Rider Hub. Mirrors the
+// existing approve/suspend flow (local state + Supabase + re-render + toast).
+// Does NOT touch profiles.role. The direct Supabase UPDATE reuses the same
+// server-side mechanism as approve/suspend (riders_update_admin RLS +
+// prevent_rider_status_escalation trigger allow admins to set rider status).
+async function unsuspendRider(riderId) {
+  const rider = state.riders.find(item => item.id === riderId);
+  if (!rider) return;
+ 
+  rider.status = 'approved';
+  rider.available = true;
+  store('riders', state.riders);
+ 
+  if (!rider.dbId || !supabaseAvailable()) {
+    toast('Rider unsuspended (status updated locally)');
+    renderAdminWorkspace();
+    return;
+  }
+ 
+  try {
+    const { error } = await supabase
+      .from('riders')
+      .update({ status: 'approved', available: true })
+      .eq('id', rider.dbId);
+    if (error) throw error;
+    toast('Rider unsuspended');
+  } catch (err) {
+    console.error('Supabase rider unsuspend failed:', err);
+    toast('Rider unsuspended locally (Supabase sync failed)', 'error');
+  }
+ 
   renderAdminWorkspace();
 }
 

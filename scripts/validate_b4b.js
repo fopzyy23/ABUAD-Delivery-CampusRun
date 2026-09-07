@@ -14,7 +14,7 @@ console.log("\n== VENDOR_SETTLEMENTS ==");
 check("table", /CREATE TABLE IF NOT EXISTS public\.vendor_settlements/i.test(mig));
 check("id pk", /id uuid PRIMARY KEY DEFAULT gen_random_uuid/i.test(mig));
 check("order_id fk", /order_id uuid NOT NULL REFERENCES public\.orders/i.test(mig));
-check("vendor_id fk", /vendor_id uuid NOT NULL REFERENCES public\.vendors/i.test(mig));
+check("vendor_id fk", /vendor_id text NOT NULL REFERENCES public\.vendors/i.test(mig));
 check("amount not null", /amount numeric NOT NULL/i.test(mig));
 check("status default pending", /status text NOT NULL DEFAULT 'pending'/i.test(mig));
 check("created_at", /created_at timestamptz/i.test(mig));

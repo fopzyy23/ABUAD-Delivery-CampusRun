@@ -46,18 +46,54 @@ CREATE TRIGGER trg_payments_set_updated_at
 -- 4. RLS on payments
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "customers_read_own_payments" ON public.payments
-  FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = payments.order_id AND o.user_id = auth.uid()));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+    WHERE polname = 'customers_read_own_payments'
+      AND polrelid = 'public.payments'::regclass
+  ) THEN
+    CREATE POLICY "customers_read_own_payments" ON public.payments
+      FOR SELECT TO authenticated
+      USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = payments.order_id AND o.user_id = auth.uid()));
+  END IF;
+END $$;
 
-CREATE POLICY "no_client_insert_payments" ON public.payments
-  FOR INSERT TO authenticated WITH CHECK (false);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+    WHERE polname = 'no_client_insert_payments'
+      AND polrelid = 'public.payments'::regclass
+  ) THEN
+    CREATE POLICY "no_client_insert_payments" ON public.payments
+      FOR INSERT TO authenticated WITH CHECK (false);
+  END IF;
+END $$;
 
-CREATE POLICY "no_client_update_payments" ON public.payments
-  FOR UPDATE TO authenticated USING (false) WITH CHECK (false);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+    WHERE polname = 'no_client_update_payments'
+      AND polrelid = 'public.payments'::regclass
+  ) THEN
+    CREATE POLICY "no_client_update_payments" ON public.payments
+      FOR UPDATE TO authenticated USING (false) WITH CHECK (false);
+  END IF;
+END $$;
 
-CREATE POLICY "no_client_delete_payments" ON public.payments
-  FOR DELETE TO authenticated USING (false);-- 5. Secure server-side payment-handling RPCs (use app.order_server_update GUC from B1)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+    WHERE polname = 'no_client_delete_payments'
+      AND polrelid = 'public.payments'::regclass
+  ) THEN
+    CREATE POLICY "no_client_delete_payments" ON public.payments
+      FOR DELETE TO authenticated USING (false);
+  END IF;
+END $$;-- 5. Secure server-side payment-handling RPCs (use app.order_server_update GUC from B1)
 
 CREATE OR REPLACE FUNCTION public.handle_paystack_payment_success(
   p_reference text, p_transaction_id text, p_order_id uuid

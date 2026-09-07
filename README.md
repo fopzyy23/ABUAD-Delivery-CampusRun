@@ -109,7 +109,7 @@ Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
 | `PAYSTACK_SECRET_KEY` | both | Paystack secret key (`sk_live_xxx` / `sk_test_xxx`) — authorize API calls + verify webhook signatures |
 | `SUPABASE_URL` | initialize | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | initialize | Service-role key — server-side only; reads/verifies the order before calling Paystack |
-| `ALLOWED_ORIGIN` | initialize | Frontend origin for CORS (defaults to `*`; set to your Netlify domain in production) |
+| `ALLOWED_ORIGIN` | initialize | Comma-separated CORS origin allowlist, e.g. `https://dropzyyy.netlify.app,http://127.0.0.1:5500`. The request `Origin` is echoed back only when allowlisted — never a wildcard `*`. Defaults to exactly those two origins if unset. |
 
 > **No secret value is stored in this repository.** The Edge Functions
 > read them from `Deno.env.get(...)`. The publishable/anon key in
@@ -214,10 +214,56 @@ Paystack integration is partially implemented server-side (B1–B5 complete):
 * **B4A** — `payments` ledger table + secure server-side RPCs (`handle_paystack_payment_success`, `handle_paystack_payment_failed`, `create_pending_payment`) that validate amount/currency/order-ownership and update order payment status through the `app.order_server_update` GUC escape hatch.
 * **B4B** — Settlement ledger: `vendor_settlements`, `delivery_settlements`, `refunds` tables + `generate_settlement` RPC. Vendor settlement = authoritative `SUM(price*qty)` from `order_items`. Delivery fee (₦1,000) split: rider 80% (₦800) + platform 20% (₦200). All settlement amounts derived server-side from `orders.fee`, never from browser input.
 * **B5** — Rider 80/20 earnings cutover: rider earnings shifted from 100% of `orders.fee` to the authoritative 80% rider share (`delivery_settlements.rider_amount`). Frontend uses `riderShareAmount()` (80% of fee) for all earnings displays. New `get_rider_earnings` RPC exposes server-authoritative pending earnings, pending withdrawals, and available balance. Existing withdrawal requests preserved; new withdrawal cap uses 80% rider earnings. `vendor_self` and cancelled/undelivered orders produce no rider earnings.
+* **B6** — Payout infrastructure (no transfers initiated): `transfer_recipients` table (Paystack recipient codes, one per vendor/rider) + `transfers` ledger (pending/processing/success/failed/reversed, UNIQUE `paystack_reference` + `transfer_code`, one-settlement-per-transfer). Identity columns immutable via `app.transfer_server_update` GUC guard; all client writes blocked by RLS/grants; `create_transfer_recipient` + `create_pending_transfer` RPCs are SECURITY DEFINER with service-role-only EXECUTE and amounts copied from authoritative settlements. Edge Function `paystack-transfer-recipient` registers recipients only (`/transferrecipient`; `/transfer` is never called).
+* **B7** — Transfer execution + webhook (no transfer initiated): Edge Function `paystack-transfer` (admin JWT required; accepts only `transfer_id`; loads amount/recipient/reference authoritatively via `prepare_transfer_for_payout` — never from the client; refuses non-pending/non-eligible transfers, `vendor_self`, and unassigned riders; calls `POST https://api.paystack.co/transfer`; flips the ledger to `processing` via `mark_transfer_processing` only after Paystack accepts). Edge Function `paystack-transfer-webhook` (deployed with `--no-verify-jwt` because Paystack sends no JWT; HMAC SHA512 raw-body signature validation, 401 on bad signatures; handles `transfer.success`/`transfer.failed`/`transfer.reversed` via the `apply_transfer_webhook_event` RPC, which enforces reference + transfer-code matching and terminal-state idempotency). All three RPCs are SECURITY DEFINER with service-role-only EXECUTE.
 
-Settlement model: **Customer payment → `payments` ledger → eligible (Delivered + paid) order → pending vendor/delivery/platform settlement → future Paystack transfer.**
+Settlement model: **Customer payment → `payments` ledger → eligible (Delivered + paid) order → pending vendor/delivery/platform settlement → pending transfer row → admin-initiated Paystack transfer → webhook-confirmed transfer status.**
 
-The checkout button IS wired to Paystack: customers are redirected to Paystack for payment. Payment success is confirmed only via the webhook (HMAC-verified, amount-validated). No actual Paystack transfers, payouts, or refund API calls exist yet (B4B/B5 handle settlement logic).
+The checkout button IS wired to Paystack: customers are redirected to Paystack for payment. Payment success is confirmed only via the webhook (HMAC-verified, amount-validated). Transfer *execution* infrastructure exists (B7: `paystack-transfer` + `paystack-transfer-webhook`), but **no transfer is ever initiated automatically** — a transfer only happens when an authenticated admin explicitly calls `paystack-transfer` with a pending transfer id, and none has been triggered. Refund API calls do not exist yet.
+
+## Payment webhook recovery / ops utility
+
+`scripts/test_paystack_webhook.js` is a **manual, operator-run recovery
+utility** for a specific failure mode: a customer's Paystack payment
+succeeded, but the webhook never reached the backend, so the order is stuck
+in `payment_status = 'pending'`.
+
+**When to use it** — only when there is evidence of a genuine payment (a
+real transaction visible in the Paystack Dashboard) that failed to reach
+confirmation. It is **not** a normal checkout/payment mechanism and must
+never be used to invent payments.
+
+**How it works** — it builds a `charge.success` webhook payload and signs it
+with HMAC-SHA512 over the exact raw body, exactly like Paystack does, then
+POSTs it to the deployed `paystack-webhook` Edge Function. The deployed
+webhook (signature + amount validation) and the server-side payment RPC
+remain the **only** authoritative, idempotent confirmation path — the script
+itself performs no database writes.
+
+**Required environment variables** (set in your shell, never in files):
+
+| Variable | Meaning |
+|---|---|
+| `PAYSTACK_SECRET_KEY` | Paystack secret key (`sk_test_…`/`sk_live_…`). **Must never be committed, logged, or printed.** |
+| `PAYSTACK_TXN_ID` | The **real** numeric Paystack transaction ID from the Dashboard — never invented. |
+| `PAYSTACK_REFERENCE` | The order payment reference being recovered. |
+| `PAYSTACK_AMOUNT_KOBO` | The actual paid amount in kobo (must match the real transaction; the webhook validates it). |
+| `PAYSTACK_CURRENCY` | Optional; defaults to `NGN`. |
+
+Example invocation (**all example values are placeholders, not real
+transactions**):
+
+```bash
+set PAYSTACK_SECRET_KEY=sk_test_xxx
+set PAYSTACK_TXN_ID=1234567890
+set PAYSTACK_REFERENCE=dropzyy_CR-EXAMPLE_0000000000000
+set PAYSTACK_AMOUNT_KOBO=100000
+node scripts\test_paystack_webhook.js
+```
+
+The script aborts safely if the key format, transaction ID, reference, or
+amount is missing or malformed, and redacts any secret-shaped tokens from
+its output.
 
 ## Testing / validation
 

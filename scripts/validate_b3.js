@@ -167,11 +167,19 @@ check(
   !/payment_status\s*=/.test(hook),
 );
 
-console.log("\n== CORS handling ==");
+console.log("\n== CORS handling (env-driven origin allowlist) ==");
 check("initialize has CORS headers", /Access-Control-Allow-Origin/.test(init));
 check("webhook has CORS headers", /Access-Control-Allow-Origin/.test(hook));
 check("initialize handles OPTIONS preflight", /"OPTIONS"/.test(init));
 check("webhook handles OPTIONS preflight", /"OPTIONS"/.test(hook));
+// Tightened (no-wildcard) checks — comments stripped so the doc comment
+// saying 'never "*"' cannot false-positive.
+const initCode = init.replace(/\/\/[^\n]*/g, "");
+check("initialize reads ALLOWED_ORIGIN from env", /Deno\.env\.get\(\s*"ALLOWED_ORIGIN"\s*\)/.test(initCode));
+check("initialize allowlist is comma-separated env list", /ALLOWED_ORIGIN[\s\S]{0,80}\.split\(\s*","\s*\)/.test(initCode));
+check("initialize echoes origin per-request (corsHeaders(req))", /corsHeaders\(\s*req\s*\)/.test(initCode));
+check("initialize has NO static wildcard ACAO header", !/Access-Control-Allow-Origin"\s*:\s*"\*"/.test(initCode));
+check("initialize never assigns "*" to Allow-Origin", !/Access-Control-Allow-Origin[\s\S]{0,40}"\*"/.test(initCode));
 
 console.log("\n== SECRET-LEAK SCAN: frontend/public assets ==");
 // Scan every file under assets/ for embedded Paystack secrets.

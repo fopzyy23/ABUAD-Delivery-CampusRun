@@ -60,10 +60,14 @@ const structural = [
   'scripts/validate_b4a.js',
   'scripts/validate_b4b.js',
   'scripts/validate_b5.js',
+  'scripts/validate_b6.js',
+  'scripts/validate_b7.js',
   'scripts/validate_paystack_checkout.js',
   'scripts/validate_action10.js',
   'scripts/_smoke_action12_sql.js',
   'scripts/validate_action12.js',
+  'scripts/validate_vendor_product_crud.js',
+  'scripts/validate_notifications.js',
   'scripts/validate_seed_sync.js'
 ];
 for (const rel of structural) {

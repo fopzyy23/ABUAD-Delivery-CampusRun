@@ -126,7 +126,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: load('orders', []), user: load('user', null), notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: load('rider', null), riderRatings: load('rider_ratings', []), riderPool: load('rider_pool', []), vendorOrders: load('vendor_orders', []), vendorProducts: load('vendor_products', []), withdrawals: load('withdrawals', []), withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false };
 
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
@@ -187,7 +187,7 @@ function product(id) { return data().products.find(p => p.id === Number(id)); }
 // The admin panel writes the same 'catalog_v3' key; if a customer action wrote a
 // stale in-memory copy of the catalog here, it would silently revert the admin's
 // changes — that was the root cause of the admin-to-main-site sync bug.
-function save() { store('cart', state.cart); store('orders', state.orders); store('user', state.user); store('notifications', state.notifications); store('rider', state.rider); store('rider_ratings', state.riderRatings); store('rider_pool', state.riderPool); store('vendor_orders', state.vendorOrders); store('vendor_products', state.vendorProducts); store('withdrawals', state.withdrawals); updateChrome(); }
+function save() { store('cart', state.cart); store('user', state.user); store('notifications', state.notifications); updateChrome(); }
 
 // Add a notification for the CURRENT user only. Persisted to Supabase when a
 // session exists (RLS notifications_insert_own restricts user_id to
@@ -221,16 +221,6 @@ function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 
 // Order number generation (ACTION 9)
 // ============================================
 // Previously orders used CR- + 4 random digits, which collided easily.
-// The new identifier combines a base-36 timestamp (monotonic, sortable with
-// real time) plus a random suffix — collision-resistant, human-friendly and
-// does not rely on any DB sequence/constraint, so existing orders (whose
-// order_number is just stored text) are unaffected.
-function generateOrderNumber() {
-  const ts = Date.now().toString(36).toUpperCase();          // base36 timestamp
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase(); // ~6 random chars
-  return `CR-${ts}${rand}`;
-}
-
 // Delivery fee: flat ₦1,000 campus delivery charge, kept strictly separate
 // from the product subtotal everywhere it is used.
 const DELIVERY_FEE = 1000;
@@ -258,16 +248,16 @@ async function loadRiderFromSupabase() {
       .eq('user_id', session.user.id)
       .maybeSingle();
     if (error) throw error;
-    if (data) {
-      state.rider = data;
-      save();
-    }
+    state.rider = data || null;
+    save();
     const { data: ratings, error: ratingsError } = await supabase
       .from('rider_ratings')
       .select('*')
       .eq('reviewer_id', session.user.id);
+    // A7 cleanup: state.riderRatings was write-only (never read anywhere), so its
+    // assignment was removed. The fetch above is intentionally left untouched
+    // (Supabase queries are out of scope for this hygiene task).
     if (!ratingsError && ratings) {
-      state.riderRatings = ratings;
       save();
     }
   } catch (err) {
@@ -536,8 +526,9 @@ function formatFullDate(iso) {
 }
 
 // Load the authenticated user's orders from Supabase (orders + order_items)
-// and map them into the existing frontend order shape. Falls back to
-// localStorage if Supabase is unavailable.
+// and map them into the existing frontend order shape. Supabase is the
+// source of truth for order data (Rider Hub included); there is no restore
+// from localStorage for order history or the rider pool.
 async function loadOrdersFromSupabase() {
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing — using localStorage orders fallback');
@@ -548,11 +539,21 @@ async function loadOrdersFromSupabase() {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) {
-      // No authenticated session — keep localStorage orders
+      // No authenticated session — clear any cached orders. LocalStorage orders
+      // are shared per-browser, so without an authenticated user we cannot know
+      // whose orders they are; keeping them would leak the previous user's
+      // order history. They are reloaded from Supabase on the next sign-in.
+
+      state.orders = [];
       state.ordersLoadedFromSupabase = true;
       return false;
     }
     const userId = session.user.id;
+
+    // Per-user Rider Hub pool: rebuilt from Supabase below. Never reuse a stale
+    // cached/previously-logged-in-user pool — this also guarantees that an error
+    // mid-load cannot leave another user's (or a stale) pool visible..
+    state.riderPool = [];
 
     // 1. Fetch the user's orders from Supabase
     const { data: ordersData, error: ordersError } = await supabase
@@ -664,7 +665,8 @@ async function loadOrdersFromSupabase() {
           .select('*')
           .in('status', ['Order confirmed','Ready for pickup'])
           .is('rider_id', null)
-          .eq('delivery_method', 'rider'),
+          .eq('delivery_method', 'rider')
+          .eq('payment_status', 'success'),
         supabase.from('orders')
           .select('*')
           .eq('rider_id', riderRow.id)
@@ -700,16 +702,14 @@ async function loadOrdersFromSupabase() {
       }
     }
     state.riderPool = poolOrders;
-    store('rider_pool', state.riderPool);
 
-    // 5. Merge with existing localStorage orders (e.g. ones just placed in this
-    //    session that may not be in Supabase yet). Avoid duplicates by id.
-    const existingIds = new Set(state.orders.map(x => x.id));
-    const newOrders = supabaseOrders.filter(o => !existingIds.has(o.id));
-    if (newOrders.length > 0) {
-      state.orders = [...newOrders, ...state.orders];
-      store('orders', state.orders);
-    }
+    // 5. Replace local orders entirely with the Supabase result. Supabase queries here are
+    //    scoped to the authenticated user (user_id = session.user.id), so this is the
+    //    authoritative per-user order set. We do NOT merge with stale localStorage orders —
+    //    that merge was the root cause of one user's orders leaking into another user's view
+    //    after logout/login. Orders placed earlier in this session were persisted via the
+    //    place_order RPC and are included in this Supabase result.
+    state.orders = supabaseOrders;
 
     state.ordersLoadedFromSupabase = true;
     return true;
@@ -840,6 +840,30 @@ function subscribeNotificationsRealtime() {
 // Mark all of the current user's notifications as read (Supabase + local UI).
 // The UPDATE is scoped to the caller's own user_id (RLS notifications_update_own
 // re-asserts ownership server-side), so it can never touch another user's rows.
+// Per-notification mark-as-read (approved Fix 1). Requires an authenticated
+// session; the recipient is ALWAYS the session user (never taken from the
+// DOM) and RLS (notifications_update_own) remains the final boundary.
+async function markNotificationRead(notificationId) {
+  const id = String(notificationId || '').trim();
+  if (!/^[0-9a-fA-F-]{10,}$/.test(id)) return; // ignore malformed/local ids
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id)
+      .eq('user_id', session.user.id);
+    if (error) throw error;
+    const entry = state.notifications.find(x => x.id === id);
+    if (entry) { entry.is_read = true; entry.unread = false; }
+    save();
+    updateChrome();
+    if (typeof loadNotificationsFromSupabase === 'function') await loadNotificationsFromSupabase();
+  } catch (err) {
+    console.error('Mark notification read failed:', err);
+  }
+}
 function markAllNotificationsRead() {
   state.notifications.forEach(n => n.unread = false);
   save();
@@ -873,7 +897,7 @@ function renderNotificationList() {
   }
   return state.notifications.map(n =>
     `<div class="notif ${n.unread ? 'notif--unread' : ''}"><span>🔔</span><div>` +
-    `<div class="notif__title">${esc(n.title)}</div>` +
+    `<div class="notif__title" data-notif-id="${esc(n.id)}"${(n.unread || n.is_read === false) ? `<button class="link-btn" data-notif-read="${esc(n.id)}">Mark as read</button>` : ''}>${esc(n.title)}</div>` +
     `<div class="notif__body">${esc(n.body)}</div>` +
     `<div class="notif__time">${esc(n.time)}</div></div></div>`
   ).join('');
@@ -1040,7 +1064,7 @@ function home() {
   const vcount = data().vendors.length;
   const drinks = data().products.filter(p => p.category === 'Drinks');
   const books = data().products.filter(p => p.category === 'Bookshop');
-  return `${catalogBanner()}<section class="hero"><div class="container hero__inner"><div><span class="hero__eyebrow">⚡ Built by students, for students</span><h1>Anything on campus.<br>At your door.</h1><p>Food, books, essentials and more — delivered by a fellow student whenever you need it.</p><form class="searchbar" id="heroSearch"><span>🔎</span><input name="q" placeholder="Search food, snacks, books..." autocomplete="off"><button class="btn btn--accent" type="submit">Find it</button></form><div class="hero__stats"><div class="hero__stat"><b>25 min</b><span>average delivery</span></div><div class="hero__stat"><b>${vcount}</b><span>ABUAD restaurants</span></div><div class="hero__stat"><b>₦1,000</b><span>delivery from</span></div></div></div><div class="hero__art"><div class="hero__card"><span>🍜</span><div><b>Order placed</b><small>Indomie Special from Staff Caf.</small></div><em>✓</em></div><div class="hero__card"><span>🛵</span><div><b>Rider on the way</b><small>Your rider is 4 mins away</small></div><em>→</em></div><div class="hero__card"><span>🏠</span><div><b>Delivered to your hostel</b><small>Enjoy your order!</small></div><em>★</em></div></div></div></section><section class="section container"><div class="page-head"><div><h2>What do you need today?</h2><p>Pick a category and get it delivered around campus.</p></div></div><div class="grid grid--4">${[['🍔','Food','Fresh campus favourites','Food'],['🍞','Hostel meals','Quick & filling','Meals'],['🍿','Snacks','Study fuel','Snacks'],['🥤','Drinks','Cold beverages & refreshments','Drinks'],['📚','Book Shop','Textbooks & materials','Bookshop']].map((c,i)=>`<a class="cat" href="#/browse?cat=${c[3]}"><span class="cat__icon">${c[0]}</span><b>${c[1]}</b><small>${c[2]}</small></a>`).join('')}</div></section><section class="section container"><div class="page-head"><div><h2>Popular around campus</h2><p>Student favourites, ready when you are.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">See all items →</a></div><div class="grid grid--4">${data().products.slice(0,4).map(productCard).join('')}</div></section>${drinks.length?`<section class="section container"><div class="page-head"><div><h2>🥤 Drinks & Beverages</h2><p>Cold drinks, juices and refreshments delivered fast.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Drinks">View all drinks →</a></div><div class="grid grid--4">${drinks.slice(0,4).map(productCard).join('')}</div></section>`:''}${books.length?`<section class="section container"><div class="page-head"><div><h2>📚 Book Shop</h2><p>Textbooks, stationery and study essentials.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Bookshop">Visit the Book Shop →</a></div><div class="grid grid--4">${books.slice(0,4).map(productCard).join('')}</div></section>`:''}<section class="section container"><div class="page-head"><div><h2>ABUAD restaurants</h2><p>Reliable campus kitchens students love.</p></div><a class="btn btn--ghost btn--sm" href="#/vendors">View restaurants →</a></div><div class="scroll-x">${data().vendors.map(vendorCard).join('')}</div></section>`;
+  return `${catalogBanner()}<section class="hero"><div class="container hero__inner"><div><span class="hero__eyebrow">⚡ Built by students, for students</span><h1>Anything on campus.<br>At your door.</h1><p>Food, books, essentials and more — delivered by a fellow student whenever you need it.</p><form class="searchbar" id="heroSearch"><span>🔎</span><input name="q" placeholder="Search food, snacks, books..." autocomplete="off"><button class="btn btn--accent" type="submit">Find it</button></form><div class="hero__stats"><div class="hero__stat"><b>25 min</b><span>average delivery</span></div><div class="hero__stat"><b>${vcount}</b><span>campus restaurants</span></div><div class="hero__stat"><b>₦1,000</b><span>delivery from</span></div></div></div><div class="hero__art"><div class="hero__card"><span>🍜</span><div><b>Order placed</b><small>Indomie Special from Staff Caf.</small></div><em>✓</em></div><div class="hero__card"><span>🛵</span><div><b>Rider on the way</b><small>Your rider is 4 mins away</small></div><em>→</em></div><div class="hero__card"><span>🏠</span><div><b>Delivered to your hostel</b><small>Enjoy your order!</small></div><em>★</em></div></div></div></section><section class="section container"><div class="page-head"><div><h2>What do you need today?</h2><p>Pick a category and get it delivered around campus.</p></div></div><div class="grid grid--4">${[['🍔','Food','Fresh campus favourites','Food'],['🍞','Hostel meals','Quick & filling','Meals'],['🍿','Snacks','Study fuel','Snacks'],['🥤','Drinks','Cold beverages & refreshments','Drinks'],['📚','Book Shop','Textbooks & materials','Bookshop']].map((c,i)=>`<a class="cat" href="#/browse?cat=${c[3]}"><span class="cat__icon">${c[0]}</span><b>${c[1]}</b><small>${c[2]}</small></a>`).join('')}</div></section><section class="section container"><div class="page-head"><div><h2>Popular around campus</h2><p>Student favourites, ready when you are.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">See all items →</a></div><div class="grid grid--4">${data().products.slice(0,4).map(productCard).join('')}</div></section>${drinks.length?`<section class="section container"><div class="page-head"><div><h2>🥤 Drinks & Beverages</h2><p>Cold drinks, juices and refreshments delivered fast.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Drinks">View all drinks →</a></div><div class="grid grid--4">${drinks.slice(0,4).map(productCard).join('')}</div></section>`:''}${books.length?`<section class="section container"><div class="page-head"><div><h2>📚 Book Shop</h2><p>Textbooks, stationery and study essentials.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Bookshop">Visit the Book Shop →</a></div><div class="grid grid--4">${books.slice(0,4).map(productCard).join('')}</div></section>`:''}<section class="section container"><div class="page-head"><div><h2>Campus restaurants</h2><p>Reliable campus kitchens students love.</p></div><a class="btn btn--ghost btn--sm" href="#/vendors">View restaurants →</a></div><div class="scroll-x">${data().vendors.map(vendorCard).join('')}</div></section>`;
 }
 
 function browse() {
@@ -1056,7 +1080,7 @@ function browse() {
 function vendors() {
   const list = data().vendors;
   const allOpen = list.length > 0 && list.every(v => vendorOpenStatus(v).open);
-  return `<section class="section container"><div class="page-head"><div><h1>ABUAD Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">● ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${list.map(vendorCard).join('')}</div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Campus Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">● ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${list.map(vendorCard).join('')}</div></section>`;
 }
 function vendorView(id) {
   const v = vendor(id);
@@ -1213,6 +1237,25 @@ async function saveOrderToSupabase(order) {
 // added by 20260820_add_vendor_dashboard_workflow.sql only return rows whose
 // vendor_id matches the vendor_id on the caller's profile (role = 'vendor'),
 // so Vendor A can never see Vendor B's data through these queries.
+
+// Reset ALL vendor-session state (in-memory only — never touches Supabase
+// rows). Called on logout and whenever a NEW authenticated session is
+// established, so a different account can never inherit the previous
+// vendor's cached orders/products, the one-shot vendorLoaded flag, or the
+// withdrawal-request list/loaded flag. The RLS-protected loaders
+// (loadVendorDataFromSupabase / loadWithdrawalsFromSupabase) refetch
+// everything for the current authenticated user on next use.
+function resetVendorSessionState() {
+  state.vendorOrders = [];
+  state.vendorProducts = [];
+  state.vendorLoaded = false;
+  state.vendorLoadError = null;
+  state.withdrawals = [];
+  state.withdrawalsLoaded = false;
+  state.withdrawalsError = null;
+  state.withdrawalSubmitting = false;
+}
+
 async function loadVendorDataFromSupabase() {
   state.vendorLoaded = true;
   state.vendorLoadError = null;
@@ -1274,7 +1317,6 @@ async function loadVendorDataFromSupabase() {
       created: formatOrderCreated(o.created_at),
       createdAt: o.created_at || null
     }));
-    store('vendor_orders', state.vendorOrders);
 
     // 4. Vendor's OWN products (RLS products_select_vendor).
     const { data: productsData, error: productsError } = await supabase
@@ -1293,7 +1335,6 @@ async function loadVendorDataFromSupabase() {
       image: p.image || '',
       active: p.active !== false
     }));
-    store('vendor_products', state.vendorProducts);
 
     return true;
   } catch (err) {
@@ -1341,7 +1382,6 @@ async function refreshVendorProducts() {
       image: p.image || '',
       active: p.active !== false
     }));
-    store('vendor_products', state.vendorProducts);
     return true;
   } catch (err) {
     console.error('Vendor products refresh failed:', err);
@@ -1402,12 +1442,25 @@ async function submitVendorProductForm(form) {
       if (error) throw error;
       toast('Product updated');
     } else {
-      const id = await nextVendorProductId();
-      if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
-      const { error } = await supabase
+      // INSERT with a client-assigned id. nextVendorProductId() can collide when
+      // the highest id belongs to a hidden product (public catalog RLS hides it)
+      // or when two vendors add products concurrently — so a unique primary-key
+      // violation (Postgres 23505) is retried exactly ONCE with a freshly fetched
+      // id. Any other error — and any second failure — surfaces as before.
+      // No upsert; an existing product is never overwritten.
+      const insertProduct = (newId) => supabase
         .from('products')
-        .insert({ id, vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true });
-      if (error) throw error;
+        .insert({ id: newId, vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true });
+      const isDuplicateKey = (e) => e && (e.code === '23505' || /duplicate key|unique constraint/i.test(e.message || ''));
+      let id = await nextVendorProductId();
+      if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
+      let inserted = await insertProduct(id);
+      if (inserted.error && isDuplicateKey(inserted.error)) {
+        id = await nextVendorProductId(); // fresh max id before the single retry
+        if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
+        inserted = await insertProduct(id);
+      }
+      if (inserted.error) throw inserted.error;
       toast('Product added');
     }
     form.reset();
@@ -1603,7 +1656,7 @@ function vendorDashboard() {
     : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
 
   const productsHtml = products.length
-    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${p.category}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
     : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
 
   return `<section class="section container">
@@ -1823,7 +1876,7 @@ function reorder(orderId) {
   location.hash = '#/cart';
 }
 
-function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@abuad.edu.ng"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
+function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
 // ============================================
 // Customer Profile
@@ -1899,6 +1952,19 @@ async function submitProfileForm(form) {
   }
 }
 
+// Rider Hub order-items renderer. Uses the persisted order_items snapshot
+// (o.items — mapped from the Supabase order_items rows fetched in
+// loadOrdersFromSupabase) so item names/prices stay historically accurate even
+// if a product later changes. Reuses the same .line markup as the customer's
+// My Orders page. No localStorage/catalog reconstruction — Supabase is the
+// source of truth and RLS (order_items_select_rider) gates what is returned.
+function riderOrderItemsHtml(o) {
+  const items = Array.isArray(o.items) ? o.items : [];
+  if (!items.length) return '';
+  const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || '🛒')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">× ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
+  return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.total)}</b></div></div>`;
+}
+
 function rider() {
   const riderStatus = state.rider ? state.rider.status : null;
   if (!state.riderLoaded) {
@@ -1906,7 +1972,7 @@ function rider() {
   }
   const isApprovedRider = riderStatus === 'approved';
   const isOnline = !!(state.rider && state.rider.available === true);
-  const pending = state.riderPool.filter(o => (o.status === 'Order confirmed' || o.status === 'Ready for pickup') && !o.rider_id && (o.delivery_method ?? 'rider') !== 'vendor_self');
+  const pending = state.riderPool.filter(o => (o.status === 'Order confirmed' || o.status === 'Ready for pickup') && !o.rider_id && (o.delivery_method ?? 'rider') !== 'vendor_self' && o.payment_status === 'success');
   const active = state.riderPool.filter(o => (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') && (o.delivery_method ?? 'rider') !== 'vendor_self');
   const done = riderCompletedDeliveries();
   const isBusy = active.length > 0;
@@ -1960,13 +2026,13 @@ function rider() {
   // returns unassigned rider-delivery orders to approved riders.
   const availableHtml = (isApprovedRider && isOnline)
     ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount(o.fee))} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p><a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount(o.fee))} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
         : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings (80%)</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -2071,6 +2137,12 @@ async function pay(orderId) {
   if (ps === 'pending') {
     let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Complete your payment</h3><p class="muted">Your order total: <b>'+money(order.total)+'</b></p><p class="muted small">Click below to pay securely with Paystack.</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay '+money(order.total)+' with Paystack</button><p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
     setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', async()=>{ b.disabled=true; b.textContent='Redirecting to Paystack...'; const r=await supabaseEdgeFunctionRequest('paystack-initialize',{order_id:tid,email:state.user.email}); if(r&&r.authorization_url) window.location.href=r.authorization_url; }); },50);
+    // While this pending payment page is open (e.g. right after returning from
+    // Paystack), poll the Supabase source of truth so the page flips to
+    // "Payment successful" and opens My Orders as soon as the server-side
+    // webhook confirms the payment.
+    schedulePayConfirmationPoll(orderId, tid);
+
     return html;
   }
   if (ps === 'failed') {
@@ -2080,6 +2152,73 @@ async function pay(orderId) {
   }
   return '<section class="section container"><div class="page-head"><div><h1>Payment</h1>'+moneyStatusBadge(ps)+'</div></section>';
 }
+
+// ============================================
+// Post-payment flow: Paystack return handling
+// ============================================
+// Paystack redirects back to the site with ?reference=…&trxref=… appended to
+// the callback URL. The redirect alone is NOT proof of payment — the
+// server-side webhook (paystack-webhook → handle_paystack_payment_success) is
+// the only thing that marks payment as successful. The reference is used
+// purely as a routing hint: refresh the customer's orders from Supabase
+// (source of truth) and only announce success once the order row itself is
+// confirmed as paid. If the webhook has not confirmed yet (or the
+// refresh fails), the order is never deleted or hidden — the user lands on
+// My Orders where it remains visible with its current status.
+async function handlePaystackReturn() {
+  let ref = '';
+  try {
+    const search = new URLSearchParams(location.search);
+    const qIndex = location.hash.indexOf('?');
+    const hashSearch = qIndex >= 0 ? new URLSearchParams(location.hash.slice(qIndex + 1)) : null;
+    ref = search.get('reference') || search.get('trxref')
+      || (hashSearch && (hashSearch.get('reference') || hashSearch.get('trxref'))) || '';
+    if (ref) {
+      // Strip the query so a manual refresh doesn't replay this flow
+      const cleanHash = qIndex >= 0 ? location.hash.slice(0, qIndex) : location.hash;
+      history.replaceState(null, '', location.pathname + (cleanHash || '#/'));
+    }
+  } catch (e) { ref = ''; }
+  if (!ref || !state.user) return;
+  toast('Payment received — confirming your order…', 'info');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    // Existing source-of-truth loader (RLS-scoped to the authenticated user)
+    await loadOrdersFromSupabase();
+    const order = (state.orders || []).find(o => o.payment_reference === ref);
+    if (order && order.payment_status === 'success') {
+      toast('Payment successful — opening your orders…');
+      if (location.hash !== '#/orders') location.hash = '#/orders'; else render();
+      return;
+    }
+    // Webhook may lag a moment behind the redirect — brief retry.
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  // Not confirmed yet: keep the order visible in My Orders (never hidden).
+  toast('Your payment is being confirmed. Track it in My Orders.', 'info');
+  if (location.hash !== '#/orders') location.hash = '#/orders'; else render();
+}
+
+// While a customer is on a pending Payment page, poll the Supabase source of
+// truth so the UI moves to My Orders as soon as the webhook confirms payment.
+// Stops as soon as the user navigates away from this pay page.
+function schedulePayConfirmationPoll(routeOrderId, dbId) {
+  const attempts = 30, interval = 4000;
+  let n = 0;
+  const tick = async () => {
+    if (!location.hash.startsWith('#/pay/') || !location.hash.includes(routeOrderId)) return;
+    n++;
+    try { await loadOrdersFromSupabase(); } catch (e) { /* retry next tick; order stays visible */ }
+    const order = (state.orders || []).find(x => x.dbId === dbId || x.id === routeOrderId);
+    if (order && order.payment_status === 'success') {
+      toast('Payment successful — opening your orders…');
+      location.hash = '#/orders';
+      return;
+    }
+    if (n < attempts) setTimeout(tick, interval);
+  };
+  setTimeout(tick, interval);
+}
+
 async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
@@ -2154,8 +2293,18 @@ document.addEventListener('click', e=>{
     addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
     if(typeof supabase!=='undefined' && supabase && o.dbId){
       supabase.from('orders').update({ status:'Rider assigned', rider_id: state.rider.id }).eq('id',o.dbId)
-        .then(({ error })=>{ if(error){ console.error('Rider claim sync failed:', error); o.status=prevStatus; save(); } })
-        .catch(err=>console.error('Rider claim sync error:', err));
+        .then(async ({ error })=>{
+          if(error){ console.error('Rider claim sync failed:', error); o.status=prevStatus; save(); }
+          else {
+            // Refresh the Rider Hub from Supabase so the persisted assignment (rider_id =
+            // currentRider.id, status = 'Rider assigned')is the source of truth —
+            // the order moves from Available to Active deliveries without relying
+            // on the optimistic local mutation..
+            await loadOrdersFromSupabase();
+          }
+          render();
+        })
+        .catch(err=>{ console.error('Rider claim sync error:', err); render(); });
     }
     toast('Delivery added to your rider queue'); render();
   }}
@@ -2258,7 +2407,18 @@ document.addEventListener('click', e=>{
     toast(state.rider.available ? 'You are now online' : 'You are now offline', 'info');
     render();
   }
-  if(e.target.id==='logoutBtn'){state.user=null; save(); location.hash='#/'; toast('Signed out','info'); supabase.auth.signOut().catch(()=>{});}
+  if(e.target.id==='logoutBtn'){
+    // Clear ONLY this account's in-memory/session UI state. Supabase orders are
+    // never deleted/overwritten — they are reloaded fresh for the next sign-in..
+    state.user=null; state.rider=null; state.orders=[]; state.riderPool=[]; resetVendorSessionState(); save();
+    // Tear down any realtime channel bound to the previous user's session (recreated
+    // for the next sign-in by subscribeNotificationsRealtime()).
+    if(typeof supabase!=='undefined' && supabase){
+      if(state.notificationsChannel){ supabase.removeChannel(state.notificationsChannel).catch(()=>{}); state.notificationsChannel=null; }
+      supabase.auth.signOut().catch(()=>{});
+    }
+    location.hash='#/'; toast('Signed out','info');
+  }
 });
 
 document.addEventListener('submit', e=>{
@@ -2313,6 +2473,9 @@ document.addEventListener('submit', e=>{
             // Email confirmation is disabled — sign the user in immediately.
             state.user={name:full_name||email.split('@')[0],email,role:'user'};
             save();
+            resetVendorSessionState();
+            await loadRiderFromSupabase();
+            await loadOrdersFromSupabase();
             addNotification('You\'re signed in','Start exploring what\'s available around campus.');
             location.hash='#/';
             toast('Welcome to Dropzyy!');
@@ -2365,6 +2528,15 @@ document.addEventListener('submit', e=>{
           }
           state.user={name,email,role,vendor_id};
           save();
+          // A NEW session is established: drop any previous account's vendor
+          // dashboard/withdrawal state so ensureVendorLoaded() refetches for
+          // THIS user (never reuse a prior vendor's vendorLoaded === true).
+          resetVendorSessionState();
+          // Reload the rider record for THIS session, then the Rider Hub order pool
+          // (assigned orders included) from Supabase — never reuse a prior user's
+          // stale cached pool..
+          await loadRiderFromSupabase();
+          await loadOrdersFromSupabase();
           addNotification('You\'re signed in','Start exploring what\'s available around campus.');
           // A session now exists: load this user's notifications and start the
           // realtime subscription for them (no-op-safe, re-uses the channel).
@@ -2383,9 +2555,11 @@ document.addEventListener('submit', e=>{
     const subtotal=cartTotal();
     const fee=DELIVERY_FEE;
     const total=subtotal+fee;
-    const orderNumber=generateOrderNumber();
     const items=cartItems();
-    const order={id:orderNumber,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
+    // C5 cleanup: the client no longer generates a temporary order number.
+    // The place_order RPC generates the authoritative order number server-side;
+    // saveOrderToSupabase() overwrites order.id with it before persistence.
+    const order={id:null,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
     
     
     if (typeof supabase === 'undefined' || !supabase) {
@@ -2428,7 +2602,7 @@ document.addEventListener('submit', e=>{
 
 $('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
 $('#notifBtn').addEventListener('click',()=>{ $('#notifPanel').hidden=!$('#notifPanel').hidden; loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
-document.addEventListener('click',e=>{if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
+document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
 
 // Cross-tab sync: when another tab/page (e.g. the admin panel) writes to
 // localStorage, refresh the in-memory catalog and re-render so the customer
@@ -2468,6 +2642,10 @@ loadNotificationsFromSupabase();
 // and list update without a manual refresh. Falls back to the pull-based
 // loader above (panel open / login / boot) when Realtime is unavailable.
 subscribeNotificationsRealtime();
+// Paystack return: if the browser came back from Paystack with a payment
+// reference in the URL, refresh orders from Supabase and open My Orders.
+handlePaystackReturn();
+
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
@@ -2500,11 +2678,17 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         }
         state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole,vendor_id:(profile && profile.vendor_id) || null};
         save();
+        // Session restored: explicitly reload the rider record and the Rider Hub orders
+        // (pool + assigned orders) from Supabase for THIS user before rendering..
+        await loadRiderFromSupabase();
+        await loadOrdersFromSupabase();
         render();
       })
-      .catch(()=>{
+      .catch(async ()=>{
         state.user={name:session.user.email.split('@')[0],email:session.user.email,role:'user'};
         save();
+        await loadRiderFromSupabase();
+        await loadOrdersFromSupabase();
         render();
       });
   }

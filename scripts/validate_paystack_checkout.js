@@ -105,7 +105,14 @@ const assetsDir = path.join(root, "assets");
 check("no Paystack secret in frontend assets", !secretLeak);
 check("no service-role key in config.js", !/sb_secret_/i.test(config));
 check("no direct Paystack API in frontend", !/api\.paystack\.co.+\/transaction/i.test(app));
-check("no Paystack transfer code", !/transfer|initiate_transfer|split/i.test(hook) && !/transfer|initiate_transfer|split/i.test(init));
+// Strip comments first so prose like "transfers are not implemented"
+// cannot false-positive, and target actual Paystack Transfer/Split
+// concepts — NOT the JS String.prototype.split method (used e.g. to
+// parse the ALLOWED_ORIGIN allowlist).
+const hookCode = hook.replace(/\/\/[^\n]*/g, "");
+const initCode2 = init.replace(/\/\/[^\n]*/g, "");
+const transferRe = /\btransfers?\b|initiate_transfer|split_?payment|split_code|subaccount/i;
+check("no Paystack transfer code", !transferRe.test(hookCode) && !transferRe.test(initCode2));
 
 console.log("\n==============================");
 console.log(fail ? "PAYSTACK CHECKOUT VALIDATION FAILED" : "PAYSTACK CHECKOUT ALL CHECKS PASSED");

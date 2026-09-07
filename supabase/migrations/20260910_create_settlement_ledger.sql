@@ -1,6 +1,6 @@
 -- ============================================================
 -- 20260910_create_settlement_ledger.sql
--- B4B — Dropzyy settlement ledger
+-- B4B ï¿½ Dropzyy settlement ledger
 -- ============================================================
 -- Creates vendor_settlements, delivery_settlements, and refunds
 -- tables, plus a secure server-side settlement generation RPC.
@@ -23,7 +23,7 @@
 CREATE TABLE IF NOT EXISTS public.vendor_settlements (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES public.orders(id),
-  vendor_id uuid NOT NULL REFERENCES public.vendors(id),
+  vendor_id text NOT NULL REFERENCES public.vendors(id),
   amount numeric NOT NULL,
   status text NOT NULL DEFAULT 'pending',
   created_at timestamptz NOT NULL DEFAULT now(),
