@@ -106,10 +106,10 @@ Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `PAYSTACK_SECRET_KEY` | both | Paystack secret key (`sk_live_xxx` / `sk_test_xxx`) — authorize API calls + verify webhook signatures |
-| `SUPABASE_URL` | initialize | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | initialize | Service-role key — server-side only; reads/verifies the order before calling Paystack |
-| `ALLOWED_ORIGIN` | initialize | Comma-separated CORS origin allowlist, e.g. `https://dropzyyy.netlify.app,http://127.0.0.1:5500`. The request `Origin` is echoed back only when allowlisted — never a wildcard `*`. Defaults to exactly those two origins if unset. |
+| `PAYSTACK_SECRET_KEY` | all six | Paystack secret key (`sk_live_xxx` / `sk_test_xxx`) — authorizes Paystack API calls + verifies webhook signatures |
+| `SUPABASE_URL` | all six | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | all six | Service-role key — server-side only; used to read/verify orders/payments before calling Paystack or applying results |
+| `ALLOWED_ORIGIN` | initialize, refund, transfer, transfer-recipient | Comma-separated CORS origin allowlist, e.g. `https://dropzyyy.netlify.app,http://127.0.0.1:5500`. The request `Origin` is echoed back only when allowlisted — never a wildcard `*`. These four functions default to exactly those two origins if unset. The two Paystack webhooks do **not** use `ALLOWED_ORIGIN` (server-to-server). |
 
 > **No secret value is stored in this repository.** The Edge Functions
 > read them from `Deno.env.get(...)`. The publishable/anon key in
@@ -128,19 +128,45 @@ Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
   `x-paystack-signature` header using HMAC SHA512 + the Paystack secret,
   rejects invalid signatures with HTTP 401, and validates the event shape
   (`event`, `data.reference`, `data.status`) before acknowledging with
-  HTTP 200. It is a safe scaffold for B3: it does **not** mutate any
-  order status. Order success/failure handling and settlement are
-  deferred to B4.
+  HTTP 200. `charge.success` / `charge.failed` events are applied through
+  the secure, idempotent `handle_paystack_payment_success` /
+  `handle_paystack_payment_failed` RPCs, which re-verify the amount and
+  currency server-side before updating `payments` / `orders`.
 
-### Deploy
+### Deploy the Edge Functions
+
+Deploy **all six** functions. There is no `supabase/config.toml` in this
+repository, so the JWT-verification mode is controlled by the per-deploy
+flag (`--no-verify-jwt`).
 
 ```bash
+# Browser-facing functions — keep normal JWT verification (NO flag).
+# Each authenticates the caller's Bearer JWT internally
+# (supabase.auth.getUser + role checks) and enforces the ALLOWED_ORIGIN
+# CORS allowlist (see "Required Edge Function secrets" above).
 supabase functions deploy paystack-initialize
-supabase functions deploy paystack-webhook
+supabase functions deploy paystack-refund
+supabase functions deploy paystack-transfer
+supabase functions deploy paystack-transfer-recipient
+
+# Paystack webhooks — Paystack's servers cannot send a Supabase JWT, so
+# JWT verification is DISABLED with --no-verify-jwt. Authentication is the
+# HMAC SHA512 x-paystack-signature check inside each function.
+supabase functions deploy paystack-webhook --no-verify-jwt
+supabase functions deploy paystack-transfer-webhook --no-verify-jwt
 ```
 
-The frontend checkout/payment UI is intentionally unchanged in B3 —
-wire-up of `paystack-initialize` to the checkout flow happens after B4.
+> **Deployment rules**
+> * The four browser-facing functions (`paystack-initialize`,
+>   `paystack-refund`, `paystack-transfer`,
+>   `paystack-transfer-recipient`) must keep **normal JWT verification** —
+>   never deploy them with `--no-verify-jwt`.
+> * The two webhook functions (`paystack-webhook`,
+>   `paystack-transfer-webhook`) must be deployed **with**
+>   `--no-verify-jwt`. If deployed with default JWT verification, Paystack's
+>   deliveries are rejected with HTTP 401 before the signature check can
+>   run: `charge.success` never confirms an order, and `transfer.success`
+>   never updates a transfer.
 
 
 ## Migration order

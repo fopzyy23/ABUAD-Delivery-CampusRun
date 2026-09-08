@@ -126,7 +126,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null };
 
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
@@ -233,6 +233,42 @@ const RIDER_FEE_SHARE = 0.8;
 function riderShareAmount(fee) {
   return Math.round((fee || DELIVERY_FEE) * RIDER_FEE_SHARE);
 }
+
+// ============================================
+// ABUAD hostels — single source of truth for the checkout
+// "Delivery location" select. The chosen hostel is sent to the
+// place_order RPC as part of the free-text `spot` field. The
+// orders.spot column has no enum/CHECK restriction, so these values
+// are stored exactly as listed here without any database change.
+// ============================================
+const HOSTELS = [
+  { group: 'Female Hostels', items: [
+    'Female Hall 1 — ABUAD Hostel',
+    'Female Hall 2 — WEMA Hostel',
+    'Female Hall 3 — NFH1 (New Female Hall 1)',
+    'Female Hall 4 — NFH2 (New Female Hall 2)',
+    'Female Hall 5',
+    'Female Medical Hall 1 — FMH1',
+    'Female Medical Hall 2 — FMH2',
+    'Female Medical Hall 3 — FMH3',
+    'Female Medical Hall 4 — FMH4',
+  ] },
+  { group: 'Other Hostels', items: [
+    'AMSH',
+    'Summer Hostel',
+  ] },
+  { group: 'Male Hostels', items: [
+    'Male Hall 1 — Jamaica',
+    'Male Hall 2 — Kuvuki',
+    'Male Hall 3 — Freshers Male Hostel',
+    'Male Hall 4',
+    'Male Hall 5',
+    'Male Hall 7',
+    'Male Medical Hall 1 — MMH1',
+    'Male Medical Hall 2 — MMH2',
+    'Male Medical Hall 3 — MMH3',
+  ] },
+];
 
 // ============================================
 // Rider Hub: load rider application status from Supabase
@@ -527,6 +563,17 @@ function formatFullDate(iso) {
 
 // Load the authenticated user's orders from Supabase (orders + order_items)
 // and map them into the existing frontend order shape. Supabase is the
+// Sort orders newest-first by the authoritative created_at timestamp so the
+// My Orders list is correct on every load/render regardless of order status,
+// vendor, delivery method, amount or insertion order.
+function sortOrdersNewestFirst(arr) {
+  return [...arr].sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return tb - ta;
+  });
+}
+
 // source of truth for order data (Rider Hub included); there is no restore
 // from localStorage for order history or the rider pool.
 async function loadOrdersFromSupabase() {
@@ -703,13 +750,14 @@ async function loadOrdersFromSupabase() {
     }
     state.riderPool = poolOrders;
 
-    // 5. Replace local orders entirely with the Supabase result. Supabase queries here are
+    // 5. Replace local orders entirely with the Supabase result, sorted
+    //    newest-first by created_at. Supabase queries here are
     //    scoped to the authenticated user (user_id = session.user.id), so this is the
     //    authoritative per-user order set. We do NOT merge with stale localStorage orders —
     //    that merge was the root cause of one user's orders leaking into another user's view
     //    after logout/login. Orders placed earlier in this session were persisted via the
     //    place_order RPC and are included in this Supabase result.
-    state.orders = supabaseOrders;
+    state.orders = sortOrdersNewestFirst(supabaseOrders);
 
     state.ordersLoadedFromSupabase = true;
     return true;
@@ -728,6 +776,185 @@ async function ensureOrdersLoaded() {
   }
 }
 
+// ============================================
+// Refunds from Supabase (customer-facing)
+// ============================================
+// Refunds are loaded per-user from Supabase. RLS (customers_read_own_refunds)
+// restricts rows to the caller's own orders only.
+async function loadRefundsFromSupabase() {
+  if (typeof supabase === 'undefined' || !supabase) {
+    state.refundsLoaded = true;
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      state.refunds = [];
+      state.refundsLoaded = true;
+      return false;
+    }
+    const { data, error } = await supabase
+      .from('refunds')
+      .select('id, order_id, amount, status, reason, gateway_refund_id, created_at, updated_at')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    state.refunds = data || [];
+    state.refundsLoaded = true;
+    return true;
+  } catch (err) {
+    console.error('Supabase refunds load failed:', err);
+    state.refunds = [];
+    state.refundsLoaded = true;
+    return false;
+  }
+}
+
+// Look up the latest refund for a given order.
+function getOrderRefund(orderDbId) {
+  if (!orderDbId || !state.refunds.length) return null;
+  return state.refunds.find(r => r.order_id === orderDbId) || null;
+}
+
+// Customer-friendly refund status label.
+function refundStatusLabel(status) {
+  const labels = {
+    requested: 'Refund requested',
+    approved: 'Refund approved',
+    processed: 'Refund processed',
+    failed: 'Refund failed',
+    rejected: 'Refund rejected',
+    pending: 'Refund pending'
+  };
+  return labels[status] || 'Refund status unknown';
+}
+
+// Submit a refund request for an order.
+// Calls the server-side request_refund RPC (ownership + eligibility validated
+// server-side). Sends ONLY the order ID and reason — never an amount or
+// payment reference. Returns true on a newly created request, 'existing' when
+// a refund already exists for the order, false on failure. Does not re-render;
+// the caller decides (the dedicated Refund Request page owns navigation).
+async function requestRefund(orderDbId, reason) {
+  if (!state.user) {
+    toast('Please sign in to request a refund', 'info');
+    location.hash = '#/login';
+    return false;
+  }
+  if (typeof supabase === 'undefined' || !supabase) {
+    toast('Supabase unavailable — could not submit refund request', 'error');
+    return false;
+  }
+  try {
+    const { data, error } = await supabase.rpc('request_refund', {
+      p_order_id: orderDbId,
+      p_reason: (reason || '').trim() || null
+    });
+    if (error) {
+      // Handle specific RPC errors
+      if (error.message && error.message.includes('does not belong to you')) {
+        toast('This order does not belong to you', 'error');
+      } else if (error.message && error.message.includes('no successful payment')) {
+        toast('This order is not eligible for a refund', 'error');
+      } else if (error.message && error.message.includes('not found')) {
+        toast('Order not found', 'error');
+      } else {
+        console.error('Refund request failed:', error);
+        toast('Refund request failed: ' + (error.message || 'Unknown error'), 'error');
+      }
+      return false;
+    }
+    // Success — data contains { refund_id, payment_id, order_id, amount, status, already_existed }
+    // Note: The server-side trigger (trg_refund_status_notify) creates the notification
+    // authoritatively when the refund row is inserted. We deliberately do NOT call
+    // addNotification() here to avoid duplicate notifications.
+    await loadRefundsFromSupabase();
+    if (data && data.already_existed) {
+      toast('A refund request already exists for this order', 'info');
+      return 'existing';
+    }
+    toast('Refund request submitted successfully', 'success');
+    return true;
+  } catch (err) {
+    console.error('Refund request error:', err);
+    toast('Refund request failed — please try again', 'error');
+    return false;
+  }
+}
+// ============================================
+// Dedicated full-page Refund Request view
+// ============================================
+// Route: #/refund/<order dbId>. Opened from BOTH My Orders and Order Details
+// via the shared [data-refund-request] handler, which navigates here instead
+// of opening the old popup modal (removed). Uses only existing Dropzyy
+// layout/CSS classes (.section/.container/.card/.split/.field/.textarea/...).
+const REFUND_REASON_MIN = 10;
+const REFUND_REASON_MAX = 500;
+
+async function refundRequestView(orderDbId) {
+  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.ordersLoadedFromSupabase) {
+    return `<section class="section container"><div class="page-head"><div><h1>Request a Refund</h1><p class="muted">Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
+  await ensureOrdersLoaded();
+  await loadRefundsFromSupabase();
+  const o = state.orders.find(x => x.dbId === orderDbId);
+  if (!o) return notFound();
+  const items = o.items || [];
+  const vnames = orderVendorNames(o);
+  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || '—');
+  const fee = o.fee != null ? o.fee : DELIVERY_FEE;
+  const total = o.total != null ? o.total : (o.subtotal != null ? o.subtotal + fee : null);
+  const itemLines = items.length ? items.map(it => {
+    const p = product(it.id);
+    const name = p ? p.name : (it.name || `Item #${it.id}`);
+    return `<li>${esc(name)} <span class="muted">× ${it.qty || 0}</span></li>`;
+  }).join('') : '<li class="muted">No items recorded for this order.</li>';
+  const successNotice = state.refundSuccessNotice === orderDbId
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ Refund request submitted</h3><p class="muted small mb-0">Your refund request has been sent to our team for review. You'll get a notification as soon as its status changes.</p></div>`
+    : '';
+  // Existing refund for this order → show its status; never allow another request.
+  const existingRefund = getOrderRefund(o.dbId);
+  if (existingRefund) {
+    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div>${successNotice}<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">A refund request already exists for this order, so another request can't be submitted.</p><p class="muted small mt-1 mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
+  }
+  // Backend remains authoritative: without a successful payment the
+  // request_refund RPC would reject the request, so don't offer the form.
+  if (o.payment_status !== 'success') {
+    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div><div class="card mt-2"><h3 class="mb-0">This order isn't eligible for a refund</h3><p class="muted small mb-0">Refunds can only be requested for orders whose payment was successful. The payment for this order is currently <b>${esc(o.payment_status || 'pending')}</b>.</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
+  }
+  return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1><p class="muted">Tell us what went wrong with this order and our team will review your request. Refunds are issued to your original payment method and the amount is determined by our system — you'll get a notification when the status changes.</p></div></div>${successNotice}<div class="split mt-2"><div class="card stack">
+    <form id="refundRequestForm" class="stack" novalidate>
+      <input type="hidden" name="orderDbId" value="${esc(orderDbId)}">
+      <div class="field"><label for="refundReasonInput">What went wrong with this order?</label><textarea class="textarea" id="refundReasonInput" name="reason" rows="6" maxlength="${REFUND_REASON_MAX}" placeholder="Please explain the issue with your order..."></textarea><div class="row row--between mt-1"><span class="muted xs" id="refundReasonError"></span><span class="muted xs" id="refundReasonCount">0 / ${REFUND_REASON_MAX}</span></div></div>
+      <p class="muted xs mb-0">By submitting, you request a full refund for this order. The refund amount is determined by our system from the order's payment.</p>
+      <button type="submit" class="btn btn--block" id="refundSubmitBtn">Submit Refund Request</button>
+      <a class="btn btn--ghost btn--block" href="#/orders">Cancel</a>
+    </form>
+  </div>
+  <aside class="card sticky-side stack">
+    <h3 class="mb-0">Order information</h3>
+    <div><span class="muted small">Order reference</span><div><b>Order #${esc(o.id)}</b></div></div>
+    <div><span class="muted small">Date</span><div><b>${esc(placedAt)}</b></div></div>
+    <div><span class="muted small">Items</span><ul class="muted small" style="padding-left:18px">${itemLines}</ul></div>
+    <div><span class="muted small">Vendor${items.length > 1 ? 's' : ''}</span><div><b>${esc(vnames)}</b></div></div>
+    <div><span class="muted small">Amount paid</span><div><b>${total != null ? money(total) : '—'}</b></div></div>
+    <div><span class="muted small">Payment status</span><div><span class="badge badge--success">${esc(o.payment_status)}</span></div></div>
+    <div class="divider"></div>
+    <a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View full order</a>
+  </aside></div></section>`;
+}
+// Refund status badge CSS class.
+function refundStatusBadgeClass(status) {
+  const classes = {
+    requested: 'badge--info',
+    approved: 'badge--brand',
+    processed: 'badge--success',
+    failed: 'badge--danger',
+    rejected: 'badge--danger',
+    pending: 'badge--info'
+  };
+  return classes[status] || 'badge--info';
+}
 // ============================================
 // Notifications from Supabase
 // ============================================
@@ -1259,7 +1486,7 @@ function resetVendorSessionState() {
 async function loadVendorDataFromSupabase() {
   state.vendorLoaded = true;
   state.vendorLoadError = null;
-  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return false;
+  if (!state.user || !state.user.vendor_id) return false; // vendor capability = linked vendor_id (multi-role)
   if (typeof supabase === 'undefined' || !supabase) return false;
   try {
     const vid = state.user.vendor_id;
@@ -1363,7 +1590,7 @@ async function ensureVendorLoaded() {
 // localStorage vendor_products copy is only a cache/fallback.
 async function refreshVendorProducts() {
   if (typeof supabase === 'undefined' || !supabase) return false;
-  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return false;
+  if (!state.user || !state.user.vendor_id) return false; // vendor capability = linked vendor_id (multi-role)
   try {
     const vid = state.user.vendor_id;
     const { data, error } = await supabase
@@ -1413,7 +1640,7 @@ async function nextVendorProductId() {
 // Handle the vendor Add/Edit product form. A hidden "id" field decides
 // between INSERT (new product) and UPDATE (own product only).
 async function submitVendorProductForm(form) {
-  if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) return;
+  if (!state.user || !state.user.vendor_id) return; // vendor capability = linked vendor_id (multi-role)
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
   const f = new FormData(form);
   const editId = (f.get('id') || '').toString().trim();
@@ -1701,7 +1928,7 @@ function checkout() {
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Delivery location</label><select class="select" name="location"><option>Hostel</option><option>Faculty / department</option><option>Library</option><option>Campus landmark</option></select></div><div class="field"><label>Hostel, room or landmark</label><input required class="input" name="spot" placeholder="e.g. Adams Hall, Room B12"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Hostel / Delivery location</label><select class="select" name="location" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label>Room, block or landmark</label><input required class="input" name="spot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 async function orders() {
@@ -1715,7 +1942,12 @@ async function orders() {
   if (!state.orders.length) {
     return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>')}</section>`;
   }
-  const cards = state.orders.map(o => {
+  // Always render newest-first by created_at (covers in-session drift after a
+  // new order is placed or refunds are refreshed).
+  const sortedOrders = sortOrdersNewestFirst(state.orders);
+  // Load refund data up front so each card can show a refund action or status.
+  if (typeof supabase !== 'undefined' && supabase) await loadRefundsFromSupabase();
+  const cards = sortedOrders.map(o => {
     const vnames = orderVendorNames(o);
     const cancellable = ['Order confirmed','Preparing'].includes(o.status);
     const reorderable = ['Delivered','Rated'].includes(o.status);
@@ -1725,7 +1957,16 @@ async function orders() {
     ).join('');
     const cancelBtn = cancellable ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel order</button>` : '';
     const reorderBtn = reorderable ? `<br><button class="link-btn small" data-reorder="${o.id}">🔁 Reorder</button>` : '';
-    return `<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':o.status==='Cancelled'?'danger':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+    // Refund action/status for this card. Mirrors orderView eligibility exactly:
+    // a successful payment + no existing/terminal refund. Request amount is NEVER
+    // sent from the client — the backend is authoritative.
+    const existingRefund = getOrderRefund(o.dbId);
+    const refundUi = existingRefund
+      ? `<br><span class="muted small">Refund: ${esc(refundStatusLabel(existingRefund.status))}</span>`
+      : (o.payment_status === 'success'
+          ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
+          : '');
+    return `<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':o.status==='Cancelled'?'danger':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
   }).join('');
   return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
@@ -1815,12 +2056,24 @@ async function orderView(id) {
     </tr>`;
   }).join('') : `<tr><td colspan="4" class="muted center">No items recorded for this order.</td></tr>`;
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
+  // Refund UI for this order
+  await loadRefundsFromSupabase();
+  const existingRefund = getOrderRefund(o.dbId);
+  const refundTerminal = existingRefund && ['processed','failed','rejected'].includes(existingRefund.status);
+  const canRequestRefund = o.payment_status === 'success' && !refundTerminal;
+  let refundUi = '';
+  if (existingRefund) {
+    refundUi = `<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p></div>`;
+  } else if (canRequestRefund) {
+    refundUi = `<div class="card mt-2"><h3 class="mb-0">Request a refund</h3><p class="muted small">If there's a problem with this order, you can request a full refund. All refunds are reviewed by our team.</p><button class="btn btn--block" data-refund-request="${esc(o.dbId)}">Request refund</button></div>`;
+  }
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card stack">
     <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div><span class="badge badge--${badge}">${esc(o.status)}</span></div>
     <p class="muted small mb-0">🏪 ${esc(vnames)} · ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} · 📍 ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : ''}</p>
     <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
     <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
+    ${refundUi}
   </div>
   <aside class="card sticky-side stack">
     <h3 class="mb-0">Order actions</h3>
@@ -2222,6 +2475,9 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
 async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
+  // Success banner on the Refund Request page is one-shot: cleared as soon as
+  // the customer navigates anywhere else.
+  if (parts[0] !== 'refund') state.refundSuccessNotice = null;
   let view;
   if (!parts.length) view = home();
   else if (parts[0]==='browse') view = browse();
@@ -2233,20 +2489,21 @@ async function render() {
   else if (parts[0]==='orders') view = await orders();
   else if (parts[0]==='track') view = await track(parts[1]);
   else if (parts[0]==='order' && parts[1]) view = await orderView(parts[1]);
+  else if (parts[0]==='refund' && parts[1]) view = await refundRequestView(decodeURIComponent(parts[1]));
   else if (parts[0]==='pay' && parts[1]) view = await pay(parts[1]);
   else if (parts[0]==='profile') view = profile();
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
   else if (parts[0]==='vendor') {
-    // Vendor dashboard gate: require Supabase auth + profile role='vendor'
-    // + a linked vendor_id. RLS on orders/products enforces that the data
+    // Vendor dashboard gate: require Supabase auth + a linked vendor_id
+    // (vendor capability). RLS on orders/products enforces that the data
     // returned belongs to this vendor only.
-    if (!state.user || state.user.role !== 'vendor' || !state.user.vendor_id) {
+    if (!state.user || !state.user.vendor_id) {
       view = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
         <span style="font-size:3rem">🏪</span>
         <h1 class="mt-1">Vendor dashboard</h1>
-        <p class="muted">Only accounts with the vendor role and a linked vendor can access this page.</p>
+        <p class="muted">Only accounts with a linked vendor can access this page.</p>
         <a class="btn mt-2" href="#/">Back to home</a>
       </div></div></section>`;
     } else {
@@ -2342,6 +2599,9 @@ document.addEventListener('click', e=>{
     }
     toast('Order cancelled','info'); render();
   }}
+  // Refund request: navigate to the dedicated Refund Request page (shared by
+  // the My Orders and Order Details entry points — no popup modal).
+  const refundReq=e.target.closest('[data-refund-request]'); if(refundReq){ location.hash = '#/refund/' + encodeURIComponent(refundReq.dataset.refundRequest); }
   const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.riderPool.find(x=>x.id===delivered.dataset.delivered); if(o){
     o.status='Delivered'; save();
     addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`);
@@ -2620,6 +2880,46 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// Refund Request page: form submit handling (delegated — the page is
+// re-rendered on every route change, so listeners live at document level).
+document.addEventListener('submit', async (e) => {
+  const form = e.target;
+  if (!form || form.id !== 'refundRequestForm') return;
+  e.preventDefault();
+  const dbId = form.querySelector('input[name="orderDbId"]').value;
+  const textarea = form.querySelector('textarea[name="reason"]');
+  const reason = (textarea ? textarea.value : '').trim();
+  const errEl = $('#refundReasonError');
+  const submitBtn = $('#refundSubmitBtn');
+  const fail = (msg) => { if (errEl) errEl.textContent = msg; toast(msg, 'error'); };
+  if (errEl) errEl.textContent = '';
+  // Complaint is required and must be meaningful (not a very short stub).
+  if (!reason) return fail('Please explain the issue with your order before submitting.');
+  if (reason.length < REFUND_REASON_MIN) return fail(`Please add a little more detail (at least ${REFUND_REASON_MIN} characters).`);
+  // Double-click / double-submission guard.
+  if (state.refundSubmitting) return;
+  state.refundSubmitting = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
+  let result = false;
+  try {
+    result = await requestRefund(dbId, reason);
+  } finally {
+    state.refundSubmitting = false;
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Refund Request'; }
+  }
+  // Re-render only on success so a failed attempt keeps the typed complaint.
+  if (result === true) { state.refundSuccessNotice = dbId; render(); }
+  else if (result === 'existing') { render(); }
+});
+
+// Live character counter for the refund complaint textarea.
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'refundReasonInput') {
+    const counter = $('#refundReasonCount');
+    if (counter) counter.textContent = `${e.target.value.length} / ${REFUND_REASON_MAX}`;
+  }
+});
+
 document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear(); window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
@@ -2651,7 +2951,7 @@ handlePaystackReturn();
 // keeps the user signed in (and restores their profile name).
 supabase.auth.getSession().then(({ data: { session } }) => {
   if(session && session.user){
-    supabase.from('profiles').select('full_name').eq('id', session.user.id).single()
+    supabase.from('profiles').select('full_name, role, vendor_id').eq('id', session.user.id).single()
       .then(async ({ data: profile }) => {
         const userRole = (profile && profile.role) || 'user';
         if(!profile){

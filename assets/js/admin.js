@@ -20,7 +20,10 @@ let state = {
   users: [],
   withdrawals: [],
   withdrawalsLoading: false,
-  withdrawalsError: null
+  withdrawalsError: null,
+  refunds: [],
+  refundsLoading: false,
+  refundsError: null
 };
 
 // Order filtering state (presentational only — the full order set is always
@@ -691,6 +694,8 @@ async function init() {
   // Withdrawal requests are always refreshed on admin entry so newly
   // submitted rider requests appear even after the first lazy load.
   await loadWithdrawalsFromSupabase();
+  // Refund requests are always refreshed on admin entry.
+  await loadRefundsFromSupabase();
   // If orders failed to load, the error banner renders here.
   renderAdminWorkspace();
   return true;
@@ -1213,6 +1218,33 @@ function renderAdminWorkspace() {
           </table>
         </div>
       </div>
+
+      <!-- Refund Management Section -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Refund Requests</h3>
+          <span class="muted small">Review, approve/reject, and execute refunds</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Refund ID</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Reason</th>
+                <th>Requested</th>
+                <th>Approve</th>
+                <th>Reject</th>
+                <th>Execute</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderRefundRows()}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   `;
 
@@ -1345,6 +1377,34 @@ function attachAdminEventListeners() {
       assignUserToVendor(userId, vendorId);
     });
   });
+
+  // Approve a refund request
+  document.querySelectorAll('[data-approve-refund]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('Approve this refund request? This will mark it as approved and ready for execution.')) {
+        approveRefund(btn.dataset.approveRefund);
+      }
+    });
+  });
+
+  // Reject a refund request (with reason prompt)
+  document.querySelectorAll('[data-reject-refund]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const reason = prompt('Reason for rejection (optional):') || '';
+      if (confirm(`Reject this refund request${reason ? ' with reason: ' + reason : ''}?`)) {
+        rejectRefund(btn.dataset.rejectRefund, reason);
+      }
+    });
+  });
+
+  // Execute an approved refund via Paystack Edge Function
+  document.querySelectorAll('[data-execute-refund]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('Execute this refund through Paystack? This will initiate an actual refund transaction. This action cannot be undone.')) {
+        executeRefund(btn.dataset.executeRefund);
+      }
+    });
+  });
 }
 
 function editVendor(vendorId) {
@@ -1399,8 +1459,10 @@ async function loadAssignableUsers() {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, vendor_id')
-      .eq('role', 'user')
+      .select('id, full_name, email, role, vendor_id')
+      // No role filter: any existing account (user/admin/rider) may be
+      // assigned a vendor capability — capabilities are additive, so an
+      // admin assigned as a vendor keeps the admin role.
       .order('full_name', { ascending: true });
     if (error) throw error;
     state.users = data || [];
@@ -1566,6 +1628,140 @@ function renderWithdrawalRows() {
 }
 
 // ============================================
+// Refund Management (admin)
+// ============================================
+// Load refunds from Supabase. Admins read all refunds via RLS.
+async function loadRefundsFromSupabase() {
+  if (!supabaseAvailable()) {
+    state.refundsLoading = false;
+    state.refundsError = 'Supabase unavailable';
+    return null;
+  }
+  state.refundsLoading = true;
+  state.refundsError = null;
+  try {
+    const { data, error } = await supabase
+      .from('refunds')
+      .select('id, order_id, payment_id, amount, status, reason, gateway_refund_id, created_at, updated_at')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    state.refunds = data || [];
+    state.refundsLoading = false;
+    return data;
+  } catch (err) {
+    console.error('Failed to load refunds:', err);
+    state.refundsLoading = false;
+    state.refundsError = err.message || 'Unknown error';
+    state.refunds = [];
+    return null;
+  }
+}
+
+// Approve a refund request (admin only).
+async function approveRefund(refundId) {
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  try {
+    const { error } = await supabase.rpc('approve_refund', { p_refund_id: refundId });
+    if (error) throw error;
+    toast('Refund approved');
+    await loadRefundsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Approve refund failed:', err);
+    toast('Approve failed: ' + (err.message || 'Unknown error'), 'error');
+    return false;
+  }
+}
+
+// Reject a refund request with reason (admin only).
+async function rejectRefund(refundId, reason) {
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  try {
+    const { error } = await supabase.rpc('reject_refund', { p_refund_id: refundId, p_reason: (reason || '').trim() || null });
+    if (error) throw error;
+    toast('Refund rejected');
+    await loadRefundsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Reject refund failed:', err);
+    toast('Reject failed: ' + (err.message || 'Unknown error'), 'error');
+    return false;
+  }
+}
+
+// Execute an approved refund via the Paystack Edge Function.
+async function executeRefund(refundId) {
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required', 'error'); return false; }
+    const token = session.access_token;
+    const edgeUrl = window.SUPABASE_EDGE_URL + '/functions/v1/paystack-refund';
+    const res = await fetch(edgeUrl, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refund_id: refundId })
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 500) {
+        toast('Refund Edge Function not deployed. Deploy with: supabase functions deploy paystack-refund', 'error');
+      } else {
+        toast(result.error || ('Refund execution failed (' + res.status + ')'), 'error');
+      }
+      await loadRefundsFromSupabase();
+      renderAdminWorkspace();
+      return false;
+    }
+    toast(result.message || 'Refund processed successfully');
+    await loadRefundsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Refund execution error:', err);
+    toast('Refund execution failed — please try again', 'error');
+    return false;
+  }
+}
+
+// Refund status badge for admin table.
+function refundStatusBadge(status) {
+  const map = { requested: 'warn', approved: 'info', processed: 'success', failed: 'danger', rejected: 'danger', pending: 'warn' };
+  const labels = { requested: 'Requested', approved: 'Approved', processed: 'Processed', failed: 'Failed', rejected: 'Rejected', pending: 'Pending' };
+  return `<span class="badge badge--${map[status] || 'warn'}">${labels[status] || status}</span>`;
+}
+
+// Render the refunds table body.
+function renderRefundRows() {
+  if (state.refundsLoading && !state.refunds.length) {
+    return '<tr><td colspan="8" class="muted center">Loading refund requests…</td></tr>';
+  }
+  if (!state.refundsLoading && state.refundsError) {
+    return `<tr><td colspan="8" class="muted center">Could not load refunds (${String(state.refundsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+  }
+  if (!state.refunds.length) {
+    return '<tr><td colspan="8" class="muted center">No refund requests yet.</td></tr>';
+  }
+  return state.refunds.map(r => {
+    const canApprove = r.status === 'requested';
+    const canReject = r.status === 'requested';
+    const canExecute = r.status === 'approved';
+    return `
+      <tr data-refund-row="${r.id}">
+        <td><b>${r.id.slice(0, 8)}...</b><div class="muted small">${r.order_id ? r.order_id.slice(0, 8) + '...' : '—'}</div></td>
+        <td><b>${money(r.amount)}</b></td>
+        <td>${refundStatusBadge(r.status)}</td>
+        <td class="muted small">${r.reason ? esc(r.reason).slice(0, 60) + (r.reason.length > 60 ? '…' : '') : '—'}</td>
+        <td class="muted small">${r.created_at ? new Date(r.created_at).toLocaleDateString('en-NG') : '—'}</td>
+        <td>${canApprove ? `<button class="link-btn" data-approve-refund="${r.id}">Approve</button>` : '<span class="muted small">—</span>'}</td>
+        <td>${canReject ? `<button class="link-btn btn--danger" data-reject-refund="${r.id}">Reject</button>` : '<span class="muted small">—</span>'}</td>
+        <td>${canExecute ? `<button class="link-btn" data-execute-refund="${r.id}">Execute</button>` : '<span class="muted small">—</span>'}</td>
+      </tr>`;
+  }).join('');
+}
+// ============================================
 // Exposed API for the unified admin flow
 // ============================================
 // The admin panel is embedded inside the main app (index.html) rather than a
@@ -1595,6 +1791,7 @@ window.AdminHub = {
   loadRiders,
   loadWithdrawals,
   loadWithdrawalsFromSupabase,
+  loadRefundsFromSupabase,
   reviewWithdrawal,
   approveRider,
   rejectRider,

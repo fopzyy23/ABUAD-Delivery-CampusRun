@@ -119,12 +119,12 @@ let leak = false;
   }
 })(assetsDir);
 check("no secret in assets", !leak);
-console.log("\n==============================");
-console.log(fail ? "B4B VALIDATION FAILED" : "B4B ALL CHECKS PASSED");
-console.log("==============================");
-process.exit(fail ? 1 : 0);
 check("order_id fk", /order_id uuid NOT NULL REFERENCES public\.orders/i.test(mig));
 check("amount", /amount numeric NOT NULL/i.test(mig));
 check("status default pending", /status text NOT NULL DEFAULT 'pending'/i.test(mig));
 check("reason", /reason text/i.test(mig));
 check("gateway_refund_id", /gateway_refund_id text/i.test(mig));
+console.log("\n==============================");
+console.log(fail ? "B4B VALIDATION FAILED" : "B4B ALL CHECKS PASSED");
+console.log("==============================");
+process.exit(fail ? 1 : 0);

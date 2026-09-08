@@ -106,16 +106,18 @@ let leak = false;
   }
 })(assetsDir);
 check("no secret in assets", !leak);
-console.log("\n==============================");
-console.log(fail ? "B4A VALIDATION FAILED" : "B4A ALL CHECKS PASSED");
-console.log("==============================");
-process.exit(fail ? 1 : 0);
 check("no direct payments update", !/\.from\("payments"\)[\s\S]?\.update/.test(hook));
-check("no-op on success", /status === 'success'[\s\S]*?already success[\s\S]*?no-op/.test(hook));
-check("200 on no-op", /status === 'success'[\s\S]*?200/.test(hook));
+// Quote-tolerant: the webhook is TypeScript (double quotes); the behaviour
+// under test is the idempotent already-success no-op returning HTTP 200.
+check("no-op on success", /status === ['"]success['"][\s\S]*?already success[\s\S]*?no-op/.test(hook));
+check("200 on no-op", /status === ['"]success['"][\s\S]*?200/.test(hook));
 check("success sets ok", /handle_paystack_payment_success[\s\S]*?payment_status = 'success'/i.test(mig));
 check("success paid_at", /handle_paystack_payment_success[\s\S]*?paid_at = now/i.test(mig));
 check("failed no-overwrite", /handle_paystack_payment_failed[\s\S]*?status = 'success' THEN RETURN/i.test(mig));
 check("failed sets failed", /handle_paystack_payment_failed[\s\S]*?payment_status = 'failed'/i.test(mig));
 check("pending amount", /create_pending_payment[\s\S]*?p_amount != v_order_total/i.test(mig));
 check("pending idempotency", /create_pending_payment[\s\S]*?reference = p_reference[\s\S]*?IF FOUND THEN/i.test(mig));
+console.log("\n==============================");
+console.log(fail ? "B4A VALIDATION FAILED" : "B4A ALL CHECKS PASSED");
+console.log("==============================");
+process.exit(fail ? 1 : 0);

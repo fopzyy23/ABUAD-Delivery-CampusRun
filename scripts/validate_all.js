@@ -68,6 +68,7 @@ const structural = [
   'scripts/validate_action12.js',
   'scripts/validate_vendor_product_crud.js',
   'scripts/validate_notifications.js',
+  'scripts/validate_refund.js',
   'scripts/validate_seed_sync.js'
 ];
 for (const rel of structural) {

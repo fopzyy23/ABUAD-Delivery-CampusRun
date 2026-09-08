@@ -720,23 +720,35 @@ All scripts use Node.js with Supabase client. Run via `node scripts/validate_all
 ## 18. Deployment & CI/CD
 
 ### GitHub Actions (`.github/workflows/validate.yml`)
-1. Triggers on push to `main` and PRs
-2. Sets up Node.js 18
-3. Installs dependencies
-4. Runs validation scripts
-5. Posts status to PR
-6. Deploys to Vercel on successful merge
+1. Triggers on push and pull requests
+2. Sets up Node.js 20
+3. Runs `node scripts/validate_all.js` — dependency-free: `node --check` over every project JS file plus all offline structural validators
+4. Runs `node scripts/validate_all.js --live` on manual dispatch (`workflow_dispatch`) only
+5. **No deploy step in CI.** The static site is hosted on **Netlify** (`netlify.toml` + `_redirects`); Supabase migrations and Edge Functions are deployed manually with the Supabase CLI (below).
 
 ### Supabase Migration & Function Deployment
 ```bash
 supabase login
 supabase db push
+
+# Edge Functions — deploy ALL SIX.
+# The four browser-facing functions keep normal JWT verification (NO flag);
+# they are called with a user/admin Bearer JWT and enforce ALLOWED_ORIGIN.
 supabase functions deploy paystack-initialize
-supabase functions deploy paystack-webhook
+supabase functions deploy paystack-refund
 supabase functions deploy paystack-transfer
 supabase functions deploy paystack-transfer-recipient
-supabase functions deploy paystack-transfer-webhook
-supabase secrets set PAYSTACK_SECRET_KEY=sk_... PAYSTACK_WEBHOOK_SECRET=whsec_...
+
+# The two Paystack webhooks must be deployed with --no-verify-jwt — Paystack
+# sends no Supabase JWT. HMAC SHA512 x-paystack-signature verification
+# inside each function is the authentication.
+supabase functions deploy paystack-webhook --no-verify-jwt
+supabase functions deploy paystack-transfer-webhook --no-verify-jwt
+
+# Secrets (never committed): PAYSTACK_SECRET_KEY, SUPABASE_URL and
+# SUPABASE_SERVICE_ROLE_KEY on all six functions; ALLOWED_ORIGIN on the
+# four browser-facing functions (webhooks do not use it).
+supabase secrets set PAYSTACK_SECRET_KEY=sk_... SUPABASE_URL=https://<project-ref>.supabase.co SUPABASE_SERVICE_ROLE_KEY=... ALLOWED_ORIGIN=https://dropzyyy.netlify.app,http://127.0.0.1:5500
 ```
 
 ## 19. Quick Start
@@ -752,17 +764,21 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 
 # Deploy Edge Functions
+# (the two webhooks MUST use --no-verify-jwt; the other four keep normal
+#  JWT verification — no flag)
 supabase functions deploy paystack-initialize
-supabase functions deploy paystack-webhook
+supabase functions deploy paystack-refund
 supabase functions deploy paystack-transfer
 supabase functions deploy paystack-transfer-recipient
-supabase functions deploy paystack-transfer-webhook
+supabase functions deploy paystack-webhook --no-verify-jwt
+supabase functions deploy paystack-transfer-webhook --no-verify-jwt
 
 # Set Secrets
 supabase secrets set \
   PAYSTACK_SECRET_KEY=sk_... \
-  PAYSTACK_WEBHOOK_SECRET=whsec_... \
-  SUPABASE_SERVICE_ROLE_KEY=...
+  SUPABASE_URL=https://<project-ref>.supabase.co \
+  SUPABASE_SERVICE_ROLE_KEY=... \
+  ALLOWED_ORIGIN=https://dropzyyy.netlify.app,http://127.0.0.1:5500
 
 # Run validation
 node scripts/validate_all.js
