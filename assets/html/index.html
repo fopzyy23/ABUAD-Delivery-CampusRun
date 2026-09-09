@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f9d76" />
+  <meta name="theme-color" content="#FFFFFF" />
   <meta name="description" content="Dropzyy — anything you need around campus, delivered to you by another student." />
   <title>Dropzyy · Campus Delivery for Students</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/styles.css" />
   <link rel="stylesheet" href="../css/admin.css" />
 </head>
@@ -46,7 +46,7 @@
 
         <div class="dropdown" id="userWrap">
           <button class="avatar-btn" id="userBtn" aria-label="Account">
-            <span id="userAvatar" class="avatar">👤</span>
+            <span id="userAvatar" class="avatar"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
           </button>
           <div class="dropdown__panel" id="userPanel" hidden></div>
         </div>
@@ -65,19 +65,16 @@
           <span class="brand__logo">🛵</span>
           <span class="brand__text">Drop<span>zyy</span></span>
         </div>
-        <p class="muted">Anything you need around campus, delivered to you by another student.</p>
       </div>
       <div class="footer__links">
         <a href="#/vendors">Restaurants & Vendors</a>
         <a href="#/browse">Browse items</a>
         <a href="#/rider/apply">Become a rider</a>
         <a href="#/orders">My orders</a>
-        <!-- Admin link shown only for admins (role check via JavaScript in app.js) -->
-        <a href="#/admin" id="adminLink">Admin</a>
       </div>
     </div>
     <div class="container footer__base muted">
-      <span>© <span id="year"></span> Dropzyy · Student-powered campus delivery</span>
+      <span>© <span id="year"></span> Dropzyy — student-powered campus delivery</span>
     </div>
   </footer>
 

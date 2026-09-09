@@ -1271,6 +1271,41 @@ function vendorCard(v) {
     </div>
   </a>`;
 }
+
+
+// Restaurant/vendor showcase card for the homepage. Rendered from the SAME
+// vendor data as the rest of the site (Supabase → localStorage fallback), so
+// vendor data is never duplicated. The card image prefers the vendor's own
+// `image` field.
+function homeVendorCard(v, i) {
+  const status = vendorOpenStatus(v);
+  const img = safeImageUrl(v.image);
+  const rating = Number(v.rating) || 0;
+  const stars = Math.max(0, Math.min(5, Math.round(rating)));
+  const ratingBlock = v.rating
+    ? `<span class="showcase-card__rating" aria-label="Rated ${rating.toFixed(1)} out of 5"><span class="stars" aria-hidden="true">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</span><b>${esc(v.rating)}</b></span>`
+    : '';
+  return `<article class="showcase-card">
+    <a class="showcase-card__media" href="#/vendor/${esc(v.id)}" aria-label="View menu of ${esc(v.name)}">
+      <span class="showcase-card__fallback">${esc(v.icon)}</span>
+      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)} restaurant" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="badge badge--brand">${esc(v.type)}</span>
+      ${status.open ? '' : '<span class="showcase-card__closed">Closed</span>'}
+    </a>
+    <div class="showcase-card__body">
+      <div class="showcase-card__top">
+        <h3><a href="#/vendor/${esc(v.id)}">${esc(v.name)}</a></h3>
+        ${ratingBlock}
+      </div>
+      <div class="showcase-card__meta">${esc(v.type)}${v.time ? ` • ${esc(v.time)}` : ''}</div>
+      ${v.description ? `<p class="showcase-card__desc">${esc(v.description)}</p>` : ''}
+      <div class="showcase-card__foot">
+        <span class="showcase-card__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? '● Open now' : '○ Closed'}${status.hint ? ` · ${esc(status.hint)}` : ''}</span>
+        <a class="btn btn--soft btn--sm" href="#/vendor/${esc(v.id)}">View Menu</a>
+      </div>
+    </div>
+  </article>`;
+}
 function empty(icon, title, copy, action = '') { return `<div class="empty"><div class="empty__icon">${icon}</div><b>${title}</b><span>${copy}</span>${action}</div>`; }
 
 // Shown when the live Supabase catalog could not be fetched and the customer
@@ -1287,11 +1322,242 @@ function orderVendorNames(o) {
   return names.length ? names.join(', ') : 'Campus vendor';
 }
 
+// ---- Homepage "Popular on Campus" vendor carousel (presentation-only) ----
+// Page-based carousel over the SAME vendor data rendered by homeVendorCard.
+// Cards per page come from the CSS --vper variable (4 desktop / 3 tablet /
+// 2 small tablet / 1 phone), so the same markup is genuinely responsive.
+// Rotates every ~5s, pauses while hovered, while the tab is hidden or while
+// off-screen (IntersectionObserver), and resets its timer on manual
+// navigation. With one page or fewer than one page of vendors the controls
+// are hidden and it renders as a static row. Reduced-motion users get an
+// instant (non-animated) slide via CSS.
+let vendorCarouselState = null;
+function initVendorCarousel() {
+  if (vendorCarouselState) {
+    clearInterval(vendorCarouselState.timer);
+    if (vendorCarouselState.io) vendorCarouselState.io.disconnect();
+    if (vendorCarouselState.ro) vendorCarouselState.ro.disconnect();
+    vendorCarouselState = null;
+  }
+  const root = document.getElementById('vendorCarousel');
+  const viewport = document.getElementById('vendorViewport');
+  const track = document.getElementById('vendorTrack');
+  const dotsWrap = document.getElementById('vendorDots');
+  const controls = document.getElementById('vendorControls');
+  const prevBtn = document.getElementById('vendorPrev');
+  const nextBtn = document.getElementById('vendorNext');
+  if (!root || !viewport || !track || !dotsWrap || !controls || !prevBtn || !nextBtn) return;
+  const cardCount = track.children.length;
+  if (!cardCount) return;
+  const perView = () => parseInt(getComputedStyle(track).getPropertyValue('--vper'), 10) || 4;
+  const gap = () => parseFloat(getComputedStyle(track).columnGap) || 0;
+  const pageCount = () => Math.max(1, Math.ceil(cardCount / perView()));
+  const maxOffset = () => Math.max(0, track.scrollWidth - viewport.clientWidth);
+  let page = 0;
+  const st = { timer: null, io: null, ro: null, hovered: false, visible: true };
+  vendorCarouselState = st;
+  function apply() {
+    // Page 1 starts after perView cards + perView gaps, so the shift per page
+    // is viewport + one gap. The last (possibly partial) page is clamped so
+    // cards never overflow the viewport edge.
+    const offset = Math.min(page * (viewport.clientWidth + gap()), maxOffset());
+    track.style.transform = `translateX(${-offset}px)`;
+    Array.from(dotsWrap.children).forEach((d, i) => d.classList.toggle('is-active', i === page));
+  }
+  function goTo(p) { page = ((p % pageCount()) + pageCount()) % pageCount(); apply(); }
+  function rebuildDots() {
+    dotsWrap.innerHTML = Array.from({ length: pageCount() }, (_, i) =>
+      `<button class="vcarousel__dot${i === page ? ' is-active' : ''}" type="button" aria-label="Go to vendor group ${i + 1}"></button>`).join('');
+  }
+  function startTimer() {
+    clearInterval(st.timer);
+    st.timer = setInterval(() => {
+      if (st.hovered || document.hidden || !st.visible) return;
+      goTo(page + 1);
+    }, 5000);
+  }
+  rebuildDots();
+  apply();
+  if (pageCount() > 1) {
+    controls.hidden = false;
+    prevBtn.addEventListener('click', () => { goTo(page - 1); startTimer(); });
+    nextBtn.addEventListener('click', () => { goTo(page + 1); startTimer(); });
+    dotsWrap.addEventListener('click', e => {
+      const d = e.target.closest('.vcarousel__dot');
+      if (!d) return;
+      goTo(Array.from(dotsWrap.children).indexOf(d));
+      startTimer();
+    });
+    root.addEventListener('mouseenter', () => { st.hovered = true; });
+    root.addEventListener('mouseleave', () => { st.hovered = false; });
+    if ('IntersectionObserver' in window) {
+      st.io = new IntersectionObserver(entries => { st.visible = entries[0].isIntersecting; }, { threshold: 0.2 });
+      st.io.observe(root);
+    }
+    if ('ResizeObserver' in window) {
+      st.ro = new ResizeObserver(() => {
+        if (page >= pageCount()) page = pageCount() - 1;
+        rebuildDots();
+        apply();
+      });
+      st.ro.observe(viewport);
+    }
+    startTimer();
+  } else {
+    controls.hidden = true;
+  }
+}
+
 function home() {
   const vcount = data().vendors.length;
-  const drinks = data().products.filter(p => p.category === 'Drinks');
   const books = data().products.filter(p => p.category === 'Bookshop');
-  return `${catalogBanner()}<section class="hero"><div class="container hero__inner"><div><span class="hero__eyebrow">⚡ Built by students, for students</span><h1>Anything on campus.<br>At your door.</h1><p>Food, books, essentials and more — delivered by a fellow student whenever you need it.</p><form class="searchbar" id="heroSearch"><span>🔎</span><input name="q" placeholder="Search food, snacks, books..." autocomplete="off"><button class="btn btn--accent" type="submit">Find it</button></form><div class="hero__stats"><div class="hero__stat"><b>25 min</b><span>average delivery</span></div><div class="hero__stat"><b>${vcount}</b><span>campus restaurants</span></div><div class="hero__stat"><b>₦1,000</b><span>delivery from</span></div></div></div><div class="hero__art"><div class="hero__card"><span>🍜</span><div><b>Order placed</b><small>Indomie Special from Staff Caf.</small></div><em>✓</em></div><div class="hero__card"><span>🛵</span><div><b>Rider on the way</b><small>Your rider is 4 mins away</small></div><em>→</em></div><div class="hero__card"><span>🏠</span><div><b>Delivered to your hostel</b><small>Enjoy your order!</small></div><em>★</em></div></div></div></section><section class="section container"><div class="page-head"><div><h2>What do you need today?</h2><p>Pick a category and get it delivered around campus.</p></div></div><div class="grid grid--4">${[['🍔','Food','Fresh campus favourites','Food'],['🍞','Hostel meals','Quick & filling','Meals'],['🍿','Snacks','Study fuel','Snacks'],['🥤','Drinks','Cold beverages & refreshments','Drinks'],['📚','Book Shop','Textbooks & materials','Bookshop']].map((c,i)=>`<a class="cat" href="#/browse?cat=${c[3]}"><span class="cat__icon">${c[0]}</span><b>${c[1]}</b><small>${c[2]}</small></a>`).join('')}</div></section><section class="section container"><div class="page-head"><div><h2>Popular around campus</h2><p>Student favourites, ready when you are.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">See all items →</a></div><div class="grid grid--4">${data().products.slice(0,4).map(productCard).join('')}</div></section>${drinks.length?`<section class="section container"><div class="page-head"><div><h2>🥤 Drinks & Beverages</h2><p>Cold drinks, juices and refreshments delivered fast.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Drinks">View all drinks →</a></div><div class="grid grid--4">${drinks.slice(0,4).map(productCard).join('')}</div></section>`:''}${books.length?`<section class="section container"><div class="page-head"><div><h2>📚 Book Shop</h2><p>Textbooks, stationery and study essentials.</p></div><a class="btn btn--ghost btn--sm" href="#/browse?cat=Bookshop">Visit the Book Shop →</a></div><div class="grid grid--4">${books.slice(0,4).map(productCard).join('')}</div></section>`:''}<section class="section container"><div class="page-head"><div><h2>Campus restaurants</h2><p>Reliable campus kitchens students love.</p></div><a class="btn btn--ghost btn--sm" href="#/vendors">View restaurants →</a></div><div class="scroll-x">${data().vendors.map(vendorCard).join('')}</div></section>`;
+  return `${catalogBanner()}
+<section class="dropzyy-hero">
+  <div class="container dropzyy-hero__inner">
+    <div class="dropzyy-hero__copy hero-text">
+      <h1 class="dropzyy-hero__title">Caf 2 is far. <span class="dropzyy-hero__title-hl">We know.</span></h1>
+      <p class="dropzyy-hero__sub">Order food, drinks, textbooks, or a late-night snack and have another student bring it to your hostel, lecture hall, or wherever you&rsquo;re posted. Track your rider the whole way.</p>
+      <div class="dropzyy-hero__actions">
+        <a class="btn btn--lg dropzyy-hero__cta" href="#/browse">Start an order</a>
+        <a class="btn btn--lg btn--ghost dropzyy-hero__cta-2" href="#/rider/apply">Ride with us &rarr;</a>
+      </div>
+      <div class="dropzyy-hero__hinted">
+        <span class="dropzyy-hero__hinted-label">Jump straight to:</span>
+        <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Food"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11c0-3.3 3.6-5.5 8-5.5s8 2.2 8 5.5"/><path d="M3.5 11h17"/><path d="M4.5 14.5h15V16a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-1.5z"/></svg>Food</a>
+        <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Drinks"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8.5h11L16 21H8L6.5 8.5z"/><path d="M10 8.5L15.5 3"/><path d="M7 12.5h10"/></svg>Drinks</a>
+        <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Bookshop"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Books</a>
+        <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Snacks"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 9.5h11L16.1 20.5H7.9L6.5 9.5z"/><circle cx="9" cy="6" r="2.1"/><circle cx="12" cy="4.8" r="2.3"/><circle cx="15" cy="6" r="2.1"/></svg>Snacks</a>
+      </div>
+    </div>
+    <div class="dropzyy-hero__visual hero-visual">
+      <!-- Rider illustration — right column, above the live-tracking card -->
+      <svg class="dropzyy-hero__art" viewBox="0 0 340 250" aria-hidden="true" focusable="false">
+        <ellipse class="art-blob" cx="182" cy="140" rx="156" ry="102"/>
+        <path class="art-speed" d="M8 116h40"/>
+        <path class="art-speed" d="M2 138h32"/>
+        <path class="art-speed" d="M14 160h26"/>
+        <path class="art-ground" d="M28 226h284"/>
+        <circle class="art-ink" cx="92" cy="194" r="30"/>
+        <circle class="art-pink" cx="92" cy="194" r="10"/>
+        <circle class="art-ink" cx="272" cy="194" r="30"/>
+        <circle class="art-pink" cx="272" cy="194" r="10"/>
+        <path class="art-ink" d="M92 194l34-64h22l38 40h52"/>
+        <path class="art-ink" d="M186 170l16-50 58-22"/>
+        <path class="art-ink" d="M260 98l12 96"/>
+        <path class="art-ink" d="M260 98l-14-16 12-8"/>
+        <path class="art-ink art-seat" d="M116 128l40-6"/>
+        <circle class="art-tang" cx="256" cy="102" r="7"/>
+        <rect class="art-box" x="26" y="92" width="62" height="54" rx="6"/>
+        <path class="art-ink art-thin" d="M57 92v54"/>
+        <path class="art-ink art-thin" d="M26 112h62"/>
+        <path class="art-ink" d="M154 130l36-56"/>
+        <path class="art-ink" d="M154 130l42 10-6 24"/>
+        <path class="art-ink" d="M186 76l38 6 22-8"/>
+        <circle class="art-helmet" cx="198" cy="52" r="18"/>
+        <path class="art-visor" d="M210 46a11 11 0 0 1 5 10"/>
+      </svg>
+      <div class="dropzyy-hero__waybill" aria-label="Live tracking example">
+      <div class="dropzyy-hero__waybill-inner">
+        <div class="dropzyy-hero__waybill-head">
+          <span class="dropzyy-hero__waybill-tag">Live tracking</span>
+          <span class="dropzyy-hero__waybill-code" data-tracking>DZ-4417LG</span>
+        </div>
+        <div class="dropzyy-hero__waybill-route" id="waybillRoute">
+          <div class="dropzyy-hero__waybill-route-track"></div>
+          <div class="dropzyy-hero__waybill-route-fill" id="waybillRouteFill"></div>
+          <div class="dropzyy-hero__waybill-route-marker" id="waybillRouteMarker" aria-hidden="true">
+            <div class="dropzyy-hero__waybill-route-marker-inner"></div>
+          </div>
+          <div class="dropzyy-hero__waybill-route-truck" id="waybillTruck" aria-hidden="true">🚚</div>
+          <div class="dropzyy-hero__waybill-route-runner" aria-hidden="true"></div>
+          <div class="dropzyy-hero__waybill-route-origin" aria-label="Origin">Caf 2</div>
+          <div class="dropzyy-hero__waybill-route-dest" aria-label="Destination">Your hostel</div>
+        </div>
+        <div class="dropzyy-hero__waybill-eta" id="waybillEta">
+          <span class="dropzyy-hero__waybill-status-live-dot" aria-hidden="true"></span>
+          <span class="dropzyy-hero__waybill-status-text">Arriving in</span>
+          <span class="dropzyy-hero__waybill-eta-value" id="waybillEtaValue">—</span>
+        </div>
+      </div>
+      <div class="dropzyy-hero__waybill-stamp" aria-label="On time">On time</div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<section class="dropzyy-vendors">
+  <div class="container">
+    <div class="dropzyy-vendors__head">
+      <div>
+        <span class="dropzyy-vendors__eyebrow">${vcount} ${vcount === 1 ? 'campus vendor' : 'campus vendors'}</span>
+        <h2>Popular on Campus</h2>
+        <p>Discover places students are ordering from.</p>
+      </div>
+      <a class="btn btn--ghost btn--sm" href="#/vendors">See all vendors →</a>
+    </div>
+    <div class="vcarousel" id="vendorCarousel" aria-roledescription="carousel" aria-label="Campus vendors">
+      <div class="vcarousel__viewport" id="vendorViewport">
+        <div class="vcarousel__track" id="vendorTrack">${data().vendors.map(v => homeVendorCard(v)).join('')}</div>
+      </div>
+      <div class="vcarousel__controls" id="vendorControls" hidden>
+        <button class="vcarousel__btn" id="vendorPrev" type="button" aria-label="Previous vendors">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="vcarousel__dots" id="vendorDots"></div>
+        <button class="vcarousel__btn" id="vendorNext" type="button" aria-label="Next vendors">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+${books.length ? `
+<section class="dropzyy-bookshop">
+  <div class="container dropzyy-bookshop__inner">
+    <div class="dropzyy-bookshop__intro">
+      <span class="dropzyy-bookshop__eyebrow">Books &amp; materials</span>
+      <h2>Featured Bookshop Materials</h2>
+      <p>Get the books and materials you need for campus.</p>
+      <a class="btn" href="#/browse?cat=Bookshop">Browse Bookshop →</a>
+    </div>
+    <div class="dropzyy-bookshop__grid">
+      ${books.slice(0, 4).map(p => productCard(p)).join('')}
+    </div>
+  </div>
+</section>` : ''}
+
+<section class="dropzyy-features">
+  <div class="container">
+    <div class="dropzyy-features__head">
+      <span class="dropzyy-features__eyebrow">More than food delivery</span>
+      <h2>Everything you need, one app</h2>
+      <p>Dropzyy brings the campus together — food, drinks, books and deliveries, all in one place.</p>
+    </div>
+    <div class="dropzyy-features__grid">
+      <a class="dropzyy-feature" href="#/browse?cat=Food">
+        <span class="dropzyy-feature__icon" aria-hidden="true">🍔</span>
+        <span class="dropzyy-feature__title">Food & meals</span>
+        <span class="dropzyy-feature__desc">Order from campus vendors — snacks, hostel meals, sandwiches and more.</span>
+      </a>
+      <a class="dropzyy-feature" href="#/browse?cat=Drinks">
+        <span class="dropzyy-feature__icon" aria-hidden="true">🥤</span>
+        <span class="dropzyy-feature__title">Drinks & snacks</span>
+        <span class="dropzyy-feature__desc">Cold drinks, juices and study fuel, ready when you are.</span>
+      </a>
+      <a class="dropzyy-feature" href="#/browse?cat=Bookshop">
+        <span class="dropzyy-feature__icon" aria-hidden="true">📚</span>
+        <span class="dropzyy-feature__title">Books & materials</span>
+        <span class="dropzyy-feature__desc">Textbooks, stationery and course materials from campus sellers.</span>
+      </a>
+      <a class="dropzyy-feature" href="#/orders">
+        <span class="dropzyy-feature__icon" aria-hidden="true">📦</span>
+        <span class="dropzyy-feature__title">Track your order</span>
+        <span class="dropzyy-feature__desc">See your order status in real time — from confirmed to delivered.</span>
+      </a>
+    </div>
+  </div>
+</section>`;
 }
 
 function browse() {
@@ -2335,12 +2601,26 @@ function riderApply() {
 }
 function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} $('#userAvatar').textContent=state.user ? state.user.name.charAt(0).toUpperCase() : '👤'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">👤 My profile</a><a class="dropdown__item" href="#/orders">📦 My orders</a><a class="dropdown__item" href="#/rider">🛵 Rider hub</a><a class="dropdown__item" href="#/vendor">🏪 Vendor dashboard</a><a class="dropdown__item" href="#/admin">⚙️ Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">↪ Sign out</button>`:`<a class="dropdown__item" href="#/login">↪ Sign in</a><a class="dropdown__item" href="#/register">✦ Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
+// Small inline SVG icon set for the account dropdown — dependency-free
+// (no icon library) and theme-aware via currentColor, matching the
+// Dropzyy light + green design system.
+const ACCT_ICONS = {
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  'user-plus': '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
+  package: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  bike: '<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>',
+  store: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+  login: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+};
+function acctIcon(name, cls = 'ico') {
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ACCT_ICONS[name] || ''}</svg>`;
+}
+
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
   // Show/hide Admin link based on user role (profiles.role === 'admin')
-  const adminLink = document.getElementById('adminLink');
-  if (adminLink) {
-    adminLink.hidden = !(state.user && state.user.role === 'admin');
-  }
+  // (footer Admin link removed — role-gated entry is via the account dropdown)
 }
 
 
@@ -2472,6 +2752,53 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
   setTimeout(tick, interval);
 }
 
+/* ---- Presentation-only: hero waybill route animation ----------------------
+   Fills the route line and moves the truck marker along it once on page
+   load. Respects prefers-reduced-motion and pauses while the stub is
+   scrolled out of view. Visual only — no app logic. */
+let waybillAnim = null;
+function playWaybill() {
+  if (waybillAnim) { waybillAnim.stopped = true; if (waybillAnim.raf) cancelAnimationFrame(waybillAnim.raf); waybillAnim = null; }
+  const fill = document.getElementById('waybillRouteFill');
+  const truck = document.getElementById('waybillTruck');
+  const marker = document.getElementById('waybillRouteMarker');
+  const eta = document.getElementById('waybillEtaValue');
+  if (!fill || !truck || !fill.parentElement) return;
+  const route = fill.parentElement;
+  const finish = () => {
+    fill.style.width = Math.max(0, route.clientWidth - 32) + 'px';
+    const x = Math.max(16, route.clientWidth - 16);
+    truck.style.left = x + 'px';
+    if (marker) marker.style.left = x + 'px';
+    if (eta) eta.textContent = '18 min';
+  };
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
+
+  const DUR = 3200; // one deliberate moment — runs once, does not loop
+  const anim = { stopped: false, raf: 0 };
+  waybillAnim = anim;
+  let visible = true;
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(entries => { visible = entries[0].isIntersecting; }, { threshold: 0.15 }).observe(route);
+  }
+  const start = performance.now();
+  const step = now => {
+    if (anim.stopped || !document.body.contains(fill)) return;
+    const t = Math.min(1, (now - start) / DUR);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    if (visible) {
+      const w = Math.max(0, route.clientWidth - 32);
+      fill.style.width = (eased * w) + 'px';
+      const x = 16 + eased * w;
+      truck.style.left = x + 'px';
+      if (marker) marker.style.left = x + 'px';
+      if (eta) eta.textContent = Math.max(18, Math.round(21 - 3 * eased)) + ' min';
+    }
+    if (t < 1) anim.raf = requestAnimationFrame(step);
+  };
+  anim.raf = requestAnimationFrame(step);
+}
+
 async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
@@ -2528,6 +2855,8 @@ async function render() {
   }
   else view = notFound();
   $('#app').innerHTML = view;
+  playWaybill();
+  initVendorCarousel();
   updateChrome();
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -2863,6 +3192,8 @@ document.addEventListener('submit', e=>{
 $('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
 $('#notifBtn').addEventListener('click',()=>{ $('#notifPanel').hidden=!$('#notifPanel').hidden; loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
 document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
+// Escape closes open dropdown panels (account + notifications)
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#userPanel').hidden=true;$('#notifPanel').hidden=true;}});
 
 // Cross-tab sync: when another tab/page (e.g. the admin panel) writes to
 // localStorage, refresh the in-memory catalog and re-render so the customer
