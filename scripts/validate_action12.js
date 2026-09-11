@@ -32,7 +32,7 @@ console.log('== PRICING RPC (place_order) ==');
 check('place_order RPC exists', /CREATE OR REPLACE FUNCTION public\.place_order\(\s*p_items jsonb,\s*p_spot\s*text\s*\)/.test(migNC));
 check('RPC is SECURITY DEFINER with fixed search_path', /SECURITY DEFINER\s+SET search_path = public/.test(migNC));
 check('RPC requires an authenticated caller', /v_user IS NULL THEN\s+RAISE EXCEPTION 'authentication required'/.test(migNC));
-check('delivery fee fixed at 1000 in RPC', /v_fee\s+numeric\(12,2\) := 1000/.test(migNC));
+check('delivery fee fixed at 1500 in RPC', /v_fee\s+numeric\(12,2\) := 1500/.test(migNC));
 check('prices come from products.price', /SUM\(p\.price \* \(li->>'qty'\)::integer\)/.test(migNC));
 check('products joined on id AND active = true', /p\.id::text = li->>'id'\s+AND p\.active = true/.test(migNC));
 check('missing/inactive products abort the order', /are unavailable or no longer exist/.test(migNC));
@@ -96,7 +96,7 @@ check('client no longer inserts into orders', !/from\('orders'\)\s*[\s\S]{0,200}
 check('client no longer inserts into order_items', !/from\('order_items'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('client adopts server subtotal/fee/total', /order\.subtotal = Number\(data\.order\.subtotal\)/.test(app) && /order\.fee = Number\(data\.order\.fee\)/.test(app) && /order\.total = Number\(data\.order\.total\)/.test(app));
 check('vendor UI: Mark delivered only for vendor_self', /o\.delivery_method === 'vendor_self'/.test(app) && !/o\.delivery_method === 'rider'\s*\?\s*`<button class="btn btn--sm" data-vendor-status[\s\S]{0,120}Ready for pickup[\s\S]{0,160}Delivered/.test(app));
-check('DELIVERY_FEE still 1000 client-side (display only)', /const DELIVERY_FEE = 1000/.test(app));
+check('DELIVERY_FEE = 1500 client-side (display only)', /const DELIVERY_FEE = 1500/.test(app));
 
 console.log('\n== SECURITY INVARIANTS ==');
 check('no service_role anywhere in the migration', !/service_role/i.test(mig));

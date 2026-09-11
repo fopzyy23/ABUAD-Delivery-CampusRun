@@ -16,12 +16,13 @@ console.log("== FILES EXIST ==");
 check("20260911 migration exists", fs.existsSync(path.join(root, "supabase/migrations/20260911_rider_80_20_earnings_cutover.sql")));
 
 console.log("\n== CONSTANTS ==");
-check("DELIVERY_FEE = 1000", /const DELIVERY_FEE = 1000/.test(app));
-check("RIDER_FEE_SHARE = 0.8", /const RIDER_FEE_SHARE = 0.8/.test(app));
+check("DELIVERY_FEE = 1500", /const DELIVERY_FEE = 1500/.test(app));
+check("RIDER_DELIVERY_SHARE = 1000", /const RIDER_DELIVERY_SHARE = 1000/.test(app));
+check("COMPANY_DELIVERY_SHARE = 500", /const COMPANY_DELIVERY_SHARE = 500/.test(app));
 
 console.log("\n== RIDER EARNINGS FUNCTIONS ==");
 check("riderShareAmount exists", /function riderShareAmount/.test(app));
-check("riderShareAmount computes 80%", /riderShareAmount[\s\S]*?RIDER_FEE_SHARE/.test(app));
+check("riderShareAmount returns fixed share", /riderShareAmount[\s\S]*?RIDER_DELIVERY_SHARE/.test(app));
 check("riderPendingEarnings uses riderShareAmount", /riderPendingEarnings[\s\S]*?riderShareAmount/.test(app));
 check("completed deliveries excludes vendor_self", /vendor_self/.test(app));
 
@@ -39,7 +40,7 @@ check("GRANT EXECUTE to authenticated", /GRANT EXECUTE/.test(mig));
 
 console.log("\n== VENDOR REVENUE PRESERVED ==");
 check("vendor revenue from own order_items", /Your own items on delivered orders/.test(app));
-check("vendor excludes delivery fee", /excludes the ₦1,000 delivery fee/.test(app));
+check("vendor excludes delivery fee", /excludes the ₦1,500 delivery fee/.test(app));
 
 console.log("\n== WITHDRAWAL SAFETY ==");
 check("withdrawal checks available balance", /value > available/.test(app));

@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#FFFFFF" />
   <meta name="description" content="Dropzyy — anything you need around campus, delivered to you by another student." />
-  <title>Dropzyy · Campus Delivery for Students</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛵</text></svg>" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cmfohldnmytmwjynqfpz.supabase.co wss://cmfohldnmytmwjynqfpz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'" />
+  <title>Dropzyy</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚵</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -18,7 +19,7 @@
   <header class="appbar" id="appbar">
     <div class="appbar__inner container">
       <a href="#/" class="brand" aria-label="Dropzyy home">
-        <span class="brand__logo">🛵</span>
+        <span class="brand__logo">🚵</span>
         <span class="brand__text">Drop<span>zyy</span></span>
       </a>
 
@@ -49,8 +50,7 @@
             <span id="userAvatar" class="avatar"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
           </button>
           <div class="dropdown__panel" id="userPanel" hidden></div>
-        </div>
-      </div>
+              </div>
     </div>
   </header>
 
@@ -60,21 +60,29 @@
   <!-- ============ FOOTER ============ -->
   <footer class="footer">
     <div class="container footer__inner">
-      <div>
+      <div class="footer__brand">
         <div class="brand brand--sm">
           <span class="brand__logo">🛵</span>
           <span class="brand__text">Drop<span>zyy</span></span>
         </div>
       </div>
-      <div class="footer__links">
-        <a href="#/vendors">Restaurants & Vendors</a>
+      <nav class="footer__col" aria-label="Company">
+        <h3 class="footer__heading">Company</h3>
+        <a href="#/vendors">Restaurants &amp; Vendors</a>
         <a href="#/browse">Browse items</a>
         <a href="#/rider/apply">Become a rider</a>
+      </nav>
+      <nav class="footer__col" aria-label="Support">
+        <h3 class="footer__heading">Support</h3>
         <a href="#/orders">My orders</a>
-      </div>
+        <a href="#/faqs">FAQs</a>
+        <a href="#/report">Report an issue</a>
+      </nav>
     </div>
     <div class="container footer__base muted">
-      <span>© <span id="year"></span> Dropzyy — student-powered campus delivery</span>
+      <span>© <span id="year"></span> Dropzyy</span>
+      <span>Support: <a id="footerEmail" href="mailto:support@dropzyy.app">support@dropzyy.app</a></span>
+      <span>Designed &amp; built by Alabi Fopefoluwa</span>
     </div>
   </footer>
 
@@ -91,3 +99,4 @@
   <script src="../js/app.js" defer></script>
 </body>
 </html>
+

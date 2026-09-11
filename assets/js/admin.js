@@ -23,7 +23,13 @@ let state = {
   withdrawalsError: null,
   refunds: [],
   refundsLoading: false,
-  refundsError: null
+  refundsError: null,
+  reports: [],
+  reportsLoading: false,
+  reportsError: null,
+  vendorApplications: [],
+  vendorApplicationsLoading: false,
+  vendorApplicationsError: null
 };
 
 // Order filtering state (presentational only — the full order set is always
@@ -60,6 +66,10 @@ const load = (key, fallback) => {
   }
 };
 const clone = value => JSON.parse(JSON.stringify(value));
+
+// Local HTML-escape helper (admin.js also runs standalone via admin.html
+// without app.js, so it must not rely on the global esc from app.js).
+const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Only http(s) / protocol-relative / absolute-or-relative safe URLs are allowed
 // into an <img src> (mirrors the customer-site helper in app.js). Dangerous
@@ -696,6 +706,12 @@ async function init() {
   await loadWithdrawalsFromSupabase();
   // Refund requests are always refreshed on admin entry.
   await loadRefundsFromSupabase();
+  // Issue reports are always refreshed on admin entry so new reports from
+  // customers (homepage "Report an Issue") appear.
+  await loadReportsFromSupabase();
+  // Vendor applications are refreshed on entry so new "Become a Vendor"
+  // submissions appear for review.
+  await loadVendorApplicationsFromSupabase();
   // If orders failed to load, the error banner renders here.
   renderAdminWorkspace();
   return true;
@@ -1058,11 +1074,11 @@ function renderAdminWorkspace() {
                     <tr>
                       <td><b>#${order.id}</b></td>
                       <td class="muted small">${formatDate(order.created)}</td>
-                      <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${item.name} × ${item.qty}`).join(', ') || '—'}</td>
-                      <td>${order.spot || '—'}</td>
+                      <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${escHtml(item.name)} × ${item.qty}`).join(', ') || '—'}</td>
+                      <td>${escHtml(order.spot) || '—'}</td>
                       <td>${money(order.total)}</td>
                       <td>
-                        <span class="status-badge ${orderStatusClass(order.status)}">${order.status || 'Order confirmed'}</span>
+                        <span class="status-badge ${orderStatusClass(order.status)}">${escHtml(order.status) || 'Order confirmed'}</span>
                       </td>
                       <td>
                         <select class="select select--sm" data-order-status="${order.id}">
@@ -1101,8 +1117,8 @@ function renderAdminWorkspace() {
                 if (rider.status !== 'pending') return '';
                 return `
                 <tr>
-                  <td>${rider.matric_number || '—'}</td>
-                  <td>${rider.phone || '—'}</td>
+                  <td>${escHtml(rider.matric_number) || '—'}</td>
+                  <td>${escHtml(rider.phone) || '—'}</td>
                   <td><span class="status--pending">Pending</span></td>
                   <td>${rider.created_at ? rider.created_at.substring(0, 10) : '—'}</td>
                   <td>
@@ -1140,8 +1156,8 @@ function renderAdminWorkspace() {
                 const isSuspended = rider.status === 'suspended';
                 return `
                 <tr>
-                  <td>${rider.matric_number || '—'}</td>
-                  <td>${rider.phone || '—'}</td>
+                  <td>${escHtml(rider.matric_number) || '—'}</td>
+                  <td>${escHtml(rider.phone) || '—'}</td>
                   <td><span class="status--${isSuspended ? 'cancelled' : 'approved'}">${isSuspended ? 'Suspended' : 'Approved'}</span></td>
                   <td>
                     ${isSuspended
@@ -1202,8 +1218,8 @@ function renderAdminWorkspace() {
                 const current = user.vendor_id ? vendors.find(v => v.id === user.vendor_id) : null;
                 return `
                 <tr data-user-id="${user.id}">
-                  <td>${user.full_name || '—'}<div class="muted small">${user.email || ''}</div></td>
-                  <td>${current ? current.name : (user.vendor_id || '—')}</td>
+                  <td>${escHtml(user.full_name) || '—'}<div class="muted small">${escHtml(user.email) || ''}</div></td>
+                  <td>${current ? escHtml(current.name) : escHtml(user.vendor_id) || '—'}</td>
                   <td>
                     <select class="select" name="vendor" data-user-vendor="${user.id}">
                       <option value="">(unassigned)</option>
@@ -1241,6 +1257,59 @@ function renderAdminWorkspace() {
             </thead>
             <tbody>
               ${renderRefundRows()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Vendor Applications Section (Become a Vendor → vendor_applications) -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Vendor Applications</h3>
+          <span class="muted small">${state.vendorApplications.filter(a => a.status === 'Pending').length} pending · ${state.vendorApplications.length} total — approve creates their storefront &amp; grants vendor access</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Applicant</th>
+                <th>Matric</th>
+                <th>College / Dept</th>
+                <th style="min-width:220px">What they want to sell</th>
+                <th>Price range</th>
+                <th>Status</th>
+                <th>Applied</th>
+                <th style="min-width:340px">Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderVendorApplicationRows()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Issue Reports Section (customer "Report an Issue") -->
+      <div class="card mt-3">
+        <div class="card__head">
+          <h3>Issue Reports</h3>
+          <span class="muted small">${state.reports.filter(r => r.status === 'Open').length} open · ${state.reports.length} total — change status or add a response</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Reporter</th>
+                <th>Subject</th>
+                <th style="min-width:260px">Description</th>
+                <th>Order</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th style="min-width:360px">Review</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderReportRows()}
             </tbody>
           </table>
         </div>
@@ -1403,6 +1472,44 @@ function attachAdminEventListeners() {
       if (confirm('Execute this refund through Paystack? This will initiate an actual refund transaction. This action cannot be undone.')) {
         executeRefund(btn.dataset.executeRefund);
       }
+    });
+  });
+
+  // Review an issue report (change status + add/update admin response).
+  // Reads the status select and response input from the same row as the button.
+  document.querySelectorAll('[data-review-report]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const reportId = btn.dataset.reviewReport;
+      const row = btn.closest('[data-report-row]');
+      const select = row ? row.querySelector('[data-report-status]') : null;
+      const responseInput = row ? row.querySelector('[data-report-response]') : null;
+      const newStatus = select ? select.value : null;
+      updateReportReview(reportId, newStatus, responseInput ? responseInput.value : '');
+    });
+  });
+
+  // Approve/Reject a vendor application (approval creates the storefront and
+  // activates the vendor relationship via assign_user_to_vendor).
+  document.querySelectorAll('[data-approve-vendor-app]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      approveVendorApplication(btn.dataset.approveVendorApp);
+    });
+  });
+
+  document.querySelectorAll('[data-reject-vendor-app]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rejectVendorApplication(btn.dataset.rejectVendorApp);
+    });
+  });
+
+  // Save vendor-application status + admin response (approve/reopen/reject).
+  document.querySelectorAll('[data-review-vendor-app]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const appId = btn.dataset.reviewVendorApp;
+      const row = btn.closest('[data-vendor-app-row]');
+      const select = row ? row.querySelector('[data-vendor-app-status]') : null;
+      const responseInput = row ? row.querySelector('[data-vendor-app-response]') : null;
+      updateVendorApplicationReview(appId, select ? select.value : null, responseInput ? responseInput.value : '');
     });
   });
 }
@@ -1602,7 +1709,7 @@ function renderWithdrawalRows() {
   return state.withdrawals.map(w => {
     const rider = riderFor(w.rider_id);
     const ident = rider
-      ? `${rider.matric_number || '—'}<div class="muted small">${rider.phone || ''}</div>`
+      ? `${escHtml(rider.matric_number) || '—'}<div class="muted small">${escHtml(rider.phone) || ''}</div>`
       : '<span class="muted">Unknown rider</span>';
     return `
       <tr data-withdrawal-row="${w.id}">
@@ -1728,8 +1835,8 @@ async function executeRefund(refundId) {
 
 // Refund status badge for admin table.
 function refundStatusBadge(status) {
-  const map = { requested: 'warn', approved: 'info', processed: 'success', failed: 'danger', rejected: 'danger', pending: 'warn' };
-  const labels = { requested: 'Requested', approved: 'Approved', processed: 'Processed', failed: 'Failed', rejected: 'Rejected', pending: 'Pending' };
+  const map = { requested: 'warn', approved: 'info', processed: 'success', failed: 'danger', rejected: 'danger', pending: 'warn', processing: 'info' };
+  const labels = { requested: 'Requested', approved: 'Approved', processed: 'Processed', failed: 'Failed', rejected: 'Rejected', pending: 'Pending', processing: 'Processing' };
   return `<span class="badge badge--${map[status] || 'warn'}">${labels[status] || status}</span>`;
 }
 
@@ -1745,7 +1852,7 @@ function renderRefundRows() {
     return '<tr><td colspan="8" class="muted center">No refund requests yet.</td></tr>';
   }
   return state.refunds.map(r => {
-    const canApprove = r.status === 'requested';
+    const canApprove = r.status === 'requested' || r.status === 'failed';
     const canReject = r.status === 'requested';
     const canExecute = r.status === 'approved';
     return `
@@ -1753,14 +1860,388 @@ function renderRefundRows() {
         <td><b>${r.id.slice(0, 8)}...</b><div class="muted small">${r.order_id ? r.order_id.slice(0, 8) + '...' : '—'}</div></td>
         <td><b>${money(r.amount)}</b></td>
         <td>${refundStatusBadge(r.status)}</td>
-        <td class="muted small">${r.reason ? esc(r.reason).slice(0, 60) + (r.reason.length > 60 ? '…' : '') : '—'}</td>
+        <td class="muted small">${r.reason ? escHtml(r.reason).slice(0, 60) + (r.reason.length > 60 ? '…' : '') : '—'}</td>
         <td class="muted small">${r.created_at ? new Date(r.created_at).toLocaleDateString('en-NG') : '—'}</td>
-        <td>${canApprove ? `<button class="link-btn" data-approve-refund="${r.id}">Approve</button>` : '<span class="muted small">—</span>'}</td>
-        <td>${canReject ? `<button class="link-btn btn--danger" data-reject-refund="${r.id}">Reject</button>` : '<span class="muted small">—</span>'}</td>
-        <td>${canExecute ? `<button class="link-btn" data-execute-refund="${r.id}">Execute</button>` : '<span class="muted small">—</span>'}</td>
+        <td>${canApprove ? `<button class="link-btn" data-approve-refund="${escHtml(r.id)}">${r.status === 'failed' ? 'Re-approve (retry)' : 'Approve'}</button>` : '<span class="muted small">—</span>'}</td>
+        <td>${canReject ? `<button class="link-btn btn--danger" data-reject-refund="${escHtml(r.id)}">Reject</button>` : '<span class="muted small">—</span>'}</td>
+        <td>${canExecute ? `<button class="link-btn" data-execute-refund="${escHtml(r.id)}">Execute</button>` : '<span class="muted small">—</span>'}</td>
       </tr>`;
   }).join('');
 }
+// ============================================
+// Issue Reports (admin review) — homepage "Report an Issue" + vendor interest
+// ============================================
+// The `issue_reports` table stores customer reports / vendor applications.
+// RLS only lets users insert/view their OWN rows (issue_reports_insert_own /
+// issue_reports_select_own) and admins update them (issue_reports_update_admin),
+// so status changes and admin responses are admin-only, server-enforced.
+const REPORT_STATUS_OPTIONS = ['Open', 'In Review', 'Resolved', 'Closed'];
+
+async function loadReportsFromSupabase() {
+  if (!supabaseAvailable()) {
+    state.reportsLoading = false;
+    state.reportsError = 'Supabase unavailable';
+    return null;
+  }
+  state.reportsLoading = true;
+  state.reportsError = null;
+  try {
+    const { data, error } = await supabase
+      .from('issue_reports')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const reports = data || [];
+    // Join reporter profile info (admins read all profiles via
+    // profiles_select_admin) so the admin sees who reported.
+    const reporterIds = [...new Set(reports.map(r => r.user_id).filter(Boolean))];
+    let profileById = {};
+    if (reporterIds.length) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', reporterIds);
+      if (!profilesError && profiles) {
+        profiles.forEach(p => { profileById[p.id] = p; });
+      }
+    }
+    // Join order numbers so admins see the human-readable order reference
+    // instead of the raw uuid.
+    const orderIds = [...new Set(reports.map(r => r.order_id).filter(Boolean))];
+    let orderNumberById = {};
+    if (orderIds.length) {
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, order_number')
+        .in('id', orderIds);
+      if (!ordersError && orders) {
+        orders.forEach(o => { orderNumberById[o.id] = o.order_number; });
+      }
+    }
+    state.reports = reports.map(r => ({
+      id: r.id,
+      user_id: r.user_id,
+      reporter_name: profileById[r.user_id] ? (profileById[r.user_id].full_name || null) : null,
+      reporter_email: profileById[r.user_id] ? profileById[r.user_id].email : null,
+      subject: r.subject || '',
+      description: r.description || '',
+      order_id: r.order_id,
+      order_number: r.order_id ? (orderNumberById[r.order_id] || null) : null,
+      status: r.status || 'Open',
+      admin_response: r.admin_response || '',
+      created_at: r.created_at || null,
+      updated_at: r.updated_at || null
+    }));
+    state.reportsLoading = false;
+    return state.reports;
+  } catch (err) {
+    console.error('Supabase issue reports load failed:', err);
+    state.reportsLoading = false;
+    state.reportsError = err.message || 'Load failed';
+    return null;
+  }
+}
+
+// Save a status change + optional admin response (admin only — RLS enforced).
+async function updateReportReview(reportId, newStatus, adminResponse) {
+  if (!reportId) return false;
+  if (!REPORT_STATUS_OPTIONS.includes(newStatus)) {
+    toast('Invalid report status', 'error');
+    return false;
+  }
+  if (!supabaseAvailable()) {
+    toast('Supabase unavailable', 'error');
+    return false;
+  }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required to review', 'error'); return false; }
+    const { error } = await supabase
+      .from('issue_reports')
+      .update({
+        status: newStatus,
+        admin_response: (adminResponse || '').trim() || null,
+        admin_reviewed_at: new Date().toISOString(),
+        admin_reviewed_by: session.user.id
+      })
+      .eq('id', reportId);
+    if (error) throw error;
+    toast(`Report marked ${newStatus}`);
+    await loadReportsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Report review failed:', err);
+    toast('Review failed: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+// Render the Issue Reports table body. Loading / empty / error states are all
+// represented explicitly; open reports are visually highlighted.
+function renderReportRows() {
+  if (state.reportsLoading && !state.reports.length) {
+    return '<tr><td colspan="7" class="muted center">Loading issue reports…</td></tr>';
+  }
+  if (!state.reportsLoading && state.reportsError) {
+    return `<tr><td colspan="7" class="muted center">Could not load issue reports (${String(state.reportsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+  }
+  if (!state.reports.length) {
+    return '<tr><td colspan="7" class="muted center">No issue reports yet — they appear here as soon as customers submit them.</td></tr>';
+  }
+  return state.reports.map(r => {
+    const isOpen = r.status === 'Open';
+    const statusCls = r.status === 'Open' ? 'open' : r.status === 'In Review' ? 'review' : r.status === 'Resolved' ? 'resolved' : 'closed';
+    const ident = (r.reporter_name || r.reporter_email)
+      ? `${escHtml(r.reporter_name || '—')}<div class="muted small">${escHtml(r.reporter_email || '')}</div>`
+      : '<span class="muted">Unknown user</span>';
+    return `
+      <tr class="${isOpen ? 'report-row--open' : ''}" data-report-row="${r.id}">
+        <td>${ident}</td>
+        <td>${escHtml(r.subject)}</td>
+        <td class="report-desc">${escHtml(r.description)}</td>
+        <td>${r.order_number ? `<b>#${escHtml(r.order_number)}</b>` : '—'}</td>
+        <td class="muted small">${r.created_at ? formatDate(r.created_at) : '—'}</td>
+        <td><span class="status-badge report-status--${statusCls}">${escHtml(r.status)}</span></td>
+        <td>
+          <div class="row row--wrap" style="gap:6px">
+            <select class="select select--sm" data-report-status="${r.id}" style="max-width:130px">
+              ${REPORT_STATUS_OPTIONS.map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+            <input class="input" style="max-width:240px;min-width:150px" placeholder="Admin response" data-report-response="${r.id}" value="${escHtml(r.admin_response || '')}">
+            <button class="link-btn" data-review-report="${r.id}">Save</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+// ============================================
+// Vendor Applications (admin review) — #/vendor/apply intake
+// ============================================
+// The `vendor_applications` table holds structured "Become a Vendor"
+// applications. RLS lets applicants insert/view only their OWN rows and only
+// admins view/update all of them, so status changes, approvals and admin
+// responses are admin-only, server-enforced. Approving an application creates
+// the applicant's storefront (vendors row) and activates the vendor
+// relationship through the existing assign_user_to_vendor RPC — it never
+// touches profiles directly from the client.
+const VENDOR_APP_STATUS_OPTIONS = ['Pending', 'Approved', 'Rejected'];
+
+async function loadVendorApplicationsFromSupabase() {
+  if (!supabaseAvailable()) {
+    state.vendorApplicationsLoading = false;
+    state.vendorApplicationsError = 'Supabase unavailable';
+    return null;
+  }
+  state.vendorApplicationsLoading = true;
+  state.vendorApplicationsError = null;
+  try {
+    const { data, error } = await supabase
+      .from('vendor_applications')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    state.vendorApplications = (data || []).map(a => ({
+      id: a.id,
+      user_id: a.user_id,
+      full_name: a.full_name || '',
+      matric_number: a.matric_number || '',
+      college: a.college || '',
+      department: a.department || '',
+      email: a.email || '',
+      phone: a.phone || '',
+      what_they_want_to_sell: a.what_they_want_to_sell || '',
+      expected_price_range: a.expected_price_range || '',
+      additional_info: a.additional_info || '',
+      status: a.status || 'Pending',
+      vendor_id: a.vendor_id || null,
+      admin_response: a.admin_response || '',
+      created_at: a.created_at || null,
+      updated_at: a.updated_at || null
+    }));
+    state.vendorApplicationsLoading = false;
+    return state.vendorApplications;
+  } catch (err) {
+    console.error('Supabase vendor applications load failed:', err);
+    state.vendorApplicationsLoading = false;
+    state.vendorApplicationsError = err.message || 'Load failed';
+    return null;
+  }
+}
+
+// Approve an application: (1) creates the applicant's storefront (vendors
+// row), (2) activates the vendor relationship via the existing
+// assign_user_to_vendor RPC (validates admin + writes profiles.role /
+// profiles.vendor_id server-side), then (3) marks the application Approved.
+// Rejected applications are PRESERVED (the Rejected status path never deletes
+// the row, mirroring the rider approval workflow).
+async function approveVendorApplication(appId) {
+  const app = state.vendorApplications.find(a => a.id === appId);
+  if (!app) return false;
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  if (!confirm(`Approve ${app.full_name || 'this applicant'}'s vendor application? This creates their storefront and grants them vendor access.`)) return false;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required to approve', 'error'); return false; }
+    const slugify = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    const vendorId = `${slugify(app.full_name) || 'vendor'}-${slugify(app.matric_number) || app.user_id.slice(0, 6)}`;
+    // 1. Storefront — must exist before assign_user_to_vendor links profiles.vendor_id to it.
+    const { error: vErr } = await supabase
+      .from('vendors')
+      .upsert({
+        id: vendorId,
+        name: app.full_name || vendorId,
+        icon: '🛍️',
+        type: 'Vendor',
+        rating: '4.5',
+        time: '15–25 min',
+        cover: '#d9f5e9',
+        open: true,
+        delivery_method: 'rider',
+        description: (app.what_they_want_to_sell || '').slice(0, 200)
+      }, { onConflict: 'id' });
+    if (vErr) throw vErr;
+    // 2. Activate the existing vendor relationship (admin-gated RPC).
+    const assigned = await assignUserToVendor(app.user_id, vendorId);
+    if (!assigned) throw new Error('vendor assignment failed');
+    // 3. Record the decision on the application.
+    const { error } = await supabase
+      .from('vendor_applications')
+      .update({
+        status: 'Approved',
+        vendor_id: vendorId,
+        admin_response: (app.admin_response || '').trim() || `Approved — your storefront (${vendorId}) is live. Manage it from the Vendor dashboard.`,
+        admin_reviewed_at: new Date().toISOString(),
+        admin_reviewed_by: session.user.id
+      })
+      .eq('id', appId);
+    if (error) throw error;
+    toast('Vendor approved — storefront created & vendor access granted');
+    await loadVendorApplicationsFromSupabase();
+    await loadCatalog();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Vendor application approval failed:', err);
+    toast('Approval failed: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+
+// Reject an application: records the decision (status Rejected + optional
+// admin reason) and PRESERVES the row — nothing is deleted, mirroring the
+// rider reject workflow.
+async function rejectVendorApplication(appId) {
+  const app = state.vendorApplications.find(a => a.id === appId);
+  if (!app) return false;
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  const reason = prompt('Reason for rejection (optional — shown to the applicant):') || '';
+  if (!confirm(`Reject ${app.full_name || 'this applicant'}'s vendor application${reason ? ' with reason: ' + reason : ''}?`)) return false;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required to reject', 'error'); return false; }
+    const { error } = await supabase
+      .from('vendor_applications')
+      .update({
+        status: 'Rejected',
+        admin_response: reason.trim() || 'Rejected — please reach out via Report an Issue if you have questions.',
+        admin_reviewed_at: new Date().toISOString(),
+        admin_reviewed_by: session.user.id
+      })
+      .eq('id', appId);
+    if (error) throw error;
+    toast('Vendor application rejected');
+    await loadVendorApplicationsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Vendor application rejection failed:', err);
+    toast('Rejection failed: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+
+// Save a status change + optional admin response (admin only — RLS-enforced
+// by vendor_applications_update_admin). Also used to re-open / re-approve.
+async function updateVendorApplicationReview(appId, newStatus, adminResponse) {
+  if (!appId) return false;
+  if (!VENDOR_APP_STATUS_OPTIONS.includes(newStatus)) {
+    toast('Invalid application status', 'error');
+    return false;
+  }
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) { toast('Sign in required to review', 'error'); return false; }
+    const app = state.vendorApplications.find(a => a.id === appId);
+    if (newStatus === 'Approved' && (!app || !app.vendor_id)) {
+      // Approving from the review row reuses the full approval path (storefront
+      // creation + vendor activation) so the backend state stays consistent.
+      return await approveVendorApplication(appId);
+    }
+    const { error } = await supabase
+      .from('vendor_applications')
+      .update({
+        status: newStatus,
+        admin_response: (adminResponse || '').trim() || null,
+        admin_reviewed_at: new Date().toISOString(),
+        admin_reviewed_by: session.user.id
+      })
+      .eq('id', appId);
+    if (error) throw error;
+    toast(`Application marked ${newStatus}`);
+    await loadVendorApplicationsFromSupabase();
+    renderAdminWorkspace();
+    return true;
+  } catch (err) {
+    console.error('Vendor application review failed:', err);
+    toast('Review failed: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
+}
+
+// Render the Vendor Applications table body. Pending applications are
+// highlighted and carry approve/reject actions; every row has a status select
+// + admin-response field so admins can update progress and respond.
+function renderVendorApplicationRows() {
+  if (state.vendorApplicationsLoading && !state.vendorApplications.length) {
+    return '<tr><td colspan="8" class="muted center">Loading vendor applications…</td></tr>';
+  }
+  if (!state.vendorApplicationsLoading && state.vendorApplicationsError) {
+    return `<tr><td colspan="8" class="muted center">Could not load vendor applications (${String(state.vendorApplicationsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+  }
+  if (!state.vendorApplications.length) {
+    return '<tr><td colspan="8" class="muted center">No vendor applications yet — they appear here as soon as students submit the Become a Vendor form.</td></tr>';
+  }
+  return state.vendorApplications.map(a => {
+    const isPending = a.status === 'Pending';
+    const statusCls = a.status === 'Approved' ? 'approved' : a.status === 'Rejected' ? 'cancelled' : 'pending';
+    const offer = a.what_they_want_to_sell || '';
+    return `
+      <tr class="${isPending ? 'report-row--open' : ''}" data-vendor-app-row="${a.id}">
+        <td><b>${escHtml(a.full_name || '—')}</b><div class="muted small">${escHtml(a.email || '')}${a.phone ? '<br>' + escHtml(a.phone) : ''}</div></td>
+        <td>${escHtml(a.matric_number || '—')}</td>
+        <td class="muted small">${escHtml(a.college || '—')}${a.department ? '<br>' + escHtml(a.department) : ''}</td>
+        <td class="report-desc">${escHtml(offer)}</td>
+        <td>${escHtml(a.expected_price_range || '—')}</td>
+        <td><span class="status-badge report-status--${statusCls}">${escHtml(a.status)}</span>${a.vendor_id ? `<div class="muted xs">${escHtml(a.vendor_id)}</div>` : ''}</td>
+        <td class="muted small">${a.created_at ? formatDate(a.created_at) : '—'}</td>
+        <td>
+          <div class="row row--wrap" style="gap:6px">
+            ${isPending
+              ? `<button class="link-btn" data-approve-vendor-app="${a.id}">Approve</button>
+                 <button class="link-btn btn--danger" data-reject-vendor-app="${a.id}">Reject</button>`
+              : ''}
+            <select class="select select--sm" data-vendor-app-status="${a.id}" style="max-width:120px">
+              ${VENDOR_APP_STATUS_OPTIONS.map(s => `<option value="${s}" ${a.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+            <input class="input" style="max-width:220px;min-width:130px" placeholder="Admin response" data-vendor-app-response="${a.id}" value="${escHtml(a.admin_response || '')}">
+            <button class="link-btn" data-review-vendor-app="${a.id}">Save</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
 // ============================================
 // Exposed API for the unified admin flow
 // ============================================
@@ -1793,6 +2274,12 @@ window.AdminHub = {
   loadWithdrawalsFromSupabase,
   loadRefundsFromSupabase,
   reviewWithdrawal,
+  loadReportsFromSupabase,
+  updateReportReview,
+  loadVendorApplicationsFromSupabase,
+  approveVendorApplication,
+  rejectVendorApplication,
+  updateVendorApplicationReview,
   approveRider,
   rejectRider,
   suspendRider,

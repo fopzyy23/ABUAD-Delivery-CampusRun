@@ -117,6 +117,15 @@ const SEED_DATA = {
   ]
 };
 
+// ============================================================
+// Reach Us — contact configuration (homepage "Reach Us" cards)
+// ============================================================
+// TODO: Replace both placeholder values with the real Dropzyy
+// support email and WhatsApp Channel invite link. They are used by
+// homeReachUs() (WhatsApp / Email cards) — change them here only.
+const DROPZYY_SUPPORT_EMAIL = 'support@dropzyy.app'; // ← PASTE EMAIL HERE
+const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/PASTE_WHATSAPP_CHANNEL_LINK_HERE'; // ← PASTE WHATSAPP CHANNEL LINK HERE
+
 const $ = s => document.querySelector(s);
 const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
 const store = (key, value) => localStorage.setItem(`campusrun_${key}`, JSON.stringify(value));
@@ -126,7 +135,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null };
 
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
@@ -221,17 +230,16 @@ function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 
 // Order number generation (ACTION 9)
 // ============================================
 // Previously orders used CR- + 4 random digits, which collided easily.
-// Delivery fee: flat ₦1,000 campus delivery charge, kept strictly separate
+// Delivery fee: flat ₦1,500 campus delivery charge, kept strictly separate
 // from the product subtotal everywhere it is used.
-const DELIVERY_FEE = 1000;
+// Split: rider = ₦1,000, Dropzyy/company = ₦500.
+const DELIVERY_FEE = 1500;
+const RIDER_DELIVERY_SHARE = 1000;
+const COMPANY_DELIVERY_SHARE = 500;
 
-// B5: rider/deliverer receives 80% of the delivery fee, Dropzyy 20%.
-// For the flat ₦1,000 fee: rider = ₦800, Dropzyy = ₦200.
-// Authoritative rider share — never derived from browser input.
-const RIDER_FEE_SHARE = 0.8;
-// Rider earnings for a single delivery (authoritative 80% of the DB fee).
-function riderShareAmount(fee) {
-  return Math.round((fee || DELIVERY_FEE) * RIDER_FEE_SHARE);
+// Rider earnings for a single delivery (authoritative fixed share).
+function riderShareAmount() {
+  return RIDER_DELIVERY_SHARE;
 }
 
 // ============================================
@@ -286,6 +294,17 @@ async function loadRiderFromSupabase() {
     if (error) throw error;
     state.rider = data || null;
     save();
+    // Authoritative pending earnings from the settlement model (B5 cutover):
+    // get_rider_earnings() sums delivery_settlements.rider_amount for the
+    // rider's pending rows and ownership-checks rider_id against auth.uid().
+    // Falls back to the per-delivery estimate below when the RPC is
+    // unavailable or the rider has no row yet.
+    if (state.rider) {
+      const { data: earnings, error: earningsError } = await supabase.rpc('get_rider_earnings', { p_rider_id: state.rider.id });
+      if (!earningsError && earnings && earnings.pending_earnings != null) {
+        state.riderEarnings = Math.max(0, Number(earnings.pending_earnings));
+      }
+    }
     const { data: ratings, error: ratingsError } = await supabase
       .from('rider_ratings')
       .select('*')
@@ -316,14 +335,23 @@ async function submitRiderApplication(formData) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
+    const full_name = (formData.get('full_name') || '').trim();
     const matricNumber = (formData.get('studentId') || formData.get('matric') || '').trim();
+    const college = (formData.get('college') || '').trim();
+    const department = (formData.get('department') || '').trim();
+    const email = (formData.get('email') || '').trim();
     const phone = (formData.get('phone') || '').trim();
-    if (!matricNumber || !phone) { toast('Please fill in all required fields', 'error'); return; }
+    if (!full_name || !matricNumber || !college || !department || !email || !phone) { toast('Please fill in all required fields', 'error'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Please enter a valid email address', 'error'); return; }
     const { data, error } = await supabase
       .from('riders')
       .insert({
         user_id: session.user.id,
+        full_name: full_name,
         matric_number: matricNumber,
+        college: college,
+        department: department,
+        email: email,
         phone: phone,
         status: 'pending',
         available: false
@@ -353,11 +381,11 @@ async function submitRiderApplication(formData) {
 // Rider earnings & withdrawal requests (ACTION 10, B5 cutover)
 // ============================================
 // Earnings are NEVER client-supplied. They are always DERIVED from the
-// authoritative 80% rider share of the delivery fee (B5: rider = 80%,
-// Dropzyy = 20%) on the rider's completed (Delivered) deliveries.
-// The rider share is computed by riderShareAmount() — exactly the same
-// rounding rule the server-side settlement RPC uses — so the figure always
-// matches the delivery_settlements.rider_amount that backs real payouts.
+// authoritative fixed rider delivery share (B5: rider = ₦1,000 per delivery,
+// Dropzyy = ₦500) on the rider's completed (Delivered) deliveries.
+// The rider share is computed by riderShareAmount() — exactly the same value
+// the server-side settlement RPC stores in delivery_settlements.rider_amount —
+// so the figure always matches what backs real payouts.
 // Because no settlement/payout has occurred, every figure is clearly
 // labelled as an ESTIMATE and PENDING.
 function riderCompletedDeliveries() {
@@ -365,10 +393,12 @@ function riderCompletedDeliveries() {
     o.status === 'Delivered' && (o.delivery_method || 'rider') !== 'vendor_self'
   );
 }
-// Estimated pending earnings = sum of the authoritative 80% rider share
-// on completed deliveries (B5: rider/deliverer = 80% of delivery fee).
+// Estimated pending earnings = sum of the authoritative fixed rider delivery
+// share on completed deliveries; when the settlement RPC has already
+// returned the authoritative pending_earnings (B5 cutover), that value wins.
 function riderPendingEarnings() {
-  return riderCompletedDeliveries().reduce((n, o) => n + riderShareAmount(o.fee), 0);
+  if (state.riderEarnings != null) return state.riderEarnings;
+  return riderCompletedDeliveries().reduce((n, o) => n + riderShareAmount(), 0);
 }
 // Sum of withdrawal requests still awaiting admin review (status 'pending'),
 // so the rider sees how much of their estimate is already requested.
@@ -956,6 +986,277 @@ function refundStatusBadgeClass(status) {
   return classes[status] || 'badge--info';
 }
 // ============================================
+// Issue reports (customer → admin support intake)
+// ============================================
+// Routes: #/report (Report an Issue) and #/vendor/apply (vendor
+// interest — same form, mode 'vendor'). Both write to the Supabase
+// `issue_reports` table; RLS hard-guarantees user_id = auth.uid() and
+// denies users any read/update access beyond their own rows.
+const REPORT_SUBJECTS = ['Order problem', 'Payment problem', 'Delivery / Rider problem', 'Vendor problem', 'App problem', 'Account problem', 'Become a vendor', 'Other'];
+const REPORT_DESC_MIN = 10;
+const REPORT_DESC_MAX = 1000;
+
+async function reportView(mode = '') {
+  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+  if (!state.ordersLoadedFromSupabase) {
+    return `<section class="section container"><div class="page-head"><div><h1>${mode === 'vendor' ? 'Become a Vendor' : 'Report an Issue'}</h1><p class="muted">Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+  }
+  await ensureOrdersLoaded();
+  const isVendor = mode === 'vendor';
+  const title = isVendor ? 'Become a Vendor' : 'Report an Issue';
+  const intro = isVendor
+    ? 'Interested in selling on Dropzyy? Tell us a little about yourself and your offer — the team reviews every application and reaches out once it is approved.'
+    : 'Something went wrong? Tell us what happened and our team will look into it. Reports go straight to the Dropzyy Admin Panel.';
+  const success = state.reportSuccess
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ ${state.reportSuccess === 'vendor' ? 'Application submitted' : 'Report submitted successfully'}</h3><p class="muted small mb-0">${state.reportSuccess === 'vendor' ? 'Application submitted successfully. The Dropzyy team will review it shortly.' : 'Report submitted successfully. Our team will review it shortly.'}</p><a class="btn btn--ghost btn--sm mt-2" href="${isVendor ? '#/vendor/apply' : '#/report'}">Submit another</a></div>`
+    : '';
+  // Optional "which order" dropdown — only the user's own Supabase-backed
+  // orders are offered (order_id is server-validated to belong to them).
+  const ownOrders = sortOrdersNewestFirst(state.orders || []).filter(o => o.dbId);
+  const orderField = isVendor || !ownOrders.length
+    ? ''
+    : `<div class="field"><label for="reportOrder">Related order (optional)</label>
+        <select class="select" id="reportOrder" name="order">
+          <option value="">No specific order</option>
+          ${ownOrders.map(o => `<option value="${esc(o.dbId)}">Order #${esc(o.id)}${o.payment_status === 'success' ? ' · paid' : ''}</option>`).join('')}
+        </select></div>`;
+  const subjectField = isVendor
+    ? `<input type="hidden" name="subject" value="Become a vendor">
+       <div class="field"><label>Subject</label><input class="input" value="Become a vendor" aria-label="Subject" disabled></div>`
+    : `<div class="field"><label for="reportSubject">Issue subject</label>
+        <select class="select" id="reportSubject" name="subject" required>
+          <option value="" disabled selected>Select a subject…</option>
+          ${REPORT_SUBJECTS.filter(s => s !== 'Become a vendor').map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+        </select></div>`;
+  return `<section class="section container">
+    <a href="#/" class="muted small">← Back to home</a>
+    <div class="page-head mt-1"><div><h1>${esc(title)}</h1><p class="muted">${esc(intro)}</p></div></div>
+    ${success}
+    <div class="split mt-1">
+      <div class="card stack">
+        <form id="reportForm" class="stack" novalidate>
+          <input type="hidden" name="mode" value="${esc(mode)}">
+          ${subjectField}
+          <div class="field">
+            <label for="reportDescription">${isVendor ? 'About you / your offer' : 'Description'}</label>
+            <textarea class="textarea" id="reportDescription" name="description" rows="6" minlength="${REPORT_DESC_MIN}" maxlength="${REPORT_DESC_MAX}" required placeholder="${isVendor ? 'Tell us about yourself and what you would like to offer on Dropzyy...' : 'Please describe the issue — what happened, and any steps we can reproduce.'}"></textarea>
+            <div class="row row--between mt-1"><span class="muted xs" id="reportDescError" role="status"></span><span class="muted xs" id="reportDescCount">0 / ${REPORT_DESC_MAX}</span></div>
+          </div>
+          ${orderField}
+          <button type="submit" class="btn btn--block" id="reportSubmitBtn">${isVendor ? 'Submit Vendor Application' : 'Submit Report'}</button>
+          <a class="btn btn--ghost btn--block" href="#/">Cancel</a>
+        </form>
+      </div>
+      <aside class="card sticky-side stack">
+        <h3 class="mb-0">${isVendor ? 'Application details' : 'Reporting as'}</h3>
+        <div><span class="muted small">Name</span><div><b>${esc(state.user.name || '—')}</b></div></div>
+        <div><span class="muted small">Email</span><div><b>${esc(state.user.email || '—')}</b></div></div>
+        <div class="divider"></div>
+        <p class="muted xs mb-0">${isVendor ? 'Your application is submitted to the Dropzyy team for review. Keep an eye on your inbox.' : 'Your report is attached to your Dropzyy account automatically — no need to enter anything we already know.'}</p>
+      </aside>
+    </div>
+  </section>`;
+}
+// Submit an issue report (or vendor application). Client sends ONLY the
+// subject/category, description and an optional order id — the user_id is
+// fetched from the authenticated session (never typed in), and the server
+// enforces ownership via the issue_reports_insert_own RLS policy.
+async function submitIssueReport(formData) {
+  if (state.reportSubmitting) return;
+  const mode = (formData.get('mode') || '').trim() === 'vendor' ? 'vendor' : '';
+  const isVendor = mode === 'vendor';
+  const subject = (formData.get('subject') || '').trim();
+  const description = (formData.get('description') || '').trim();
+  const orderDbId = (formData.get('order') || '').trim() || null;
+  const errEl = document.getElementById('reportDescError');
+  const submitBtn = document.getElementById('reportSubmitBtn');
+  const fail = (msg) => { if (errEl) errEl.textContent = msg; toast(msg, 'error'); };
+  if (!subject) { fail('Please choose a subject for your report'); return; }
+  if (description.length < REPORT_DESC_MIN) { fail(`Please describe the ${isVendor ? 'application' : 'issue'} — at least ${REPORT_DESC_MIN} characters.`); return; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
+  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — this could not be saved'); return; }
+  state.reportSubmitting = true;
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
+  try {
+    const userId = await getSupabaseUserId();
+    if (!userId) { fail('Sign in required to submit'); location.hash = '#/login'; return; }
+    const payload = { user_id: userId, subject, description };
+    if (orderDbId) payload.order_id = orderDbId;
+    const { data, error } = await supabase.from('issue_reports').insert(payload).select().single();
+    if (error) throw error;
+    state.reportSuccess = isVendor ? 'vendor' : 'report';
+    toast(isVendor ? 'Application submitted successfully. The Dropzyy team will review it shortly.' : 'Report submitted successfully. Our team will review it shortly.');
+    render();
+  } catch (err) {
+    console.error('Issue report submit failed:', err);
+    fail('Could not submit: ' + ((err && err.message) || 'please try again'));
+  } finally {
+    state.reportSubmitting = false;
+    if (submitBtn && document.body.contains(submitBtn)) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = isVendor ? 'Submit Vendor Application' : 'Submit Report';
+    }
+  }
+}
+// ============================================
+// Vendor Applications (#/vendor/apply → vendor_applications table)
+// ============================================
+// A structured intake separate from customer issue reports. Posts to the
+// `vendor_applications` table so the Admin Panel can review/approve/reject
+// applications and activate the vendor relationship via the existing
+// assign_user_to_vendor RPC (approval creates the storefront + links the
+// user's profiles.vendor_id server-side). RLS guarantees the applicant only
+// ever inserts/reads their OWN row (user_id = auth.uid()).
+async function vendorApplyView() {
+  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+  const userId = await getSupabaseUserId();
+  if (!userId) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+
+  let existing = null;
+  if (typeof supabase !== 'undefined' && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('vendor_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (!error && data) existing = data;
+    } catch (err) {
+      console.error('Vendor application load failed:', err);
+    }
+  }
+
+  const back = '<a href="#/" class="muted small">← Back to home</a>';
+  const successBanner = state.reportSuccess === 'vendor'
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ Application submitted</h3><p class="muted small mb-0">Application submitted successfully. The Dropzyy team will review it shortly.</p></div>`
+    : '';
+
+  // Already applied: show the applicant their own status (no resubmission).
+  if (existing) {
+    const st = existing.status || 'Pending';
+    const icon = st === 'Approved' ? '🎉' : st === 'Rejected' ? 'ℹ️' : '⏳';
+    const msg = st === 'Approved'
+      ? 'Your vendor account is approved! Head to the Vendor dashboard to manage your storefront and products.'
+      : st === 'Rejected'
+        ? 'Your application was not approved at this time. You can reach out through the Report an Issue card if you have questions.'
+        : 'Our team is reviewing your application. You will be able to manage your storefront once it is approved.';
+    const formatted = existing.created_at ? new Date(existing.created_at).toLocaleDateString('en-NG') : '';
+    return `<section class="section container">${back}
+      <div class="page-head mt-1"><div><h1>Become a Vendor</h1><p class="muted">Your application status</p></div></div>
+      ${successBanner}
+      <div class="card stack">
+        <span style="font-size:2.5rem">${icon}</span>
+        <h3 class="mb-0">Application ${esc(st)}</h3>
+        <p class="muted mb-0">${msg}</p>
+        ${formatted ? `<p class="muted xs mb-0">Submitted ${esc(formatted)}</p>` : ''}
+        ${existing.admin_response ? `<div class="divider"></div><div><span class="muted small">Admin response</span><div><b>${esc(existing.admin_response)}</b></div></div>` : ''}
+        <div class="divider"></div>
+        <div class="row row--wrap" style="gap:8px">
+          ${st === 'Approved' ? '<a class="btn" href="#/vendor">Open Vendor Dashboard</a>' : ''}
+          <a class="btn btn--ghost" href="#/">Back to home</a>
+        </div>
+      </div></section>`;
+  }
+return `<section class="section container">${back}
+    <div class="page-head mt-1"><div><h1>Become a Vendor</h1><p class="muted">Tell us about yourself and what you want to sell — the Dropzyy team reviews every application and activates your storefront once approved.</p></div></div>
+    ${successBanner}
+    <div class="split mt-1">
+      <div class="card stack">
+        <form id="vendorApplyForm" class="stack" novalidate>
+          <div class="form-grid">
+            <div class="field"><label for="vaFullName">Full name</label><input class="input" id="vaFullName" name="full_name" required maxlength="120" value="${esc(state.user.name || '')}" autocomplete="name"></div>
+            <div class="field"><label for="vaMatric">Matric number</label><input class="input" id="vaMatric" name="matric_number" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div>
+            <div class="field"><label for="vaCollege">College</label><input class="input" id="vaCollege" name="college" required maxlength="120" placeholder="e.g. College of Sciences"></div>
+            <div class="field"><label for="vaDept">Department</label><input class="input" id="vaDept" name="department" required maxlength="120" placeholder="e.g. Computer Science"></div>
+            <div class="field"><label for="vaEmail">Email</label><input class="input" id="vaEmail" name="email" type="email" required maxlength="120" value="${esc(state.user.email || '')}" autocomplete="email"></div>
+            <div class="field"><label for="vaPhone">Phone number</label><input class="input" id="vaPhone" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div>
+          </div>
+          <div class="field"><label for="vaOffer">What do you want to sell?</label><textarea class="textarea" id="vaOffer" name="what_they_want_to_sell" rows="3" required maxlength="1000" placeholder="Describe the products/services you intend to offer on Dropzyy…"></textarea></div>
+          <div class="field"><label for="vaPrice">Expected price range</label><input class="input" id="vaPrice" name="expected_price_range" required maxlength="120" placeholder="e.g. ₦500 – ₦3,000"></div>
+          <div class="field"><label for="vaExtra">Additional information (optional)</label><textarea class="textarea" id="vaExtra" name="additional_info" rows="3" maxlength="1000" placeholder="Anything else the team should know…"></textarea><div class="row row--between mt-1"><span class="muted xs" id="vaError" role="status"></span></div></div>
+          <button type="submit" class="btn btn--block" id="vaSubmitBtn">Submit Vendor Application</button>
+          <a class="btn btn--ghost btn--block" href="#/">Cancel</a>
+        </form>
+      </div>
+      <aside class="card sticky-side stack">
+        <h3 class="mb-0">Application details</h3>
+        <div><span class="muted small">Signed in as</span><div><b>${esc(state.user.email || '—')}</b></div></div>
+        <div class="divider"></div>
+        <p class="muted xs mb-0">We attach your application to your Dropzyy account automatically — no need to enter anything we already know. On approval the Admin Panel activates your storefront and you can manage it from the Vendor dashboard.</p>
+      </aside>
+    </div></section>`;
+}
+
+// Submit a vendor application. The client sends ONLY the applicant's details —
+// full name, matric, college, department, email, phone, offer, price range,
+// optional note. The user_id is taken from the authenticated session (never
+// typed in), and the server enforces ownership + one application per user.
+async function submitVendorApplication(formData) {
+  if (state.reportSubmitting) return;
+  const g = (k) => (formData.get(k) || '').trim();
+  const full_name = g('full_name');
+  const matric_number = g('matric_number');
+  const college = g('college');
+  const department = g('department');
+  const email = g('email');
+  const phone = g('phone');
+  const what_they_want_to_sell = g('what_they_want_to_sell');
+  const expected_price_range = g('expected_price_range');
+  const additional_info = g('additional_info') || null;
+  const errEl = document.getElementById('vaError');
+  const fail = (msg) => { if (errEl) errEl.textContent = msg; toast(msg, 'error'); };
+  if (!full_name || !matric_number || !college || !department || !email || !phone || !what_they_want_to_sell || !expected_price_range) {
+    fail('Please fill in all required fields before submitting');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fail('Please enter a valid email address'); return; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
+  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — application could not be saved'); return; }
+  const userId = await getSupabaseUserId();
+  if (!userId) { fail('Sign in required to apply'); location.hash = '#/login'; return; }
+  state.reportSubmitting = true;
+  const btn = document.getElementById('vaSubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  try {
+    const { data, error } = await supabase
+      .from('vendor_applications')
+      .insert({
+        user_id: userId,
+        full_name,
+        matric_number,
+        college,
+        department,
+        email,
+        phone,
+        what_they_want_to_sell,
+        expected_price_range,
+        additional_info,
+        status: 'Pending'
+      })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
+        fail('You already have an application on file — our team will reach out once it is reviewed.');
+      } else {
+        console.error('Vendor application insert failed:', error);
+        fail('Application failed: ' + error.message);
+      }
+      return;
+    }
+    state.reportSuccess = 'vendor';
+    toast('Application submitted successfully. The Dropzyy team will review it shortly.');
+    location.hash = '#/vendor/apply';
+  } catch (err) {
+    console.error('Vendor application error:', err);
+    fail('Application failed — please try again');
+  } finally {
+    state.reportSubmitting = false;
+    if (btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = 'Submit Vendor Application'; }
+  }
+}
+
+// ============================================
 // Notifications from Supabase
 // ============================================
 // Supabase is the source of truth for the signed-in user's notifications
@@ -1408,6 +1709,106 @@ function initVendorCarousel() {
   }
 }
 
+// ============================================================
+// Homepage "Reach Us" — contact/help section shown near the bottom
+// of the homepage, before the footer (see index.html).
+//   * WhatsApp channel (updates/coupons/offers/announcements)
+//   * Email card (mailto link)
+//   * Report an Issue (dedicated #/report route, Supabase-backed)
+//   * FAQs (dedicated #/faqs page — full accordion moved off the homepage)
+//   * Work With Dropzyy (vendor interest → #/vendor/apply reusing the
+//     issue_reports backend; rider application → #/rider/apply)
+// All text is escaped where user content is interpolated; the contact
+// values come from DROPZYY_SUPPORT_EMAIL / DROPZYY_WHATSAPP_CHANNEL.
+// ============================================================
+const REACH_FAQ_ITEMS = [
+  ['How do I place an order?', 'Browse the catalogue, add items to your cart, then check out. Payment is handled securely through Paystack, and you can follow every step from confirmation to delivery.'],
+  ['How long does delivery take?', 'Most campus deliveries arrive in about 15–35 minutes depending on the vendor and how far away you are. Your order page shows the live status as it moves from the vendor to a rider.'],
+  ['Can I track my rider?', 'Yes — open any active order to see the status timeline (Order confirmed → Preparing → Ready → Picked up → On the way → Delivered) updated in real time.'],
+  ['How do vendors get paid and how do riders earn?', 'Vendors receive orders as soon as they are placed, along with the full value of their products on delivered orders. Riders earn ₦1,000 of the ₦1,500 delivery fee for every completed delivery — you can track your estimated earnings and withdrawal requests in the Rider hub.'],
+  ['What if something goes wrong with my order?', 'Use the Report an Issue card — pick a subject, describe what happened, and our team will review it from the Admin Panel. For paid orders, the Refund option on My Orders covers payment-specific problems.'],
+  ['How do I become a rider or vendor?', 'Riders can apply straight from the Rider hub or the Work With Dropzyy section below. Vendors can complete the vendor interest form — the Dropzyy team reviews every application.'],
+];
+function homeReachUs() {
+  const waUrl = String(DROPZYY_WHATSAPP_CHANNEL || '').trim();
+  const emailHref = `mailto:${encodeURIComponent(String(DROPZYY_SUPPORT_EMAIL || '').trim()).replace(/%40/i, '@')}`;
+  return `
+<section class="dropzyy-reach" aria-labelledby="reachUsTitle">
+  <div class="container dropzyy-reach__inner">
+    <div class="dropzyy-reach__head">
+      <span class="dropzyy-reach__eyebrow">Reach Us</span>
+      <h2 id="reachUsTitle">We're here to help</h2>
+      <p>Questions, feedback, or something that went wrong — pick the fastest channel to get it sorted.</p>
+    </div>
+
+    <div class="dropzyy-reach__grid">
+      <article class="dropzyy-reach__card dropzyy-reach__card--wa">
+        <span class="dropzyy-reach__icon" aria-hidden="true">💬</span>
+        <h3>Join Our WhatsApp Channel</h3>
+        <p>Get updates, coupons, and offers on WhatsApp. Not for support.</p>
+        <a class="btn dropzyy-reach__btn" href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">Join WhatsApp Channel</a>
+      </article>
+
+      <article class="dropzyy-reach__card">
+        <span class="dropzyy-reach__icon" aria-hidden="true">✉️</span>
+        <h3>Email Us</h3>
+        <p>Questions or feedback? Send us an email.</p>
+        <a class="btn btn--ghost dropzyy-reach__btn" href="${esc(emailHref)}">Send us an Email</a>
+      </article>
+
+      <article class="dropzyy-reach__card dropzyy-reach__card--report">
+        <span class="dropzyy-reach__icon" aria-hidden="true">🛠️</span>
+        <h3>Report an Issue</h3>
+        <p>Something went wrong? Let us know.</p>
+        <a class="btn btn--accent dropzyy-reach__btn" href="#/report">Report an Issue</a>
+      </article>
+
+      <article class="dropzyy-reach__card">
+        <span class="dropzyy-reach__icon" aria-hidden="true">❓</span>
+        <h3>FAQs</h3>
+        <p>Quick answers on ordering, delivery, and riders.</p>
+        <a class="btn btn--soft dropzyy-reach__btn" href="#/faqs">View FAQs</a>
+      </article>
+    </div>
+
+    <div class="dropzyy-work">
+      <div class="dropzyy-work__copy">
+        <h3>Work With Dropzyy</h3>
+        <p>Want to join the Dropzyy community?</p>
+      </div>
+      <div class="dropzyy-work__actions">
+        <a class="btn btn--ghost dropzyy-work__btn" href="#/vendor/apply">Become a Vendor</a>
+        <a class="btn btn--soft dropzyy-work__btn" href="#/rider/apply">Become a Rider</a>
+      </div>
+    </div>
+  </div>
+</section>`;
+}
+
+// Dedicated FAQs page (#/faqs). Public — no auth required. Holds the full
+// accordion that used to sit halfway down the homepage "Reach Us" section;
+// the homepage FAQs card now simply navigates here.
+function faqsView() {
+  const emailHref = `mailto:${encodeURIComponent(String(DROPZYY_SUPPORT_EMAIL || '').trim()).replace(/%40/i, '@')}`;
+  const items = REACH_FAQ_ITEMS.map(([q, a]) => `
+        <details class="dropzyy-faq__item">
+          <summary>${esc(q)}</summary>
+          <div class="dropzyy-faq__answer">${esc(a)}</div>
+        </details>`).join('');
+  return `<section class="section container">
+    <a href="#/" class="muted small">← Back to home</a>
+    <div class="page-head mt-1"><div><h1>Frequently asked questions</h1>
+      <p class="muted">Quick answers about ordering, delivery, vendors, riders, and Dropzyy. Can't find what you need? <a href="#/report">Report an issue</a> or <a href="${esc(emailHref)}">email us</a>.</p></div></div>
+    <div class="dropzyy-faq" style="margin-top:12px">
+      ${items}
+    </div>
+    <div class="card mt-2" style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px">
+      <div><h3 class="mb-0">Still stuck?</h3><p class="muted small mb-0">Tell us what went wrong and our team will look into it.</p></div>
+      <a class="btn btn--accent dropzyy-reach__btn" style="width:auto; margin-top:0" href="#/report">Report an Issue</a>
+    </div>
+  </section>`;
+}
+
 function home() {
   const vcount = data().vendors.length;
   const books = data().products.filter(p => p.category === 'Bookshop');
@@ -1557,7 +1958,9 @@ ${books.length ? `
       </a>
     </div>
   </div>
-</section>`;
+</section>
+
+${homeReachUs()}`;
 }
 
 function browse() {
@@ -1567,7 +1970,7 @@ function browse() {
   const cats = ['All','Food','Meals','Snacks','Drinks','Bookshop'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
   const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
-  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${q}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
+  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
 }
 
 function vendors() {
@@ -1670,7 +2073,7 @@ async function getSupabaseUserId() {
 // The client sends ONLY product ids + quantities + the delivery spot —
 // never prices, totals or fees. The place_order RPC re-prices every line
 // from the authoritative products table, rejects inactive/unknown
-// products, applies the flat ₦1,000 delivery fee, generates the order
+// products, applies the flat ₦1,500 delivery fee, generates the order
 // number server-side and inserts the order + items atomically.
 // Returns the authoritative order row, or null on failure.
 async function saveOrderToSupabase(order) {
@@ -1693,10 +2096,19 @@ async function saveOrderToSupabase(order) {
 
   if (error) {
     console.error('place_order RPC failed:', error);
+    // Surface the REAL Supabase error (message/code/details/hint) to the UI
+    // instead of hiding it behind a generic toast.
+    state.lastOrderError = [
+      error.message,
+      error.details,
+      error.hint,
+      error.code ? `(code ${error.code})` : ''
+    ].filter(Boolean).join(' — ') || 'unknown Supabase error';
     return null;
   }
   if (!data || !data.order) {
     console.error('place_order returned no order row.');
+    state.lastOrderError = 'place_order returned no order row';
     return null;
   }
 
@@ -2053,7 +2465,7 @@ function vendorOrderCard(o, activeTab) {
   const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
   // Your products subtotal = ONLY this vendor's own lines on this order
   // (price × qty). `orders.total` is deliberately NOT shown as the vendor's
-  // value: it includes the ₦1,000 delivery fee and, on multi-vendor orders,
+  // value: it includes the ₦1,500 delivery fee and, on multi-vendor orders,
   // other vendors' items. o.items is the RLS-scoped own-lines list from
   // loadVendorDataFromSupabase().
   const mySubtotal = (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
@@ -2127,7 +2539,7 @@ function vendorDashboard() {
   const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
   // Vendor revenue = ONLY this vendor's own order_items (price × qty) on
   // Delivered orders. `orders.total` is deliberately NEVER used here: it
-  // includes the flat ₦1,000 delivery fee (which belongs to the
+  // includes the flat ₦1,500 delivery fee (which belongs to the
   // deliverer/platform, not the vendor) and, on multi-vendor orders, other
   // vendors' items. `o.items` contains ONLY this vendor's own lines — they
   // are grouped in loadVendorDataFromSupabase() from the RLS-scoped
@@ -2158,7 +2570,7 @@ function vendorDashboard() {
       <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
       <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
       <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
-      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,000 delivery fee</span></div>
+      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,500 delivery fee</span></div>
     </div>
     <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
     <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
@@ -2287,12 +2699,13 @@ async function track(id) {
   }
 
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--${cancelled?'danger':'info'}">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
+}
 // ============================================
 // Order details view (ACTION 9)
 // ============================================
 // Full receipt-style view of a single past order: items with quantities, the
 // price actually paid (from order_items), the CURRENT catalog price when it
-// differs, subtotal, the flat ₦1,000 delivery fee, total, status, delivery
+// differs, subtotal, the flat ₦1,500 delivery fee, total, status, delivery
 // method, vendor(s) and the placed-at timestamp. Loading / not-found / empty
 // states mirror the orders() view.
 async function orderView(id) {
@@ -2350,8 +2763,6 @@ async function orderView(id) {
     <div><span class="muted small">Payment status</span><div><b>${esc(o.payment_status || 'pending')}</b></div></div>
     <div><span class="muted small">Placed</span><div><b>${esc(placedAt)}</b></div></div>
   </aside></div></section>`;
-}
-
 }
 
 // ============================================
@@ -2545,7 +2956,7 @@ function rider() {
   // returns unassigned rider-delivery orders to approved riders.
   const availableHtml = (isApprovedRider && isOnline)
     ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount(o.fee))} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
         : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
@@ -2554,7 +2965,7 @@ function rider() {
     ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
-    ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings (80%)</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><div class="empty__icon">📦</div><b>No completed deliveries yet</b><span>Your delivery history and estimated earnings will appear here.</span></div>`;
 
   // Withdrawal foundation — approved riders only. Requests are pending /
@@ -2597,7 +3008,7 @@ function riderApply() {
       <a class="btn mt-2" href="#/rider">Back to Rider hub</a>
     </div></div></section>`;
   }
-  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required placeholder="e.g. 23/1234"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required placeholder="080... "></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
+  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Full name</label><input class="input" name="full_name" required maxlength="120" value="${esc(state.user && state.user.name || '')}" autocomplete="name"></div><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div><div class="field"><label>College</label><input class="input" name="college" required maxlength="120" placeholder="e.g. College of Sciences"></div><div class="field"><label>Department</label><input class="input" name="department" required maxlength="120" placeholder="e.g. Computer Science"></div><div class="field"><label>Email</label><input class="input" name="email" type="email" required maxlength="120" value="${esc(state.user && state.user.email || '')}" autocomplete="email"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
 }
 function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
@@ -2803,16 +3214,21 @@ async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
   // Success banner on the Refund Request page is one-shot: cleared as soon as
-  // the customer navigates anywhere else.
+  // the customer navigates anywhere else. Same for the Issue Report / Vendor
+  // application confirmation (reportView shows it, then it is reset).
   if (parts[0] !== 'refund') state.refundSuccessNotice = null;
+  if (parts[0] !== 'report' && !(parts[0] === 'vendor' && parts[1] === 'apply')) state.reportSuccess = null;
   let view;
   if (!parts.length) view = home();
   else if (parts[0]==='browse') view = browse();
   else if (parts[0]==='vendors') view = vendors();
+  else if (parts[0]==='vendor' && parts[1]==='apply') view = await vendorApplyView();
   else if (parts[0]==='vendor' && parts[1]) view = vendorView(parts[1]);
   else if (parts[0]==='product' && parts[1]) view = productView(parts[1]);
   else if (parts[0]==='cart') view = cart();
   else if (parts[0]==='checkout') view = checkout();
+  else if (parts[0]==='report' || parts[0]==='report-issue') view = await reportView('');
+  else if (parts[0]==='faqs') view = faqsView();
   else if (parts[0]==='orders') view = await orders();
   else if (parts[0]==='track') view = await track(parts[1]);
   else if (parts[0]==='order' && parts[1]) view = await orderView(parts[1]);
@@ -3015,6 +3431,8 @@ document.addEventListener('submit', e=>{
   if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
   if(e.target.id==='vendorProductForm'){e.preventDefault(); submitVendorProductForm(e.target); return;}
   if(e.target.id==='heroSearch'||e.target.id==='browseSearch'){e.preventDefault(); location.hash=`#/browse?q=${encodeURIComponent(new FormData(e.target).get('q'))}`;}
+  if(e.target.id==='reportForm'){e.preventDefault(); submitIssueReport(new FormData(e.target)); return;}
+  if(e.target.id==='vendorApplyForm'){e.preventDefault(); submitVendorApplication(new FormData(e.target)); return;}
   if(e.target.id==='authForm'){
     e.preventDefault();
     const f=new FormData(e.target);
@@ -3138,6 +3556,7 @@ document.addEventListener('submit', e=>{
   }
   if(e.target.id==='checkoutForm'){
     e.preventDefault();
+    if(state.checkoutSubmitting){ toast('Order is being placed — please wait…', 'info'); return; }
     // Require the user to be logged in before placing an order
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
     const f=new FormData(e.target);
@@ -3155,28 +3574,35 @@ document.addEventListener('submit', e=>{
       toast('Order failed: Supabase client not available', 'error');
       return;
     }
+    // Single-flight guard: disable the submit button and block duplicate
+    // requests while this checkout is in flight.
+    state.checkoutSubmitting = true;
     
     getSupabaseUserId().then(async userId => {
-      if(!userId){
-        toast('Order failed: Not authenticated with Supabase', 'error');
-        return;
+      try {
+        if(!userId){
+          toast('Order failed: Not authenticated with Supabase', 'error');
+          return;
+        }
+        
+        order.user_id=userId;
+        const saved=await saveOrderToSupabase(order);
+        if(saved){
+          // Only clear the cart after the Supabase order and all order_items are successfully saved
+          state.orders.unshift(order);
+          state.cart=[];
+          addNotification('Order confirmed',`Your order #${order.id} is being matched with a rider.`);
+          save();
+          // Redirect to the payment page for this order
+          location.hash=`#/pay/${order.id}`;
+          toast('Order placed — redirecting to payment...');
+          return;
+        }
+        
+        toast('Order failed: Could not save to Supabase' + (state.lastOrderError ? ` — ${state.lastOrderError}` : ''), 'error');
+      } finally {
+        state.checkoutSubmitting = false;
       }
-      
-      order.user_id=userId;
-      const saved=await saveOrderToSupabase(order);
-      if(saved){
-        // Only clear the cart after the Supabase order and all order_items are successfully saved
-        state.orders.unshift(order);
-        state.cart=[];
-        addNotification('Order confirmed',`Your order #${order.id} is being matched with a rider.`);
-        save();
-        // Redirect to the payment page for this order
-        location.hash=`#/pay/${order.id}`;
-        toast('Order placed — redirecting to payment...');
-        return;
-      }
-      
-      toast('Order failed: Could not save to Supabase', 'error');
     });
   }
   if(e.target.id==='riderForm'){
@@ -3251,7 +3677,21 @@ document.addEventListener('input', (e) => {
   }
 });
 
-document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear(); window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
+// Live character counter for the issue report / vendor application textarea.
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'reportDescription') {
+    const counter = $('#reportDescCount');
+    const errorEl = $('#reportDescError');
+    if (counter) counter.textContent = `${e.target.value.length} / ${REPORT_DESC_MAX}`;
+    if (errorEl && e.target.value.length >= REPORT_DESC_MIN) errorEl.textContent = '';
+  }
+});
+
+document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear();
+// Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL
+// constant so the address is pasted/changed in one place only.
+const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DROPZYY_SUPPORT_EMAIL||'').trim(); if(em){ footerEmailLink.textContent=em; footerEmailLink.href='mailto:'+em; } }
+window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
 loadCatalogFromSupabase();

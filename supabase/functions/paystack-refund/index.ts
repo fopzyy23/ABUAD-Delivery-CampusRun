@@ -144,7 +144,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json(req, 409, {
         refund_id: refundId,
         status: refund.status,
-        message: "Refund previously failed — review and re-approve before retrying",
+        message: "Refund previously failed — re-approve it in the admin panel to retry",
       });
     }
     if (refund.status !== "approved") {
@@ -152,6 +152,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
         refund_id: refundId,
         status: refund.status,
         message: `Refund has status '${refund.status}' — only 'approved' refunds can be executed`,
+      });
+    }
+    // ---- Atomically claim the refund before any external call (TOCTOU) ----
+    // Two concurrent admin requests could both read 'approved' and both invoke
+    // Paystack. claim_refund_for_execution() is an atomic approved → processing
+    // transition: exactly one caller wins the claim; every other caller is
+    // rejected. apply_refund_result() below resolves 'processing' back to
+    // 'processed' / 'failed'.
+    const { data: claim, error: claimErr } = await supabase.rpc("claim_refund_for_execution", {
+      p_refund_id: refundId,
+    });
+    if (claimErr) {
+      console.error("paystack-refund: claim_refund_for_execution failed:", claimErr);
+      return json(req, 409, {
+        refund_id: refundId,
+        error: claimErr.message || "Refund claim failed",
+      });
+    }
+    if (claim && claim.claim === false) {
+      return json(req, 409, {
+        refund_id: refundId,
+        status: claim.status || "processing",
+        message: "Refund is already being processed",
       });
     }
     // ---- Load the payment record ----

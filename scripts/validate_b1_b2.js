@@ -72,8 +72,8 @@ check('place_order re-declared with identical signature', /CREATE OR REPLACE FUN
 check('still SECURITY DEFINER with fixed search_path', /SECURITY DEFINER\s+SET search_path = public/.test(b2nc));
 check('order number is re-checked against existing rows', /EXIT WHEN NOT EXISTS \(\s*SELECT 1 FROM public\.orders WHERE order_number = v_order_number\s*\)/.test(b2nc));
 check('generation loop is bounded (no infinite retry)', /v_attempt > 10 THEN\s+RAISE EXCEPTION/.test(b2nc));
-check('server-side money values unchanged (fee 1000, status fixed server-side)',
-  /v_fee\s+numeric\(12,2\)\s*:=\s*1000/.test(b2nc) &&
+check('server-side money values unchanged (fee 1500, status fixed server-side)',
+  /v_fee\s+numeric\(12,2\)\s*:=\s*1500/.test(b2nc) &&
   /'Order confirmed', 'pending', p_spot, 'rider'/.test(b2nc));
 check('grant model preserved (authenticated only)', /GRANT EXECUTE ON FUNCTION public\.place_order\(jsonb, text\) TO authenticated/.test(b2nc));
 

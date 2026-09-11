@@ -241,7 +241,7 @@ DECLARE
   v_expected     integer;
   v_matched      integer;
   v_subtotal     numeric(12,2);
-  v_fee          numeric(12,2) := 1000;  -- flat campus delivery fee (unchanged)
+  v_fee          numeric(12,2) := 1500;  -- flat campus delivery fee (20260927: fee 1000 -> 1500)
   v_total        numeric(12,2);
   v_order_number text;
   v_attempt      integer := 0;

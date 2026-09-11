@@ -69,8 +69,8 @@ check('NO duplicate delivery_fee column', !/ADD COLUMN[^;]*delivery_fee/.test(mi
 check('fee column retained (not dropped)', !/DROP COLUMN/.test(migration) || /fee/.test(migration));
 
 console.log('\n== DELIVERY FEE ==');
-check('DELIVERY_FEE = 1000', /const DELIVERY_FEE = 1000/.test(app));
-check('no stale 500 delivery fee', !/fee:\s*500/.test(app) && !/cartTotal\(\)\s*\+\s*500/.test(app));
+check('DELIVERY_FEE = 1500', /const DELIVERY_FEE = 1500/.test(app));
+check('no stale 1000 delivery fee (rider share only)', !/fee:\s*1000/.test(app) && !/cartTotal\(\)\s*\+\s*1000/.test(app));
 check('checkout aside uses money(fee)', /money\(fee\)/.test(app));
 
 console.log('\n== NO PAYSTACK CODE ==');

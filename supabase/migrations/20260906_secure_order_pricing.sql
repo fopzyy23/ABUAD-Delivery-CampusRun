@@ -12,7 +12,7 @@
 --      * re-prices EVERY line from the authoritative products table;
 --      * rejects inactive or nonexistent products (whole RPC rolls back);
 --      * enforces quantity 1..99 per line, max 50 lines;
---      * applies the unchanged flat ₦1,000 delivery fee;
+--      * applies the flat ₦1,500 delivery fee (20260927: fee 1000 -> 1500);
 --      * computes subtotal/total SERVER-SIDE and inserts the order and
 --        its items in ONE atomic transaction (also fixes the previous
 --        non-atomic two-request checkout insert);
@@ -46,7 +46,7 @@
 --    the same vendor/rider hole at the trigger level.
 --
 -- NOT changed:
---   * The ₦1,000 delivery fee. No payment-gateway code. No payouts.
+--   * The ₦1,500 delivery fee. No payment-gateway code. No payouts.
 --   * RLS is not weakened anywhere (direct-write grants are REMOVED).
 --   * No destructive DDL (no DROP TABLE / DROP COLUMN / data changes).
 --   * Existing notification, rider, vendor, customer and admin security.
@@ -72,7 +72,7 @@ DECLARE
   v_expected     integer;
   v_matched      integer;
   v_subtotal     numeric(12,2);
-  v_fee          numeric(12,2) := 1000;  -- flat campus delivery fee (unchanged)
+  v_fee          numeric(12,2) := 1500;  -- flat campus delivery fee
   v_total        numeric(12,2);
   v_order_number text;
   v_order        public.orders%ROWTYPE;
@@ -388,6 +388,6 @@ $$;
 --   (RLS policy + transition trigger). Rider-delivery orders can only
 --   be completed by the assigned rider.
 -- * Riders can no longer target delivered/rated/cancelled orders.
--- * The ₦1,000 delivery fee, existing workflows, notifications and all
+-- * The ₦1,500 delivery fee, existing workflows, notifications and all
 --   other security model parts are unchanged. No payment code added.
 -- ============================================================

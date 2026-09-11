@@ -636,6 +636,40 @@ html[data-theme="dark"] .badge--brand {
 .admin-filters {
   display: flex;
   align-items: center;
+/* ---------------------------------- ISSUE REPORTS -------------------------- */
+/* Long report descriptions wrap instead of forcing the table wider. */
+.report-desc {
+  white-space: normal;
+  max-width: 300px;
+  overflow-wrap: break-word;
+}
+
+/* Open reports stand out so admins can triage new submissions at a glance. */
+.report-row--open td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Report status badges (distinct from the order status-badge palette). */
+.report-status--open {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid transparent;
+}
+.report-status--review {
+  background: var(--info-soft);
+  color: var(--info);
+  border: 1px solid transparent;
+}
+.report-status--resolved {
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid transparent;
+}
+.report-status--closed {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;

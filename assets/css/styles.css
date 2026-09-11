@@ -1395,23 +1395,51 @@ table.table tr:last-child td { border-bottom: 0; }
   .line__sub { overflow-wrap: anywhere; }
 }
 
-/* Footer — compact: tight vertical rhythm, links close together */
+/* Footer — 3 columns (brand | Company | Support) + a separated base row.
+   Compact vertical rhythm: columns align at the top, base row is a
+   1fr/auto/1fr grid so copyright / email / credit sit left/center/right
+   with even spacing instead of being stretched by space-between. */
 .footer { border-top: 1px solid var(--line); background: var(--surface); margin-top: 16px; }
-.footer__inner { display: grid; gap: 14px 28px; grid-template-columns: 1.4fr 1fr; padding-block: 16px; }
-.footer__links { display: grid; gap: 0; align-content: start; font-size: .89rem; font-weight: 600; color: var(--ink-2); }
-.footer__links a { padding: 3px 0; line-height: 1.35; }
-.footer__links a:hover { color: var(--brand); }
-.footer__base { display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; padding-bottom: 12px; font-size: .78rem; }
-/* Mobile footer: keep the two-column layout (brand | links) but compact it —
-   smaller logo/text, tighter gaps — rather than shrinking the desktop layout.
-   Declared AFTER the base rules so it actually wins the cascade. */
+.footer__inner {
+  display: grid; gap: 12px 34px;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  align-items: start;
+  padding-block: 12px 12px;
+}
+.footer__brand { min-width: 0; }
+.footer__heading {
+  font-size: .74rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted); margin: 0 0 5px;
+}
+.footer__col { display: grid; gap: 0; align-content: start; font-size: .89rem; font-weight: 600; min-width: 0; }
+.footer__col a { padding: 2px 0; line-height: 1.35; color: var(--ink-2); text-decoration: none; }
+.footer__col a:hover, .footer__col a:focus-visible { color: var(--brand); }
+/* Base row: subtle top border separates it from the link columns above */
+.footer__base {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 2px 16px; border-top: 1px solid var(--line);
+  padding-block: 7px 9px; font-size: .78rem; min-width: 0; overflow-wrap: break-word;
+}
+.footer__base > :first-child { justify-self: start; }
+.footer__base > :nth-child(2) { justify-self: center; text-align: center; }
+.footer__base > :last-child { justify-self: end; text-align: right; }
+.footer__base a { color: var(--brand); font-weight: 600; text-decoration: none; }
+.footer__base a:hover, .footer__base a:focus-visible { text-decoration: underline; }
+/* Mobile footer: brand takes its own full-width row, the two link columns
+   stay side by side (keeps the footer short), and the base row stacks
+   centered instead of squeezing three items onto one line. */
 @media (max-width: 700px) {
-  .footer__inner { grid-template-columns: 1fr 1fr; gap: 10px 16px; padding-block: 12px; }
+  .footer__inner { grid-template-columns: 1fr 1fr; gap: 12px 16px; padding-block: 10px 10px; }
+  .footer__brand { grid-column: 1 / -1; }
   .footer .brand--sm { font-size: .92rem; gap: 6px; }
   .footer .brand--sm .brand__logo { width: 24px; height: 24px; font-size: 13px; }
-  .footer__links { font-size: .84rem; }
-  .footer__links a { padding: 2px 0; }
-  .footer__base { padding-bottom: 10px; }
+  .footer__col { font-size: .84rem; }
+  .footer__col a { padding: 1.5px 0; }
+  .footer__base {
+    grid-template-columns: 1fr; justify-items: center;
+    text-align: center; row-gap: 2px; padding-block: 7px 8px;
+  }
+  .footer__base > :first-child, .footer__base > :nth-child(2), .footer__base > :last-child { justify-self: center; text-align: center; }
 }
 @media (max-width: 360px) {
   .footer__inner { grid-template-columns: 1fr; }
@@ -1450,6 +1478,155 @@ table.table tr:last-child td { border-bottom: 0; }
   color: var(--muted);
   position: relative;
   z-index: 1;
+}
+
+/* ==========================================================================
+   DROPZYY HOMEPAGE — "Reach Us" (contact/help) + Work With Dropzyy
+   ========================================================================== */
+
+/* --- Reach Us section (cards + FAQ accordion + Work With Dropzyy) --- */
+.dropzyy-reach {
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 44px 0 36px;
+}
+.dropzyy-reach__head { margin-bottom: 18px; }
+.dropzyy-reach__eyebrow {
+  display: inline-block; font-size: .78rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--brand);
+  margin-bottom: 6px;
+}
+.dropzyy-reach__head h2 { margin: 0 0 6px; font-size: 1.6rem; }
+.dropzyy-reach__head p { margin: 0; color: var(--muted); max-width: 52ch; }
+
+/* 2 columns on desktop, 1 column on mobile (breakpoint below) */
+.dropzyy-reach__grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.dropzyy-reach__grid > * { min-width: 0; }
+
+.dropzyy-reach__card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 12px 11px; border-radius: var(--r-lg);
+  border: 1px solid var(--line); background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  transition: border-color .16s var(--ease), box-shadow .16s var(--ease), transform .16s var(--ease);
+}
+/* WhatsApp highlight — distinguishes updates/coupons channel at a glance */
+.dropzyy-reach__card--wa { background: var(--success-soft); border-color: transparent; }
+html[data-theme="dark"] .dropzyy-reach__card--wa { background: #15251B; }
+/* Report an Issue — clear, action-oriented accent treatment */
+.dropzyy-reach__card--report { background: var(--accent-soft); border-color: transparent; }
+html[data-theme="dark"] .dropzyy-reach__card--report { background: #33200F; }
+.dropzyy-reach__card:hover {
+  border-color: var(--brand); box-shadow: var(--sh-1); transform: translateY(-2px);
+}
+.dropzyy-reach__card:hover .dropzyy-reach__btn { box-shadow: var(--sh-1); }
+
+.dropzyy-reach__icon {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  font-size: 1.5rem; background: var(--brand-soft); border-radius: 12px;
+  align-self: start;
+}
+.dropzyy-reach__card--wa .dropzyy-reach__icon { background: var(--success-soft); }
+html[data-theme="dark"] .dropzyy-reach__card--wa .dropzyy-reach__icon { background: #15251B; }
+.dropzyy-reach__card--report .dropzyy-reach__icon { background: var(--accent-soft); }
+html[data-theme="dark"] .dropzyy-reach__card--report .dropzyy-reach__icon { background: #33200F; }
+
+.dropzyy-reach__card h3 { margin: 0; font-size: 1.06rem; font-weight: 700; }
+.dropzyy-reach__card p { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.5; }
+/* Rounded-pill buttons (brand pink accent comes from .btn / modifiers) */
+.dropzyy-reach__btn, .dropzyy-work__btn {
+  border-radius: var(--r-pill); font-weight: 700;
+}
+.dropzyy-reach__btn { width: 100%; margin-top: auto; padding-top: .62em; padding-bottom: .62em; }
+.dropzyy-reach__card--wa .dropzyy-reach__btn, .dropzyy-reach__card--report .dropzyy-reach__btn { margin-top: 6px; }
+
+/* --- FAQs (on-page accordion, semantic <details> — keyboard accessible) --- */
+.dropzyy-faq { margin-top: 24px; }
+.dropzyy-faq h3 { font-size: 1.15rem; margin: 0 0 10px; }
+.dropzyy-faq__item {
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--surface); margin-bottom: 8px;
+  transition: border-color .16s var(--ease);
+}
+.dropzyy-faq__item:last-child { margin-bottom: 0; }
+.dropzyy-faq__item[open] { border-color: var(--brand); }
+.dropzyy-faq__item summary {
+  padding: 12px 16px; font-weight: 700; cursor: pointer;
+  border-radius: var(--r); font-size: .95rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  list-style: none; /* hide the default disclosure marker (see ::after chevron) */
+  transition: background .12s var(--ease), color .12s var(--ease);
+}
+.dropzyy-faq__item summary::-webkit-details-marker { display: none; }
+/* Custom chevron — rotates when the item is open, so the accordion reads as
+   interactive even before the first click. */
+.dropzyy-faq__item summary::after {
+  content: ''; flex: 0 0 auto;
+  width: 8px; height: 8px; margin-right: 4px;
+  border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor;
+  transform: rotate(45deg); /* pointing down = collapsed */
+  transition: transform .16s var(--ease);
+}
+.dropzyy-faq__item[open] summary::after { transform: rotate(225deg); } /* up = expanded */
+.dropzyy-faq__item summary:hover { background: var(--surface-2); color: var(--brand-600); }
+.dropzyy-faq__item summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.dropzyy-faq__item[open] summary { color: var(--brand); background: var(--brand-soft); }
+html[data-theme="dark"] .dropzyy-faq__item[open] summary { color: var(--brand); }
+.dropzyy-faq__answer {
+  padding: 10px 16px 14px; color: var(--muted);
+  font-size: .9rem; line-height: 1.55;
+}
+.dropzyy-faq__answer p { margin: 0; }
+
+/* --- Work With Dropzyy (clearly separated closing section) --- */
+.dropzyy-work {
+  display: grid; gap: 12px 22px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-top: 20px; padding: 18px 20px;
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+.dropzyy-work__copy { min-width: 0; }
+.dropzyy-work__copy h3 { font-size: 1.06rem; margin: 0 0 4px; }
+.dropzyy-work__copy p { margin: 0; color: var(--muted); font-size: .9rem; }
+.dropzyy-work__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.dropzyy-work__btn { white-space: nowrap; }
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+  .dropzyy-reach { padding: 38px 0 30px; }
+}
+/* Card grid stays two-column on mobile phones; only collapses on very
+   narrow screens so four cards still fit side by side without crowding. */
+@media (max-width: 720px) {
+  .dropzyy-reach { padding: 38px 0 30px; }
+  .dropzyy-reach__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .dropzyy-reach__card { padding: 18px 15px 15px; }
+  .dropzyy-reach__icon { width: 38px; height: 38px; font-size: 1.02rem; }
+  .dropzyy-reach__heading { font-size: 1.04rem; margin: 0 0 4px; }
+  .dropzyy-reach__desc { font-size: .82rem; line-height: 1.4; margin: 0; }
+  .dropzyy-reach__btn { padding: 8px 14px; font-size: .84rem; }
+}
+@media (max-width: 300px) {
+  .dropzyy-reach__grid { grid-template-columns: 1fr; gap: 12px; }
+  .dropzyy-reach { padding: 30px 16px 24px; }
+  .dropzyy-reach__card { padding: 16px 14px 14px; }
+  .dropzyy-reach__icon { width: 34px; height: 34px; font-size: .95rem; }
+  .dropzyy-reach__heading { font-size: .98rem; }
+  .dropzyy-reach__desc { font-size: .78rem; }
+  .dropzyy-faq__item summary { font-size: .92rem; }
+}
+@media (max-width: 620px) {
+  .dropzyy-reach { padding: 32px 0 26px; }
+  .dropzyy-reach__grid { gap: 12px; }
+  .dropzyy-reach__card { padding: 18px 16px 16px; }
+  .dropzyy-work { grid-template-columns: 1fr; gap: 12px; padding: 16px; }
+  .dropzyy-work__actions { flex-wrap: wrap; }
+  .dropzyy-work__actions .dropzyy-work__btn { flex: 1 1 100%; }
 }
 
 /* Rider illustration — a normal flow element in the right visual column.
