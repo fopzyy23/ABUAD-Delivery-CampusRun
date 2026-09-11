@@ -135,7 +135,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null };
 
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
@@ -161,7 +161,7 @@ async function loadCatalogFromSupabase() {
   try {
     const [vendorsRes, productsRes] = await Promise.all([
       supabase.from('vendors').select('*'),
-      supabase.from('products').select('*').eq('active', true)
+      supabase.from('products').select('*')
     ]);
     if (vendorsRes.error) throw vendorsRes.error;
     if (productsRes.error) throw productsRes.error;
@@ -177,7 +177,8 @@ async function loadCatalogFromSupabase() {
     }));
     const products = productsRes.data.map(p => ({
       id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc, price: p.price,
-      icon: p.icon, category: p.category, image: p.image || ''
+      icon: p.icon, category: p.category, image: p.image || '',
+      active: p.active !== false
     }));
     state.catalog = { vendors, products };
     state.catalogLoadError = false;
@@ -221,8 +222,26 @@ function addNotification(title, body) {
   }
   save();
 }
-function toast(message, kind = 'success') { const el = document.createElement('div'); el.className = `toast toast--${kind}`; el.textContent = message; $('#toastRoot').append(el); setTimeout(() => el.remove(), 3400); }
-function addCart(id) { const p = product(id); const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
+function toast(message, kind = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast toast--${kind}`;
+  const text = document.createElement('span');
+  text.className = 'toast__text';
+  text.textContent = message;
+  el.appendChild(text);
+  if (kind === 'error') {
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'toast__dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss message');
+    dismiss.textContent = '×';
+    dismiss.addEventListener('click', () => el.remove());
+    el.appendChild(dismiss);
+  }
+  $('#toastRoot').append(el);
+  setTimeout(() => el.remove(), kind === 'error' ? 9000 : 3400);
+}
+function addCart(id) { const p = product(id); if (!p || p.active === false) { toast('That item is currently unavailable — please choose another.', 'error'); return; } const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
 
@@ -566,11 +585,13 @@ async function submitRiderRating(orderId, riderId, rating, review) {
 state.ordersLoadedFromSupabase = false;
 
 // Format a Supabase created_at timestamp into the same "Just now" style
-// used by the existing order UI.
+// used by the existing order UI. Missing/invalid timestamps never claim
+// "Just now" — they fall back to a neutral placeholder (F16).
+const ORDER_TIME_UNKNOWN = 'Unknown';
 function formatOrderCreated(createdAt) {
-  if (!createdAt) return 'Just now';
+  if (!createdAt) return ORDER_TIME_UNKNOWN;
   const date = new Date(createdAt);
-  if (isNaN(date.getTime())) return 'Just now';
+  if (isNaN(date.getTime())) return ORDER_TIME_UNKNOWN;
   const now = new Date();
   const diffMs = now - date;
   const diffMins = Math.floor(diffMs / 60000);
@@ -1340,7 +1361,10 @@ function subscribeNotificationsRealtime() {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
           payload => {
-            if (payload && payload.new) upsertNotificationFromRow(payload.new, true);
+            if (payload && payload.new) {
+              upsertNotificationFromRow(payload.new, true);
+              handleVendorNewOrderNotification(payload.new);
+            }
           }
         )
         .on(
@@ -1362,6 +1386,73 @@ function subscribeNotificationsRealtime() {
     }).catch(() => { /* pull-based fallback only */ });
   } catch (err) {
     console.warn('Notifications realtime setup failed — using pull fallback:', err);
+  }
+}
+
+// F14 — Realtime "new order" for the vendor dashboard.
+// Reuses the existing user-scoped notifications channel above instead of
+// subscribing to `orders`/`order_items` (NOT in the supabase_realtime
+// publication). New orders arrive via the existing DB trigger
+// `trg_order_items_notify_vendor` (20260903), which inserts one
+// `type='order_placed'` notification per vendor/order the moment a customer's
+// order creates an order_items row for this vendor; RLS keeps that row visible
+// only to the addressed vendor. Nothing about order creation, payment,
+// settlement, or RLS is changed. The channel is subscribed ONCE at boot (never
+// re-created on render), so re-renders can't duplicate it; while the dashboard
+// is closed the channel still backs the bell badge but no orders are refreshed
+// or toasted (route guard below).
+function vendorDashboardIsCurrent() {
+  const [path] = location.hash.slice(1).split('?');
+  const parts = path.split('/').filter(Boolean);
+  return parts.length === 1 && parts[0] === 'vendor';
+}
+
+let vendorLiveBusy = false;
+
+async function handleVendorNewOrderNotification(row) {
+  if (!row || row.type !== 'order_placed') return;
+  if (!state.user || !state.user.vendor_id) return;
+  if (!vendorDashboardIsCurrent() || vendorLiveBusy) return;
+  vendorLiveBusy = true;
+  try {
+    // Reuse the exact query the dashboard itself uses (RLS-scoped to this
+    // vendor), so the pending list/UI and stats mirror a fresh manual visit.
+    const ok = await loadVendorDataFromSupabase();
+    if (ok && vendorDashboardIsCurrent()) await render();
+  } catch (err) {
+    // Keep the current dashboard intact; the panel already surfaced the new
+    // order and the next visit reloads from Supabase.
+    console.error('Vendor new-order dashboard refresh failed:', err);
+  } finally {
+    vendorLiveBusy = false;
+  }
+  toast(row.title || 'New order received', 'info');
+}
+
+// Realtime (push): keep the customer catalog in sync with vendor availability
+// flips. `products` is published to `supabase_realtime` by migration 20261003.
+// Subscribed ONCE at boot; the guard below means re-renders can never create a
+// duplicate channel. If Realtime is unavailable, the pull-based loader on page
+// load / navigation remains the fallback — no user-visible error.
+function subscribeProductsRealtime() {
+  if (typeof supabase === 'undefined' || !supabase) return;
+  if (productsChannel) return;
+  try {
+    const channel = supabase
+      .channel('products-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, () => loadCatalogFromSupabase())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, () => loadCatalogFromSupabase())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, () => loadCatalogFromSupabase())
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Products realtime channel unavailable — using pull fallback:', status);
+          if (productsChannel === channel) productsChannel = null;
+        }
+      });
+    productsChannel = channel;
+  } catch (err) {
+    console.warn('Products realtime setup failed — using pull fallback:', err);
+    productsChannel = null;
   }
 }
 
@@ -1541,7 +1632,8 @@ function vendorOpenStatus(v) {
 function productCard(p) {
   const v = vendor(p.vendor);
   const img = safeImageUrl(p.image);
-  return `<article class="pcard">
+  const available = p.active !== false;
+  return `<article class="pcard${available ? '' : ' pcard--unavailable'}">
     <a class="pcard__link" href="#/product/${p.id}">
       <div class="pcard__thumb">
         <span class="pcard__thumb-fallback">${esc(p.icon)}</span>
@@ -1551,7 +1643,10 @@ function productCard(p) {
     </a>
     <div class="pcard__vendor">${esc(v ? v.name : 'Campus vendor')}</div>
     <div class="pcard__desc">${esc(p.desc)}</div>
-    <div class="pcard__foot"><span class="price">${money(p.price)}</span><button class="btn btn--soft btn--sm" data-add="${p.id}">Add +</button></div>
+    <div class="pcard__foot"><span class="price">${money(p.price)}</span>${available
+      ? `<button class="btn btn--soft btn--sm" data-add="${p.id}">Add +</button>`
+      : `<button class="btn btn--soft btn--sm" disabled title="Currently unavailable">Not available</button>`}</div>
+    ${available ? '' : '<div class="pcard__badge">🔴 Currently unavailable</div>'}
   </article>`;
 }
 function vendorCard(v) {
@@ -1857,10 +1952,10 @@ function home() {
         <circle class="art-helmet" cx="198" cy="52" r="18"/>
         <path class="art-visor" d="M210 46a11 11 0 0 1 5 10"/>
       </svg>
-      <div class="dropzyy-hero__waybill" aria-label="Live tracking example">
+      <div class="dropzyy-hero__waybill" aria-label="Tracking demonstration">
       <div class="dropzyy-hero__waybill-inner">
         <div class="dropzyy-hero__waybill-head">
-          <span class="dropzyy-hero__waybill-tag">Live tracking</span>
+          <span class="dropzyy-hero__waybill-tag">Demo tracking</span>
           <span class="dropzyy-hero__waybill-code" data-tracking>DZ-4417LG</span>
         </div>
         <div class="dropzyy-hero__waybill-route" id="waybillRoute">
@@ -1876,7 +1971,7 @@ function home() {
         </div>
         <div class="dropzyy-hero__waybill-eta" id="waybillEta">
           <span class="dropzyy-hero__waybill-status-live-dot" aria-hidden="true"></span>
-          <span class="dropzyy-hero__waybill-status-text">Arriving in</span>
+          <span class="dropzyy-hero__waybill-status-text">Sample estimate —</span>
           <span class="dropzyy-hero__waybill-eta-value" id="waybillEtaValue">—</span>
         </div>
       </div>
@@ -1970,7 +2065,8 @@ function browse() {
   const cats = ['All','Food','Meals','Snacks','Drinks','Bookshop'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
   const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
-  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
+  const availCount = list.filter(p => p.active !== false).length;
+  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${availCount} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
 }
 
 function vendors() {
@@ -2043,7 +2139,15 @@ function productView(id) {
 function cart() {
   const items = cartItems();
   const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
-  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${items.map(x=>`<div class="line"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} · ${money(x.price)}</div></div><div class="qty"><button data-qty="${x.id}" data-delta="-1">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1">+</button></div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">✕</button></div>`).join('')}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div><span>Service fee</span><span>₦0</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div><a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p></aside></div>`}</section>`;
+  const unavailable = items.filter(x => x.active === false);
+  const lines = items.map(x => {
+    const avail = x.active !== false;
+    return `<div class="line${avail ? '' : ' line--unavailable'}"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} · ${money(x.price)}${avail ? '' : ' · <b>No longer available</b>'}</div></div><div class="qty">${avail ? `<button data-qty="${x.id}" data-delta="-1" aria-label="Decrease quantity of ${esc(x.name)}">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1" aria-label="Increase quantity of ${esc(x.name)}">+</button>` : `<span>${x.qty}</span>`}</div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">✕</button></div>`;
+  }).join('');
+  const checkoutBtn = unavailable.length
+    ? `<button class="btn btn--block mt-2" disabled title="Remove the unavailable item(s) to continue">Checkout · ${money(subtotal+fee)}</button><p class="muted xs center mt-1 mb-0">Remove the unavailable item(s) to checkout.</p>`
+    : `<a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${lines}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div>${checkoutBtn}</aside></div>`}</section>`;
 }
 
 // Get the current Supabase user id (or null if not signed in via Supabase).
@@ -2219,6 +2323,7 @@ async function loadVendorDataFromSupabase() {
       spot: o.spot || '',
       delivery_method: o.delivery_method || 'rider',
       rider_id: o.rider_id || null,
+      payment_status: o.payment_status || 'pending',
       created: formatOrderCreated(o.created_at),
       createdAt: o.created_at || null
     }));
@@ -2420,7 +2525,7 @@ async function toggleVendorProductActive(productId) {
       .eq('id', p.id)
       .eq('vendor_id', state.user.vendor_id);
     if (error) throw error;
-    toast(newActive ? 'Product is now live' : 'Product hidden from customers', 'info');
+    toast(newActive ? 'Product is now available to customers' : 'Product is now not available to customers', 'info');
     await refreshVendorProducts();
     await loadCatalogFromSupabase();
     render();
@@ -2437,7 +2542,7 @@ async function deleteVendorProduct(productId) {
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
-  if (!confirm(`Delete "${p.name}"? It will be removed from the customer menu. This cannot be undone from the vendor dashboard.`)) return;
+  if (!(await DropzyyModal.confirm({ title:'Delete product', message:`Delete "${p.name}"? It will be removed from the customer menu. This cannot be undone from the vendor dashboard.`, confirmText:'Delete product', danger:true }))) return;
   try {
     const { error } = await supabase
       .from('products')
@@ -2561,7 +2666,7 @@ function vendorDashboard() {
     : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
 
   const productsHtml = products.length
-    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
     : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
 
   return `<section class="section container">
@@ -2575,19 +2680,19 @@ function vendorDashboard() {
     <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
     <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
     <div class="page-head mt-3"><div><h2>Completed orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
-    <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or hide the items on your menu.</p></div></div>
+    <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or toggle the availability of your menu items.</p></div></div>
     ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${state.vendorLoadError}</span></div>` : ''}
     <div class="split mt-1">
       <form class="card stack" id="vendorProductForm">
         <div class="card__head"><h3 id="vendorProductFormTitle">Add Product</h3><button class="link-btn" type="button" id="vendorProductClear">Clear</button></div>
         <input type="hidden" name="id">
         <div class="form-grid">
-          <div class="field"><label>Product name</label><input class="input" name="name" required placeholder="e.g. Jollof Rice"></div>
-          <div class="field"><label>Price (₦)</label><input class="input" name="price" type="number" min="0" step="0.01" required placeholder="1000"></div>
-          <div class="field"><label>Category</label><input class="input" name="category" required placeholder="Food"></div>
-          <div class="field"><label>Icon</label><input class="input" name="icon" value="🍽️" maxlength="8"></div>
-          <div class="field col-2"><label>Image URL (optional)</label><input class="input" name="image" placeholder="https://… (shown when available, else the icon)"></div>
-          <div class="field col-2"><label>Description</label><textarea class="textarea" name="desc" placeholder="A short description for customers."></textarea></div>
+          <div class="field"><label for="vpName">Product name</label><input class="input" name="name" id="vpName" required placeholder="e.g. Jollof Rice"></div>
+          <div class="field"><label for="vpPrice">Price (₦)</label><input class="input" name="price" id="vpPrice" type="number" min="0" step="0.01" required placeholder="1000"></div>
+          <div class="field"><label for="vpCategory">Category</label><input class="input" name="category" id="vpCategory" required placeholder="Food"></div>
+          <div class="field"><label for="vpIcon">Icon</label><input class="input" name="icon" id="vpIcon" value="🍽️" maxlength="8"></div>
+          <div class="field col-2"><label for="vpImage">Image URL (optional)</label><input class="input" name="image" id="vpImage" placeholder="https://… (shown when available, else the icon)"></div>
+          <div class="field col-2"><label for="vpDesc">Description</label><textarea class="textarea" name="desc" id="vpDesc" placeholder="A short description for customers."></textarea></div>
         </div>
         <button class="btn btn--block" type="submit">Save Product</button>
       </form>
@@ -2606,12 +2711,24 @@ function checkout() {
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Hostel / Delivery location</label><select class="select" name="location" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label>Room, block or landmark</label><input required class="input" name="spot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Delivery note (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+}
+
+// F18: lightweight skeleton card for async views. Uses the existing shimmer
+// keyframes; purely presentational (aria-hidden) so it is never announced.
+function skeletonCard(rows) {
+  const n = typeof rows === 'number' && rows > 0 ? rows : 3;
+  let bars = '';
+  for (let i = 0; i < n; i++) {
+    bars += '<div class="sk-row"><div class="sk sk--thumb"></div>' +
+            '<div class="sk-lines"><div class="sk"></div><div class="sk sk--w60"></div></div></div>';
+  }
+  return `<div class="card skeleton-block" aria-hidden="true">${bars}</div>`;
 }
 
 async function orders() {
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your orders…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your orders…</p></div></div>${skeletonCard()}</section>`;
   }
   await ensureOrdersLoaded();
   if (state.ordersLoadError && !state.orders.length) {
@@ -2648,6 +2765,106 @@ async function orders() {
   }).join('');
   return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
+// ---- Track page: live status update for the single tracked order --------------
+// Two complementary mechanisms, both scoped to ONE order (the one being tracked):
+//   1. Supabase Realtime (primary): postgres_changes UPDATE on orders where
+//      id = <dbId>. RLS already restricts the customer to their own orders, so the
+//      user never receives another customer's order data, and no new permissions are
+//      granted. The channel is cleaned up when the track route is left.
+//   2. Safety-net poll (fallback): a single-order Supabase fetch every ~20s while
+//      the track page is open, in case Realtime broadcasts are unavailable or a
+//      status change came from a source that did not broadcast (e.g. an admin edit).
+// Both mechanisms update only status / payment_status / rider_id on the in-memory
+// order and then re-render the track view (not the whole app). rider_name and
+// rider_phone are intentionally NOT re-resolved here — they remain as loaded by
+// loadOrdersFromSupabase() — because the orders table does not hold them. If a rider
+// is assigned while the track page is open the status still advances; the rider name
+// will be picked up on the next full load or page reload. No schema, RLS, or auth
+// changes. No broad/public subscription. No schema change at all.
+
+let productsChannel = null;
+let trackChannel = null;
+let trackPollTimer = null;
+
+function clearTrackSubscription() {
+  if (trackChannel && typeof supabase !== 'undefined' && supabase) {
+    try { supabase.removeChannel(trackChannel); } catch (e) { /* ignore */ }
+    trackChannel = null;
+  }
+  if (trackPollTimer) { clearTimeout(trackPollTimer); trackPollTimer = null; }
+}
+
+async function refreshTrackedOrder(dbId) {
+  if (typeof supabase === 'undefined' || !supabase) return false;
+  let data, error;
+  try {
+    const r = await supabase.from('orders').select('*').eq('id', dbId).single();
+    data = r.data; error = r.error;
+  } catch (e) { console.error('Track order refresh query failed:', e); return false; }
+  if (error || !data) return false;
+  const idx = state.orders.findIndex(o => o.dbId === dbId);
+  if (idx < 0) return false;
+  const prev = state.orders[idx];
+  const ns = data.status || prev.status;
+  const nps = data.payment_status || prev.payment_status;
+  const nrider = data.rider_id != null ? data.rider_id : prev.rider_id;
+  if (prev.status === ns && prev.payment_status === nps && prev.rider_id === nrider) return false;
+  state.orders[idx] = {
+    ...prev,
+    status: ns,
+    payment_status: nps,
+    rider_id: nrider,
+    createdAt: data.created_at || prev.createdAt,
+  };
+  return true;
+}
+
+function startTrackSubscription(dbId) {
+  clearTrackSubscription();
+  if (typeof supabase === 'undefined' || !supabase) return;
+  const order = state.orders.find(o => o.dbId === dbId);
+  const currentStatus = order ? order.status : null;
+
+  // Realtime (primary): listen for UPDATEs on this specific order only.
+  try {
+    trackChannel = supabase
+      .channel('track:' + dbId)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'orders',
+        filter: 'id=eq.' + dbId
+      }, (payload) => {
+        const prev = state.orders.find(o => o.dbId === dbId);
+        if (!prev) return;
+        const next = payload.new;
+        const ns = next.status || prev.status;
+        const nps = next.payment_status || prev.payment_status;
+        const nrider = next.rider_id != null ? next.rider_id : prev.rider_id;
+        if (prev.status === ns && prev.payment_status === nps && prev.rider_id === nrider) return;
+        const idx = state.orders.indexOf(prev);
+        if (idx < 0) return;
+        state.orders[idx] = { ...prev, status: ns, payment_status: nps, rider_id: nrider };
+        render();
+      })
+      .subscribe();
+  } catch (e) {
+    console.error('Track Realtime subscription failed:', e);
+    trackChannel = null;
+  }
+
+  // Safety-net poll: refresh the single tracked order from Supabase ~every 20s.
+  const poll = async () => {
+    if (!location.hash.startsWith('#/track/')) return;
+    try {
+      const changed = await refreshTrackedOrder(dbId);
+      if (changed) render();
+    } catch (e) { console.error('Track poll refresh failed:', e); }
+    trackPollTimer = setTimeout(poll, 20000);
+  };
+  trackPollTimer = setTimeout(poll, 20000);
+}
+
 async function track(id) {
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
@@ -2702,6 +2919,13 @@ async function track(id) {
     }
   }
 
+  // ---- Track page live-update subscription ----------------------------------
+  // Start the Realtime + safety-net poll for this specific order. startTrackSubscription()
+  // is idempotent (it clears any previous subscription first), so re-renders while the
+  // track page is open do not create duplicate subscriptions. The subscription is cleaned
+  // up automatically when the route leaves #/track/ (see the hashchange wrapper below).
+  startTrackSubscription(o.dbId);
+
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
 }
 // ============================================
@@ -2715,7 +2939,7 @@ async function track(id) {
 async function orderView(id) {
   if (!state.user) { location.hash = '#/login'; return ''; }
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div>${skeletonCard()}</section>`;
   }
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
@@ -2810,7 +3034,7 @@ function reorder(orderId) {
   location.hash = '#/cart';
 }
 
-function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
+function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
 // ============================================
 // Customer Profile
@@ -2955,18 +3179,22 @@ function rider() {
     ? '<div class="card mt-3"><b>Could not refresh rider status</b><span class="muted">Showing the last known status. Check your connection and try again.</span></div>'
     : '';
 
+  const statusErrorHtml = state.riderStatusError
+    ? `<div class="card mt-3" role="alert"><div class="row row--between row--wrap" style="gap:10px"><div><b>⚠️ Order #${esc(state.riderStatusError.orderId)} not updated</b><div class="muted small">${esc(state.riderStatusError.message)}</div></div><button class="btn btn--soft btn--sm" data-retry-rider-status="${esc(state.riderStatusError.dbId)}">Retry</button></div></div>`
+    : '';
+
   // Available deliveries — only shown to an approved rider who is ONLINE.
   // Eligibility is enforced by RLS (orders_select_unassigned): the server only
   // returns unassigned rider-delivery orders to approved riders.
   const availableHtml = (isApprovedRider && isOnline)
     ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        ? `<div class="grid grid--2">${pending.map((o, i) => { const busy = state.riderSubmitting[o.id]; return `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}" ${busy ? 'disabled' : ''}>${busy ? 'Claiming…' : 'Accept delivery'}</button></article>`; }).join('')}</div>`
         : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -3001,7 +3229,7 @@ function rider() {
       </div>`;
   }
 
-  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} · pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} · pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${statusErrorHtml}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
 }
 function riderApply() {
   if (state.rider && ['pending','approved','suspended'].includes(state.rider.status)) {
@@ -3012,7 +3240,7 @@ function riderApply() {
       <a class="btn mt-2" href="#/rider">Back to Rider hub</a>
     </div></div></section>`;
   }
-  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Full name</label><input class="input" name="full_name" required maxlength="120" value="${esc(state.user && state.user.name || '')}" autocomplete="name"></div><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div><div class="field"><label>College</label><input class="input" name="college" required maxlength="120" placeholder="e.g. College of Sciences"></div><div class="field"><label>Department</label><input class="input" name="department" required maxlength="120" placeholder="e.g. Computer Science"></div><div class="field"><label>Email</label><input class="input" name="email" type="email" required maxlength="120" value="${esc(state.user && state.user.email || '')}" autocomplete="email"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
+  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label for="riderFullName">Full name</label><input class="input" name="full_name" id="riderFullName" required maxlength="120" value="${esc(state.user && state.user.name || '')}" autocomplete="name"></div><div class="field"><label for="riderStudentId">Student ID / Matric number</label><input class="input" name="studentId" id="riderStudentId" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div><div class="field"><label for="riderCollege">College</label><input class="input" name="college" id="riderCollege" required maxlength="120" placeholder="e.g. College of Sciences"></div><div class="field"><label for="riderDepartment">Department</label><input class="input" name="department" id="riderDepartment" required maxlength="120" placeholder="e.g. Computer Science"></div><div class="field"><label for="riderEmail">Email</label><input class="input" name="email" id="riderEmail" type="email" required maxlength="120" value="${esc(state.user && state.user.email || '')}" autocomplete="email"></div><div class="field"><label for="riderPhone">Phone number</label><input class="input" name="phone" id="riderPhone" required maxlength="20" placeholder="080... " autocomplete="tel"></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
 }
 function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
@@ -3033,7 +3261,7 @@ function acctIcon(name, cls = 'ico') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ACCT_ICONS[name] || ''}</svg>`;
 }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const isActiveNav=(h)=>location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}>${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
   // Show/hide Admin link based on user role (profiles.role === 'admin')
   // (footer Admin link removed — role-gated entry is via the account dropdown)
 }
@@ -3081,6 +3309,74 @@ function moneyStatusBadge(p) {
   return '<span class="badge '+cls+'">'+l+'</span>';
 }
 
+// ============================================
+// Paystack checkout start — visible failure handling (audit F1)
+// ============================================
+// Message shown when Paystack initialization fails (network error, Edge
+// Function error, or a response without a redirect URL). It is revealed
+// inline on the pay card (role="alert" so screen readers announce it) with a
+// Try Again button, and echoed as a toast. Previously a failed initialize
+// left the pay button permanently disabled with no error and no way to retry.
+const PAY_INIT_ERROR_TEXT = 'Payment couldn\'t start. Check your connection and try again.';
+
+// Hidden-by-default inline error banner rendered on both the pending and the
+// failed payment cards. Revealed by startPaystackCheckout() on failure.
+const PAY_ERROR_BANNER_HTML =
+  '<div class="pay-error" id="payErrorBanner" role="alert" hidden>'
+  + '<span id="payErrorMessage">' + PAY_INIT_ERROR_TEXT + '</span>'
+  + '<button class="btn btn--sm" type="button" id="payTryAgain">Try Again</button>'
+  + '</div>';
+
+// Initialize the Paystack transaction for order id `tid` (the order's dbId —
+// never an amount or payment reference; the Edge Function prices the order
+// server-side) with full failure handling. Success → the browser is
+// redirected to Paystack (the button stays disabled during the handoff). Any
+// failure → the pay button is re-enabled with its original label, the inline
+// error banner is revealed, and both the pay button and the banner's Try
+// Again control can restart the attempt.
+async function startPaystackCheckout(tid, payBtn, busyLabel) {
+  const banner = document.getElementById('payErrorBanner');
+  const tryAgainBtn = document.getElementById('payTryAgain');
+  // Remember the resting label so it can be restored after a failed attempt
+  // (the same button element is reused across retries).
+  const originalLabel = payBtn.dataset.payLabel || payBtn.textContent;
+  payBtn.dataset.payLabel = originalLabel;
+
+  const fail = (err) => {
+    console.error('Paystack initialization failed:', err);
+    payBtn.disabled = false;                 // re-enable button
+    payBtn.textContent = originalLabel;      // restore "Pay ... with Paystack"
+    if (tryAgainBtn) tryAgainBtn.disabled = false;
+    if (banner) banner.hidden = false;       // show error + Try Again option
+    toast(PAY_INIT_ERROR_TEXT, 'error');
+  };
+
+  // Busy state: block double submits while the request is in flight.
+  payBtn.disabled = true;
+  payBtn.textContent = busyLabel;
+  if (tryAgainBtn) tryAgainBtn.disabled = true;
+  if (banner) banner.hidden = true;
+
+  let response = null;
+  try {
+    response = await supabaseEdgeFunctionRequest('paystack-initialize', {
+      order_id: tid,
+      email: state.user.email
+    });
+    if (response && response.authorization_url) {
+      // Handing off to Paystack — the redirect is the success path.
+      window.location.href = response.authorization_url;
+      return;
+    }
+    // supabaseEdgeFunctionRequest returns null on a non-OK response (it also
+    // toasts the server's own error message). Treat it like a thrown failure.
+    fail(new Error((response && (response.error || response.message)) || 'No authorization_url in Paystack initialization response'));
+  } catch (err) {
+    // Network failure, non-JSON response, or any other throw.
+    fail(err);
+  }
+}
+
 async function pay(orderId) {
   if (!state.user) { toast('Please sign in to view payment','info'); location.hash='#/login'; return ''; }
   await ensureOrdersLoaded();
@@ -3092,8 +3388,8 @@ async function pay(orderId) {
     return '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(ps)+'</span><span class="muted small">Ref: '+esc(order.payment_reference||'—')+'</span></div><div class="divider"></div><p><span class="muted small">Paid at</span> '+esc(order.paid_at?formatDate(order.paid_at):'—')+'</p></div></section>';
   }
   if (ps === 'pending') {
-    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Complete your payment</h3><p class="muted">Your order total: <b>'+money(order.total)+'</b></p><p class="muted small">Click below to pay securely with Paystack.</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay '+money(order.total)+' with Paystack</button><p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
-    setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', async()=>{ b.disabled=true; b.textContent='Redirecting to Paystack...'; const r=await supabaseEdgeFunctionRequest('paystack-initialize',{order_id:tid,email:state.user.email}); if(r&&r.authorization_url) window.location.href=r.authorization_url; }); },50);
+    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Complete your payment</h3><p class="muted">Your order total: <b>'+money(order.total)+'</b></p><p class="muted small">Click below to pay securely with Paystack.</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay '+money(order.total)+' with Paystack</button>'+PAY_ERROR_BANNER_HTML+'<p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
+    setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting to Paystack...')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting to Paystack...')); },50);
     // While this pending payment page is open (e.g. right after returning from
     // Paystack), poll the Supabase source of truth so the page flips to
     // "Payment successful" and opens My Orders as soon as the server-side
@@ -3103,8 +3399,8 @@ async function pay(orderId) {
     return html;
   }
   if (ps === 'failed') {
-    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Payment failed</h3><p class="muted">Your payment attempt was not completed. You can retry below.</p><button class="btn btn--block btn--lg mt-2" id="paystackRetry">Retry payment</button></div></section>';
-    setTimeout(()=>{ const b=document.getElementById('paystackRetry'); if(!b) return; b.addEventListener('click', async()=>{ b.disabled=true; b.textContent='Redirecting...'; const r=await supabaseEdgeFunctionRequest('paystack-initialize',{order_id:tid,email:state.user.email}); if(r&&r.authorization_url) window.location.href=r.authorization_url; }); },50);
+    let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Payment failed</h3><p class="muted">Your payment attempt was not completed. You can retry below.</p><button class="btn btn--block btn--lg mt-2" id="paystackRetry">Retry payment</button>'+PAY_ERROR_BANNER_HTML+'</div></section>';
+    setTimeout(()=>{ const b=document.getElementById('paystackRetry'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...')); },50);
     return html;
   }
   return '<section class="section container"><div class="page-head"><div><h1>Payment</h1>'+moneyStatusBadge(ps)+'</div></section>';
@@ -3223,6 +3519,42 @@ function playWaybill() {
   anim.raf = requestAnimationFrame(step);
 }
 
+// F12: admin.js is only fetched when a #/admin route is actually rendered.
+// The loader is cached so the module is injected once per page session; if
+// loading fails, the cached promise is reset so a later navigation can retry.
+let adminJsPromise = null;
+function ensureAdminJs() {
+  if (window.AdminHub) return Promise.resolve();
+  if (adminJsPromise) return adminJsPromise;
+  adminJsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = '../js/admin.js';
+    s.onload = () => resolve();
+    s.onerror = () => {
+      adminJsPromise = null; // allow a later retry
+      reject(new Error('Failed to load admin.js'));
+    };
+    document.head.appendChild(s);
+  });
+  return adminJsPromise;
+}
+
+// F17: keep document.title in sync with the current major route. Unknown or
+// nested routes fall back to the plain brand name.
+const ROUTE_TITLES = {
+  browse:'Browse', vendors:'Vendors', product:'Product', cart:'Cart',
+  checkout:'Checkout', 'report-issue':'Report an Issue', report:'Report an Issue',
+  faqs:'FAQs', orders:'My Orders', track:'Track Order', order:'Order',
+  refund:'Request Refund', pay:'Payment', profile:'My Profile', login:'Sign in',
+  register:'Create account', admin:'Admin'
+};
+function setDocumentTitle(parts) {
+  let label = ROUTE_TITLES[parts[0]] || '';
+  if (parts[0]==='vendor') label = parts[1]==='apply' ? 'Become a Vendor' : 'Vendor';
+  else if (parts[0]==='rider') label = parts[1]==='apply' ? 'Apply as Rider' : 'Rider Hub';
+  document.title = label ? `${label} · Dropzyy` : 'Dropzyy';
+}
+
 async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
@@ -3231,6 +3563,7 @@ async function render() {
   // application confirmation (reportView shows it, then it is reset).
   if (parts[0] !== 'refund') state.refundSuccessNotice = null;
   if (parts[0] !== 'report' && !(parts[0] === 'vendor' && parts[1] === 'apply')) state.reportSuccess = null;
+  setDocumentTitle(parts);
   let view;
   if (!parts.length) view = home();
   else if (parts[0]==='browse') view = browse();
@@ -3272,6 +3605,17 @@ async function render() {
     }
   }
   else if (parts[0]==='admin') {
+    // F12: load admin.js lazily (and only once) before touching AdminHub.
+    try {
+      await ensureAdminJs();
+    } catch (err) {
+      // Loading failed — show a small user-friendly error and stop.
+      console.error('Admin module failed to load:', err);
+      $('#app').innerHTML = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center"><h1>⚠️ Admin panel unavailable</h1><p class="muted">The admin panel could not be loaded. This is probably a network problem — please try again.</p><a class="btn mt-2" href="#/">Back to home</a></div></div></section>`;
+      updateChrome();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      return;
+    }
     if (parts[1] === 'login') {
       if (window.AdminHub) window.AdminHub.renderLogin();
     } else {
@@ -3287,10 +3631,122 @@ async function render() {
   playWaybill();
   initVendorCarousel();
   updateChrome();
-  window.scrollTo({ top: 0, behavior: 'instant' });
+       window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
-document.addEventListener('click', e=>{
+// ============================================
+// Rider order-action sync (F6): never pretend a server-side status change
+// succeeded. Each rider action:
+//   - guards against duplicate submissions while a request is in flight
+//   - keeps the local UI state consistent with the server result
+//   - retries once for transient failures, then shows a persistent Retry
+//   - surfaces user-friendly errors only — raw DB/RLS errors are logged and
+//     never shown to the rider
+// The server-side race protection (RLS claim policy, order-status transition
+// trigger) and all RPC/DB logic are UNTOUCHED — this is frontend error
+// handling only.
+// ============================================
+
+function riderOrderByDbId(dbId) {
+  return (state.riderPool || []).find(x => x.dbId === dbId) || null;
+}
+
+function riderStatusLabel(status) {
+  if (status === 'Picked up') return 'picked up';
+  if (status === 'On the Way') return 'on the way';
+  if (status === 'Delivered') return 'delivered';
+  return status;
+}
+
+// Refresh the authoritative pool/order state from Supabase and report how the
+// server sees the order: 'applied' (the target state is persisted), 'unchanged'
+// (still in the previous state), 'gone' (no longer in this rider's pool — e.g.
+// another rider claimed it), 'other' (server shows some other state) or
+// 'unknown' (the refresh itself failed).
+async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
+  try {
+    await loadOrdersFromSupabase();
+  } catch (err) {
+    console.error('Rider reconcile refresh failed:', err);
+    return 'unknown';
+  }
+  const fresh = riderOrderByDbId(dbId);
+  if (!fresh) return 'gone';
+  if (fresh.status === nextStatus) return 'applied';
+  if (fresh.status === prevStatus) return 'unchanged';
+  return 'other';
+}
+
+// Core pickup / on-the-way / delivered sync. Applies the optimistic local
+// update (preserving the existing workflow), then persists to Supabase with ONE
+// safe retry (same-status updates are a server-side no-op, so a retry can never
+// create an illegal transition). The success toast fires ONLY after the server
+// confirms. On final failure the local state is reconciled with the server and
+// a persistent Retry banner is shown in the Rider hub.
+async function runRiderStatusUpdate(order, nextStatus, opts) {
+  const dbId = order.dbId;
+  const orderId = order.id;
+  opts = opts || {};
+  if (state.riderSubmitting[orderId]) return false; // duplicate-submission guard
+  const prevStatus = order.status;
+
+  // Offline / no-Supabase fallback: the local store is the only source, so the
+  // optimistic result stands (matches the app's existing offline behaviour).
+  if (typeof supabase === 'undefined' || !supabase || !dbId) {
+    if (opts.onSuccess) opts.onSuccess();
+    toast(opts.successToast || `Order marked as ${riderStatusLabel(nextStatus)}`);
+    return true;
+  }
+
+  state.riderSubmitting[orderId] = true;
+  order.status = nextStatus;
+  save();
+  render();
+
+  let ok = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt === 1) await new Promise(r => setTimeout(r, 600));
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: nextStatus })
+      .eq('id', dbId);
+    if (!error) { ok = true; break; }
+    console.error(`Rider status update failed (attempt ${attempt + 1} of 2):`, error);
+  }
+
+  if (!ok) {
+    const reconciled = await riderReconcileOrder(dbId, prevStatus, nextStatus);
+    if (reconciled === 'applied') ok = true;
+    else if (reconciled === 'unknown') {
+      // Refresh failed — pull the optimistic pool entry back so the UI matches
+      // the last known server state.
+      const stale = riderOrderByDbId(dbId);
+      if (stale && stale.status === nextStatus) stale.status = prevStatus;
+      save();
+    }
+  }
+
+  delete state.riderSubmitting[orderId];
+
+  if (ok) {
+    if (state.riderStatusError && state.riderStatusError.dbId === dbId) state.riderStatusError = null;
+    if (opts.onSuccess) opts.onSuccess();
+    toast(opts.successToast || `Order marked as ${riderStatusLabel(nextStatus)}`);
+    render();
+    return true;
+  }
+
+  state.riderStatusError = {
+    dbId,
+    orderId,
+    nextStatus,
+    message: `We could not mark Order #${orderId} as ${riderStatusLabel(nextStatus)}. This may be a network or server problem — tap Retry below to try again.`
+  };
+  render();
+  return false;
+}
+
+document.addEventListener('click', async e=>{
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
   // Rider rating: star selection (visual only — submit is the only mutation)
@@ -3303,50 +3759,83 @@ document.addEventListener('click', e=>{
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
   const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
+    // Duplicate-submission guard: ignore taps while this claim is in flight.
+    if(state.riderSubmitting[o.id]) return;
+    state.riderSubmitting[o.id]=true;
     const prevStatus=o.status;
-    o.status='Rider assigned'; save();
-    addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
-    if(typeof supabase!=='undefined' && supabase && o.dbId){
-      supabase.from('orders').update({ status:'Rider assigned', rider_id: state.rider.id }).eq('id',o.dbId)
-        .then(async ({ error })=>{
-          if(error){ console.error('Rider claim sync failed:', error); o.status=prevStatus; save(); }
-          else {
-            // Refresh the Rider Hub from Supabase so the persisted assignment (rider_id =
-            // currentRider.id, status = 'Rider assigned')is the source of truth —
-            // the order moves from Available to Active deliveries without relying
-            // on the optimistic local mutation..
-            await loadOrdersFromSupabase();
+    o.status='Rider assigned';
+    save();
+    render();
+    (async()=>{
+      // Success toasts fire ONLY after the server confirms (or the offline
+      // fallback path); failures never show a success message. Raw DB/RLS text
+      // is logged for debugging and never displayed to the rider.
+      let ok=false;
+      let reconciled='unknown';
+      if(typeof supabase!=='undefined' && supabase && o.dbId){
+        let claimErr=null;
+        // One safe retry for transient failures. A repeated claim attempt can
+        // never corrupt state: if the first attempt actually persisted, the
+        // retry is a same-status no-op on the server.
+        for(let attempt=0; attempt<2; attempt++){
+          if(attempt===1) await new Promise(r=>setTimeout(r,600));
+          const res=await supabase.from('orders')
+            .update({ status:'Rider assigned', rider_id: state.rider.id }).eq('id', o.dbId);
+          if(!res.error){ ok=true; break; }
+          claimErr=res.error;
+          console.error('Rider claim failed (attempt '+(attempt+1)+' of 2):', res.error);
+        }
+        if(!ok){
+          reconciled=await riderReconcileOrder(o.dbId, prevStatus, 'Rider assigned');
+          if(reconciled==='applied') ok=true;
+          else if(reconciled==='unknown'){
+            // Refresh failed — revert the local pool entry to the last known
+            // server state so the UI stays consistent.
+            const stale=riderOrderByDbId(o.dbId);
+            if(stale && stale.status==='Rider assigned') stale.status=prevStatus;
+            save();
+          } else {
+            console.warn('Rider claim rejected by server:', claimErr && claimErr.message);
           }
-          render();
-        })
-        .catch(err=>{ console.error('Rider claim sync error:', err); render(); });
-    }
-    toast('Delivery added to your rider queue'); render();
+        }
+      } else {
+        ok=true; // offline / local-only fallback preserves existing behaviour
+      }
+      delete state.riderSubmitting[o.id];
+      if(ok){
+        // Refresh the Rider Hub from Supabase so the persisted assignment
+        // (rider_id = currentRider.id, status = 'Rider assigned') is the source
+        // of truth — the order moves from Available to Active deliveries.
+        await loadOrdersFromSupabase();
+        addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
+        toast('Delivery added to your rider queue');
+      } else if(reconciled==='gone' || reconciled==='other'){
+        toast('This delivery is no longer available. Another rider accepted it.','error');
+      } else {
+        toast('Could not accept this delivery. Check your connection and try again.','error');
+      }
+      render();
+    })();
   }}
   const pickup=e.target.closest('[data-pickup]'); if(pickup){const o=state.riderPool.find(x=>x.id===pickup.dataset.pickup); if(o){
-    o.status='Picked up'; save();
-    addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`);
-    if(typeof supabase!=='undefined' && supabase && o.dbId){
-      supabase.from('orders').update({ status:'Picked up' }).eq('id',o.dbId)
-        .then(({ error })=>{ if(error) console.error('Rider pickup sync failed:', error); })
-        .catch(err=>console.error('Rider pickup sync error:', err));
-    }
-    toast('Order marked as picked up'); render();
+    runRiderStatusUpdate(o,'Picked up',{
+      successToast:'Order marked as picked up',
+      onSuccess:()=>addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`)
+    });
   }}
   const onway=e.target.closest('[data-onway]'); if(onway){const o=state.riderPool.find(x=>x.id===onway.dataset.onway); if(o){
-    o.status='On the Way'; save();
-    addNotification('Order on the way',`Order #${o.id} is on the way to the customer.`);
-    if(typeof supabase!=='undefined' && supabase && o.dbId){
-      supabase.from('orders').update({ status:'On the Way' }).eq('id',o.dbId)
-        .then(({ error })=>{ if(error) console.error('Rider on-the-way sync failed:', error); })
-        .catch(err=>console.error('Rider on-the-way sync error:', err));
-    }
-    toast('Order marked as on the way'); render();
+    runRiderStatusUpdate(o,'On the Way',{
+      successToast:'Order marked as on the way',
+      onSuccess:()=>addNotification('Order on the way',`Order #${o.id} is on the way to the customer.`)
+    });
   }}
   // Customer cancellation: only while the order is still cancellable
   // ('Order confirmed' / 'Preparing'). The order is never deleted — its status
   // becomes 'Cancelled' locally and in Supabase (orders_update_own_cancel RLS).
+  // For PAID orders, warn the customer that cancellation may require a separate
+  // refund process instead of promising an immediate refund.
   const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && ['Order confirmed','Preparing'].includes(o.status)){
+    if (o.payment_status === 'success' && !(await DropzyyModal.confirm({ title:'Cancel this order?', message:'Your order will be cancelled, but your payment may require a separate refund process.', confirmText:'Cancel order', danger:true }))) return;
     const prevStatus=o.status;
     o.status='Cancelled'; save();
     addNotification('Order cancelled',`Your order #${o.id} has been cancelled.`);
@@ -3361,22 +3850,39 @@ document.addEventListener('click', e=>{
   // the My Orders and Order Details entry points — no popup modal).
   const refundReq=e.target.closest('[data-refund-request]'); if(refundReq){ location.hash = '#/refund/' + encodeURIComponent(refundReq.dataset.refundRequest); }
   const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.riderPool.find(x=>x.id===delivered.dataset.delivered); if(o){
-    o.status='Delivered'; save();
-    addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`);
-    if(typeof supabase!=='undefined' && supabase && o.dbId){
-      supabase.from('orders').update({ status:'Delivered' }).eq('id',o.dbId)
-        .then(({ error })=>{ if(error) console.error('Rider delivery sync failed:', error); })
-        .catch(err=>console.error('Rider delivery sync error:', err));
-    }
-    toast('Delivery completed — earnings added!'); render();
+    runRiderStatusUpdate(o,'Delivered',{
+      successToast:'Delivery completed — earnings added!',
+      onSuccess:()=>addNotification('Order delivered',`Order #${o.id} was delivered successfully. Well done!`)
+    });
   }}
+  // Retry a previously failed rider status change from the persistent Retry
+  // banner in the Rider Hub.
+  const retryRider=e.target.closest('[data-retry-rider-status]'); if(retryRider){
+    const err=state.riderStatusError;
+    const dbId=retryRider.dataset.retryRiderStatus;
+    const o=err && dbId && err.dbId===dbId ? riderOrderByDbId(dbId) : null;
+    if(!o || !err){ toast('This delivery is no longer in your active queue.','info'); return; }
+    const next=err.nextStatus;
+    state.riderStatusError=null;
+    runRiderStatusUpdate(o, next, {
+      successToast:`Order marked as ${riderStatusLabel(next)}`,
+      onSuccess:()=>addNotification('Order updated',`Order #${o.id} is now ${next}.`)
+    });
+  }
   // Vendor order status transitions (accept 'Preparing' / reject 'Cancelled' /
   // mark 'Ready for pickup' / vendor-self 'Delivered'). Every change is
   // persisted to Supabase then re-renders the dashboard.
+  // Rejecting a PAID order requires explicit confirmation: the customer has
+  // already paid, and cancelling does not trigger an automatic refund.
+  // A local status guard also prevents accidental double submissions when the
+  // user taps the same button again before the UI re-renders.
   const vstatus=e.target.closest('[data-vendor-status]'); if(vstatus){
     const order=state.vendorOrders.find(x=>x.id===vstatus.dataset.vendorStatus);
     const to=vstatus.dataset.to;
     if(!order || !to) return;
+    if (order.status === to) return;
+    if (to === 'Cancelled' && order.payment_status === 'success'
+        && !(await DropzyyModal.confirm({ title:'Reject this order?', message:'The customer has already paid for this order.', confirmText:'Reject order', danger:true }))) return;
     const prev=order.status;
     order.status=to;
     save();
@@ -3439,6 +3945,12 @@ document.addEventListener('click', e=>{
   }
 });
 
+// F20: clear inline password-validation errors as soon as the user edits the field.
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t && (t.id === 'authPassword' || t.id === 'authConfirmPassword')) t.removeAttribute('aria-invalid');
+});
+
 document.addEventListener('submit', e=>{
   if(e.target.id==='profileForm'){e.preventDefault(); submitProfileForm(e.target); return;}
   if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
@@ -3456,10 +3968,14 @@ document.addEventListener('submit', e=>{
       const confirmPassword=f.get('confirmPassword')||'';
       if(password!==confirmPassword){
         toast('Passwords do not match','error');
+        const c=document.getElementById('authConfirmPassword');
+        if(c){ c.setAttribute('aria-invalid','true'); c.focus(); }
         return;
       }
       if(password.length<6){
         toast('Password must be at least 6 characters','error');
+        const p=document.getElementById('authPassword');
+        if(p){ p.setAttribute('aria-invalid','true'); p.focus(); }
         return;
       }
       const full_name=f.get('name')||'';
@@ -3577,10 +4093,13 @@ document.addEventListener('submit', e=>{
     const fee=DELIVERY_FEE;
     const total=subtotal+fee;
     const items=cartItems();
+    const unavailableItem=items.find(x => x.active === false);
+    if (unavailableItem){ toast(`Order failed: "${unavailableItem.name}" is no longer available — remove it from your cart and try again.`, 'error'); return; }
     // C5 cleanup: the client no longer generates a temporary order number.
     // The place_order RPC generates the authoritative order number server-side;
     // saveOrderToSupabase() overwrites order.id with it before persistence.
-    const order={id:null,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}`,created:'Just now',delivery_method:'rider'};
+    const note=(f.get('note')||'').trim();
+    const order={id:null,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}${note?' — Note: '+note:''}`,created:'Just now',delivery_method:'rider'};
     
     
     if (typeof supabase === 'undefined' || !supabase) {
@@ -3628,11 +4147,38 @@ document.addEventListener('submit', e=>{
   }
 });
 
-$('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
-$('#notifBtn').addEventListener('click',()=>{ $('#notifPanel').hidden=!$('#notifPanel').hidden; loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
-document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
-// Escape closes open dropdown panels (account + notifications)
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#userPanel').hidden=true;$('#notifPanel').hidden=true;}});
+// F19: keep the theme toggle's current state communicated (aria-pressed) and
+// reflected in its title. Emoji/icon rendering and visuals are unchanged.
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const btn = document.getElementById('themeBtn');
+  if (btn) {
+    btn.textContent = dark ? '☀️' : '🌙';
+    btn.setAttribute('aria-pressed', String(dark));
+    btn.setAttribute('title', dark ? 'Currently dark — switch to light' : 'Currently light — switch to dark');
+  }
+}
+$('#themeBtn').addEventListener('click',()=>{ const next=document.documentElement.dataset.theme==='dark'?'light':'dark'; applyTheme(next); localStorage.setItem('campusrun_theme',next); });
+// Shared dropdown panel control: toggles the panel and keeps the trigger
+// button's aria-expanded in sync on EVERY open/close path (button click,
+// outside click, Escape). Set open=true to expand, false to collapse.
+function setDropdownOpen(triggerId, panelId, open){
+  const btn=document.getElementById(triggerId);
+  const panel=document.getElementById(panelId);
+  if(!btn || !panel) return;
+  panel.hidden=!open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+$('#notifBtn').addEventListener('click',()=>{ setDropdownOpen('notifBtn','notifPanel', $('#notifPanel').hidden); loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>setDropdownOpen('userBtn','userPanel', $('#userPanel').hidden)); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
+document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))setDropdownOpen('notifBtn','notifPanel',false); if(!e.target.closest('#userWrap'))setDropdownOpen('userBtn','userPanel',false);});
+// Escape closes open dropdown panels (account + notifications) — ARIA stays in sync.
+// Skip-to-content: preventDefault so the bare "#app" hash never collides with
+// the "#/route" router, and focus the routed main container without scrolling.
+const skipLink=document.getElementById('skipLink');
+if(skipLink){ skipLink.addEventListener('click',e=>{ e.preventDefault(); const main=document.getElementById('app'); if(main && typeof main.focus==='function') main.focus({ preventScroll: true }); }); }
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){setDropdownOpen('userBtn','userPanel',false); setDropdownOpen('notifBtn','notifPanel',false);}});
 
 // Cross-tab sync: when another tab/page (e.g. the admin panel) writes to
 // localStorage, refresh the in-memory catalog and re-render so the customer
@@ -3700,14 +4246,30 @@ document.addEventListener('input', (e) => {
   }
 });
 
-document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear();
+applyTheme(localStorage.getItem('campusrun_theme')||'light'); $('#year').textContent=new Date().getFullYear();
 // Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL
 // constant so the address is pasted/changed in one place only.
 const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DROPZYY_SUPPORT_EMAIL||'').trim(); if(em){ footerEmailLink.textContent=em; footerEmailLink.href='mailto:'+em; } }
-window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
+window.addEventListener('hashchange', () => {
+  // If we're navigating away from a track page, tear down the live
+  // channel + poll so neither leaks across route changes.
+  if (!location.hash.startsWith('#/track/')) clearTrackSubscription();
+  render().then(()=>{
+    // #app keeps tabindex="-1" so it can receive programmatic focus without
+    // turning up in the tab order. preventScroll avoids a focus-induced scroll
+    // jump on top of render()'s deliberate scrollTo-top.
+    const main=document.getElementById('app');
+    if(main && typeof main.focus==='function') main.focus({ preventScroll: true });
+  });
+}); if(!location.hash) location.hash='#/'; else render();
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
 loadCatalogFromSupabase();
+
+// Realtime (push): subscribe ONCE so vendor availability flips propagate to
+// the customer site live. Re-renders never re-subscribe (see the guard in
+// subscribeProductsRealtime), so the channel is created exactly once.
+subscribeProductsRealtime();
 
 // Load the authenticated user's orders from Supabase (falls back to localStorage).
 loadOrdersFromSupabase();

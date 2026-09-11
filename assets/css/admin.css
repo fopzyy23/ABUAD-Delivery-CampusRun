@@ -636,6 +636,12 @@ html[data-theme="dark"] .badge--brand {
 .admin-filters {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+
 /* ---------------------------------- ISSUE REPORTS -------------------------- */
 /* Long report descriptions wrap instead of forcing the table wider. */
 .report-desc {
@@ -669,11 +675,6 @@ html[data-theme="dark"] .badge--brand {
   background: var(--surface-2);
   color: var(--muted);
   border: 1px solid var(--line);
-}
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 0;
 }
 
 .filter-tabs {
@@ -776,5 +777,224 @@ html[data-theme="dark"] .badge--brand {
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Admin Section Navigation (UI/UX restructure)
+   ========================================================================== */
+/* Two-column shell: sticky sidebar + the active section. Pure presentational
+   navigation — no data, RLS, RPC, or business logic changes. */
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ---- Sidebar ---- */
+.admin-sidebar {
+  position: sticky;
+  top: 20px;
+}
+
+.admin-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.admin-nav__item:hover {
+  background: var(--surface-2, var(--surface));
+  color: var(--ink);
+}
+
+.admin-nav__item.is-active {
+  background: var(--brand-soft);
+  color: var(--brand-700);
+}
+
+.admin-nav__icon {
+  flex: 0 0 auto;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.admin-nav__label {
+  flex: 1 1 auto;
+}
+
+.admin-nav__count {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--brand);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* ---- Content ---- */
+.admin-content {
+  min-width: 0;
+}
+
+/* Dashboard "needs attention" rows (navigate to the relevant section) */
+.attention-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.attention-row + .attention-row {
+  margin-top: 8px;
+}
+
+.attention-row:hover {
+  background: var(--surface-2, var(--surface));
+  border-color: var(--brand);
+}
+
+.attention-row__icon {
+  flex: 0 0 auto;
+  font-size: 1.1rem;
+}
+
+.attention-row__label {
+  flex: 1 1 auto;
+}
+
+.attention-row .badge {
+  flex: 0 0 auto;
+}
+
+/* Dashboard quick-action buttons */
+.admin-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* ---- Settings (read-only) ---- */
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row dt {
+  flex: 0 0 38%;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settings-row dd {
+  flex: 1 1 auto;
+  margin: 0;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ---- Responsive: narrows the sidebar to a horizontal tab bar ---- */
+@media (max-width: 900px) {
+  .admin-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .admin-sidebar {
+    position: static;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -4px;
+    padding: 0 4px 4px;
+  }
+
+  .admin-nav__list {
+    flex-direction: row;
+    gap: 6px;
+    min-width: max-content;
+  }
+
+  .admin-nav__item {
+    width: auto;
+    white-space: nowrap;
+    padding: 8px 12px;
+    font-size: 0.82rem;
+  }
+
+  .admin-nav__count {
+    min-width: 18px;
+    padding: 0 6px;
+  }
+
+  /* Extra small: full-width dashboard quick actions + stacked settings rows */
+  .admin-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .settings-row dt {
+    flex-basis: auto;
+  }
+
+  .settings-row dd {
+    text-align: left;
   }
 }

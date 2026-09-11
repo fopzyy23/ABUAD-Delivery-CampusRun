@@ -44,6 +44,10 @@ let orderFilter = {
 // Canonical set of order status values used in the status update dropdown.
 const ORDER_STATUS_OPTIONS = ['Order confirmed', 'Preparing', 'Ready for pickup', 'Rider assigned', 'Picked up', 'On the Way', 'Delivered', 'Rated', 'Cancelled'];
 
+// Order status saves currently in flight — guards against duplicate
+// submissions from rapid select changes / double Save clicks (F11).
+const orderStatusSaving = new Set();
+
 // Statuses that represent a terminal, completed order (no longer active).
 const COMPLETED_STATUSES = ['Delivered', 'Rated'];
 // Status that represents a cancelled order.
@@ -354,9 +358,21 @@ const SEED_DATA = {
 function toast(message, kind = 'success') {
   const el = document.createElement('div');
   el.className = `toast toast--${kind}`;
-  el.textContent = message;
+  const text = document.createElement('span');
+  text.className = 'toast__text';
+  text.textContent = message;
+  el.appendChild(text);
+  if (kind === 'error') {
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'toast__dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss message');
+    dismiss.textContent = '×';
+    dismiss.addEventListener('click', () => el.remove());
+    el.appendChild(dismiss);
+  }
   $('#toastRoot').append(el);
-  setTimeout(() => el.remove(), 3400);
+  setTimeout(() => el.remove(), kind === 'error' ? 9000 : 3400);
 }
 
 // ============================================
@@ -570,7 +586,7 @@ async function addVendor(formData) {
 }
 
 async function deleteVendor(vendorId) {
-  if (confirm('Delete this vendor and all its products?')) {
+  if (await DropzyyModal.confirm({ title:'Delete vendor', message:'Delete this vendor and all its products?', confirmText:'Delete vendor', danger:true })) {
     const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
     state.catalog.vendors = state.catalog.vendors.filter(v => v.id !== vendorId);
     state.catalog.products = state.catalog.products.filter(p => p.vendor !== vendorId);
@@ -650,7 +666,7 @@ async function addProduct(formData) {
 }
 
 async function deleteProduct(productId) {
-  if (confirm('Delete this product?')) {
+  if (await DropzyyModal.confirm({ title:'Delete product', message:'Delete this product?', confirmText:'Delete product', danger:true })) {
     state.catalog.products = state.catalog.products.filter(p => p.id !== Number(productId));
     // Remove any cart entries that referenced the deleted product
     const cart = load('cart', []);
@@ -739,12 +755,12 @@ function renderLogin() {
           </div>
           <form id="loginForm" class="stack mt-2">
             <div class="field">
-              <label>Admin email</label>
-              <input required class="input" type="email" name="email" placeholder="admin@dropzyy.app" autocomplete="email">
+              <label for="adminEmail">Admin email</label>
+              <input required class="input" type="email" name="email" id="adminEmail" placeholder="admin@dropzyy.app" autocomplete="email">
             </div>
             <div class="field">
-              <label>Admin password</label>
-              <input required class="input" type="password" name="password" placeholder="Enter admin password" autocomplete="current-password">
+              <label for="adminPassword">Admin password</label>
+              <input required class="input" type="password" name="password" id="adminPassword" placeholder="Enter admin password" autocomplete="current-password">
             </div>
             <button class="btn btn--block btn--lg" type="submit">Access Admin Panel</button>
           </form>
@@ -771,6 +787,56 @@ function renderLogin() {
   });
 }
 
+// ============================================
+// Admin Section Navigation (UI/UX restructure)
+// ============================================
+// The admin panel is organized into single-section views behind a responsive
+// sidebar, so sections are no longer stacked on one long page. `adminSection`
+// is module state and the default landing view is the Dashboard. All renders
+// (initial load AND every mutation flow) pass through renderAdminWorkspace(),
+// which renders ONLY the active section — nothing else is in the DOM. This is
+// pure client-side navigation (no URL changes): it keeps the existing #/admin
+// gate in app.js and the standalone admin.html entry, and changes no data,
+// RLS, RPC, or business logic.
+let adminSection = 'dashboard';
+
+// Sidebar navigation with at-a-glance pending-count badges (presentational).
+function adminSidebar() {
+  const sections = [
+    { key: 'dashboard', label: 'Dashboard', icon: '🏠' },
+    { key: 'orders', label: 'Orders', icon: '🧾' },
+    {
+      key: 'vendors', label: 'Vendors', icon: '🏪',
+      count: (state.vendorApplications || []).filter(a => a.status === 'Pending').length
+    },
+    {
+      key: 'riders', label: 'Riders', icon: '🛵',
+      count: (state.riders || []).filter(r => r.status === 'pending').length
+    },
+    { key: 'customers', label: 'Customers', icon: '👥' },
+    { key: 'catalog', label: 'Catalog', icon: '📦' },
+    {
+      key: 'payments', label: 'Payments & Settlements', icon: '💳',
+      count: (state.refunds || []).filter(r => r.status === 'requested').length + (state.withdrawals || []).filter(w => w.status === 'pending').length
+    },
+    {
+      key: 'reports', label: 'Reports / Activity', icon: '📋',
+      count: (state.reports || []).filter(r => r.status === 'Open').length
+    },
+    { key: 'settings', label: 'Settings', icon: '⚙️' }
+  ];
+  return `<nav class="admin-nav" aria-label="Admin sections"><ul class="admin-nav__list">
+    ${sections.map(s => `
+      <li>
+        <button type="button" class="admin-nav__item${adminSection === s.key ? ' is-active' : ''}" data-admin-nav="${s.key}"${adminSection === s.key ? ' aria-current="page"' : ''}>
+          <span class="admin-nav__icon" aria-hidden="true">${s.icon}</span>
+          <span class="admin-nav__label">${s.label}</span>
+          ${s.count ? `<span class="admin-nav__count">${s.count}</span>` : ''}
+        </button>
+      </li>`).join('')}
+  </ul></nav>`;
+}
+
 function renderAdminWorkspace() {
   const vendors = state.catalog ? state.catalog.vendors : [];
   const products = state.catalog ? state.catalog.products : [];
@@ -791,170 +857,341 @@ function renderAdminWorkspace() {
   // full Supabase load in state.orders.
   const filteredOrders = applyOrderFilter(orders);
 
+  // ---- Render ONLY the active section ----
+  const shared = { vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue, filteredOrders };
+  let view;
+  if (adminSection === 'dashboard') view = renderDashboardSection(shared);
+  else if (adminSection === 'orders') view = renderOrdersSection(shared);
+  else if (adminSection === 'vendors') view = renderVendorsSection(shared);
+  else if (adminSection === 'riders') view = renderRidersSection(shared);
+  else if (adminSection === 'customers') view = renderCustomersSection(shared);
+  else if (adminSection === 'catalog') view = renderCatalogSection(shared);
+  else if (adminSection === 'payments') view = renderPaymentsSection(shared);
+  else if (adminSection === 'reports') view = renderReportsSection(shared);
+  else view = renderSettingsSection(shared);
+
   const app = $('#app');
   app.innerHTML = `
     ${adminNav()}
     <section class="section container">
-      <div class="page-head">
-        <div>
-          <span class="badge badge--brand">Platform Control</span>
-          <h1 class="mt-1">Content Manager</h1>
-          <p class="muted">Changes are saved instantly and appear across the customer pages.</p>
+      <div class="admin-layout">
+        <aside class="admin-sidebar">${adminSidebar()}</aside>
+        <div class="admin-content">
+          ${view}
+        </div>
+      </div>
+    </section>
+  `;
+
+  // Attach event listeners for the rendered section
+  attachAdminEventListeners();
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: overview + things requiring attention. No full management tables.
+// ---------------------------------------------------------------------------
+function renderDashboardSection({ vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue }) {
+  const pendingNow = orders.filter(o => (o.status || 'Order confirmed') === 'Order confirmed').length;
+  const attention = [
+    { key: 'orders', icon: '🧾', label: 'Orders awaiting action', count: pendingNow },
+    { key: 'vendors', icon: '🏪', label: 'Pending vendor applications', count: (state.vendorApplications || []).filter(a => a.status === 'Pending').length },
+    { key: 'riders', icon: '🛵', label: 'Pending rider applications', count: (state.riders || []).filter(r => r.status === 'pending').length },
+    { key: 'payments', icon: '💳', label: 'Refund requests to review', count: (state.refunds || []).filter(r => r.status === 'requested').length },
+    { key: 'payments', icon: '💵', label: 'Withdrawal requests to review', count: (state.withdrawals || []).filter(w => w.status === 'pending').length },
+    { key: 'reports', icon: '📋', label: 'Open issue reports', count: (state.reports || []).filter(r => r.status === 'Open').length }
+  ];
+  const waiting = attention.filter(a => a.count > 0);
+  const recent = orders.slice(0, 5);
+  const quickActions = [
+    { key: 'orders', label: 'Manage orders' },
+    { key: 'catalog', label: 'Products & catalog' },
+    { key: 'vendors', label: 'Vendors & applications' },
+    { key: 'riders', label: 'Riders & applications' },
+    { key: 'payments', label: 'Refunds & withdrawals' },
+    { key: 'reports', label: 'Issue reports' }
+  ];
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Platform Control</span>
+        <h1 class="mt-1">Admin Dashboard</h1>
+        <p class="muted">High-level overview — open a section to manage it in detail.</p>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid--stats">
+      <div class="stat stat--brand">
+        <span class="stat__label">Total Orders</span>
+        <span class="stat__value">${totalOrders}</span>
+        <span class="stat__hint">${activeOrders} active · ${completedOrders} delivered</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Active Orders</span>
+        <span class="stat__value">${activeOrders}</span>
+        <span class="stat__hint">Pending, preparing, on the way…</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Delivered Orders</span>
+        <span class="stat__value">${completedOrders}</span>
+        <span class="stat__hint">Delivered or rated</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Cancelled Orders</span>
+        <span class="stat__value">${cancelledOrders}</span>
+        <span class="stat__hint">Cancelled by customer or admin</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Order Value</span>
+        <span class="stat__value">${money(orderValue)}</span>
+        <span class="stat__hint">Total value across all orders</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Vendors</span>
+        <span class="stat__value">${vendors.length}</span>
+        <span class="stat__hint">Visible on the marketplace</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Products</span>
+        <span class="stat__value">${products.length}</span>
+        <span class="stat__hint">Available menu items</span>
+      </div>
+      <div class="stat">
+        <span class="stat__label">Riders</span>
+        <span class="stat__value">${riders.length}</span>
+        <span class="stat__hint">Registered rider applications</span>
+      </div>
+    </div>
+
+    <div class="split mt-3">
+      <div class="card">
+        <div class="card__head">
+          <h3>Needs attention</h3>
+          <span class="muted small">Jump straight to pending work</span>
+        </div>
+        ${waiting.length
+          ? waiting.map(a => `
+            <button type="button" class="attention-row" data-admin-nav="${a.key}">
+              <span class="attention-row__icon" aria-hidden="true">${a.icon}</span>
+              <span class="attention-row__label">${a.label}</span>
+              <span class="badge badge--warn">${a.count}</span>
+            </button>`).join('')
+          : '<p class="muted small mb-0">All caught up — nothing needs attention right now.</p>'}
+      </div>
+      <div class="card">
+        <div class="card__head">
+          <h3>Quick actions</h3>
+          <span class="muted small">Open a management section</span>
+        </div>
+        <div class="admin-actions">
+          ${quickActions.map(a => `<button type="button" class="btn btn--soft btn--block" data-admin-nav="${a.key}">${a.label}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card__head">
+        <h3>Recent orders</h3>
+        <span class="muted small">Latest ${recent.length} order${recent.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Total</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recent.length
+              ? recent.map(order => `
+                <tr>
+                  <td><b>#${order.id}</b></td>
+                  <td class="muted small">${formatDate(order.created)}</td>
+                  <td>${money(order.total)}</td>
+                  <td><span class="status-badge ${orderStatusClass(order.status)}">${escHtml(order.status) || 'Order confirmed'}</span></td>
+                </tr>`).join('')
+              : '<tr><td colspan="4" class="muted center">No orders yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-2">
+        <button type="button" class="btn btn--ghost btn--sm" data-admin-nav="orders">View all orders →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Orders: full order table + presentational status/date filters. Filter tabs
+// only reference statuses that already exist (admin.js ORDER_STATUS_OPTIONS =
+// the orders.status CHECK constraint in migration 20260901).
+// ---------------------------------------------------------------------------
+function renderOrdersSection({ filteredOrders, orders }) {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Operations</span>
+        <h1 class="mt-1">Orders</h1>
+        <p class="muted">All orders and status management.</p>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Orders</h3>
+        <span class="muted small">${filteredOrders.length} of ${orders.length} order${orders.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      ${state.ordersError
+        ? `<div class="orders-error">⚠ ${state.ordersError}</div>`
+        : ''}
+
+      <!-- Order Status Filters / Tabs -->
+      <div class="admin-filters">
+        <div class="filter-tabs">
+          <button type="button" class="filter-tab ${orderFilter.status === 'all' ? 'is-active' : ''}" data-order-filter="all">All Orders</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'active' ? 'is-active' : ''}" data-order-filter="active">Active</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'Order confirmed' ? 'is-active' : ''}" data-order-filter="Order confirmed">Order confirmed</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'Preparing' ? 'is-active' : ''}" data-order-filter="Preparing">Preparing</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'Ready for pickup' ? 'is-active' : ''}" data-order-filter="Ready for pickup">Ready for pickup</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'On the Way' ? 'is-active' : ''}" data-order-filter="On the Way">On the Way</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'completed' ? 'is-active' : ''}" data-order-filter="completed">Completed</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'Delivered' ? 'is-active' : ''}" data-order-filter="Delivered">Delivered</button>
+          <button type="button" class="filter-tab ${orderFilter.status === 'cancelled' ? 'is-active' : ''}" data-order-filter="cancelled">Cancelled</button>
+        </div>
+        <div class="filter-date">
+          <label for="orderDateFrom" class="filter-date__label">From</label>
+          <input type="date" class="input input--sm" id="orderDateFrom" value="${orderFilter.dateFrom}">
+          <label for="orderDateTo" class="filter-date__label">To</label>
+          <input type="date" class="input input--sm" id="orderDateTo" value="${orderFilter.dateTo}">
+          <button type="button" class="btn btn--ghost btn--sm" data-order-filter-reset>Reset</button>
         </div>
       </div>
 
-      <!-- Stats -->
-      <div class="grid grid--stats">
-        <div class="stat stat--brand">
-          <span class="stat__label">Total Orders</span>
-          <span class="stat__value">${totalOrders}</span>
-          <span class="stat__hint">${activeOrders} active · ${completedOrders} delivered</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Active Orders</span>
-          <span class="stat__value">${activeOrders}</span>
-          <span class="stat__hint">Pending, preparing, on the way…</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Delivered Orders</span>
-          <span class="stat__value">${completedOrders}</span>
-          <span class="stat__hint">Delivered or rated</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Cancelled Orders</span>
-          <span class="stat__value">${cancelledOrders}</span>
-          <span class="stat__hint">Cancelled by customer or admin</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Order Value</span>
-          <span class="stat__value">${money(orderValue)}</span>
-          <span class="stat__hint">Total value across all orders</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Vendors</span>
-          <span class="stat__value">${vendors.length}</span>
-          <span class="stat__hint">Visible on the marketplace</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Products</span>
-          <span class="stat__value">${products.length}</span>
-          <span class="stat__hint">Available menu items</span>
-        </div>
-        <div class="stat">
-          <span class="stat__label">Riders</span>
-          <span class="stat__value">${riders.length}</span>
-          <span class="stat__hint">Registered rider applications</span>
-        </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Items</th>
+              <th>Delivery</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.ordersLoading
+              ? '<tr><td colspan="7" class="muted center">Loading orders…</td></tr>'
+              : filteredOrders.length
+                ? filteredOrders.map(order => `
+                  <tr>
+                    <td><b>#${order.id}</b></td>
+                    <td class="muted small">${formatDate(order.created)}</td>
+                    <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${escHtml(item.name)} × ${item.qty}`).join(', ') || '—'}</td>
+                    <td>${escHtml(order.spot) || '—'}</td>
+                    <td>${money(order.total)}</td>
+                    <td>
+                      <span class="status-badge ${orderStatusClass(order.status)}">${escHtml(order.status) || 'Order confirmed'}</span>
+                    </td>
+                    <td>
+                      <select class="select select--sm" data-order-status="${order.id}">
+                        ${ORDER_STATUS_OPTIONS.map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
+                      </select>
+                      <button class="link-btn" data-save-order-status="${order.id}">Save</button>
+                    </td>
+                  </tr>
+                `).join('')
+                : '<tr><td colspan="7" class="muted center">No orders match the current filters.</td></tr>'}
+          </tbody>
+        </table>
       </div>
+    </div>
+  `;
+}
 
+// ---------------------------------------------------------------------------
+// Vendors: vendor storefronts + applications.
+// ---------------------------------------------------------------------------
+function renderVendorsSection({ vendors }) {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Marketplace</span>
+        <h1 class="mt-1">Vendors</h1>
+        <p class="muted">Vendor storefronts, applications, and approvals.</p>
+      </div>
+    </div>
+
+    <div class="split mt-2">
       <!-- Add Vendor Form -->
-      <div class="split mt-3">
-        <form class="card stack" id="vendorForm">
-          <div class="card__head">
-            <h3 id="vendorFormTitle">Add Vendor</h3>
-            <button class="link-btn" type="button" id="clearVendorForm">Clear</button>
+      <form class="card stack" id="vendorForm">
+        <div class="card__head">
+          <h3 id="vendorFormTitle">Add Vendor</h3>
+          <button class="link-btn" type="button" id="clearVendorForm">Clear</button>
+        </div>
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <div class="field">
+            <label for="adminVendorName">Vendor Name</label>
+            <input class="input" name="name" id="adminVendorName" required placeholder="e.g. Campus Pharmacy">
           </div>
-          <input type="hidden" name="id">
-          <div class="form-grid">
-            <div class="field">
-              <label>Vendor Name</label>
-              <input class="input" name="name" required placeholder="e.g. Campus Pharmacy">
-            </div>
-            <div class="field">
-              <label>Type</label>
-              <input class="input" name="type" required placeholder="e.g. Essentials">
-            </div>
-            <div class="field">
-              <label>Icon</label>
-              <input class="input" name="icon" value="🏪" maxlength="8">
-            </div>
-            <div class="field">
-              <label>Delivery Time</label>
-              <input class="input" name="time" value="15–25 min">
-            </div>
-            <div class="field">
-              <label>Rating</label>
-              <input class="input" name="rating" type="number" min="0" max="5" step="0.1" value="4.5">
-            </div>
-            <div class="field">
-              <label>Cover Colour</label>
-              <input class="input" name="cover" value="#d9f5e9" pattern="#[0-9a-fA-F]{6}">
-            </div>
-            <div class="field">
-              <label>Image URL (optional)</label>
-              <input class="input" name="image" placeholder="https://… shown on vendor cards when set">
-            </div>
-            <div class="field">
-              <label>Opening Hours (optional)</label>
-              <input class="input" name="opening_hours" placeholder="e.g. Mon–Fri 08:00–18:00, Sat 09:00–14:00">
-            </div>
-            <div class="field col-2">
-              <label>Description (optional)</label>
-              <textarea class="textarea" name="description" placeholder="A short blurb shown on the vendor card."></textarea>
-            </div>
-            <div class="field">
-              <label>Delivery Method</label>
-              <select class="select" name="delivery_method">
-                <option value="rider">Rider (rider collects & delivers)</option>
-                <option value="vendor_self">Vendor self-delivery</option>
-                <option value="both">Both (vendor can choose)</option>
-              </select>
-            </div>
+          <div class="field">
+            <label for="adminVendorType">Type</label>
+            <input class="input" name="type" id="adminVendorType" required placeholder="e.g. Essentials">
           </div>
-          <label class="radio-card">
-            <input name="open" type="checkbox" checked> Open for orders
-          </label>
-          <button class="btn btn--block" type="submit">Save Vendor</button>
-        </form>
-
-        <!-- Add Product Form -->
-        <form class="card stack" id="productForm">
-          <div class="card__head">
-            <h3 id="productFormTitle">Add Product</h3>
-            <button class="link-btn" type="button" id="clearProductForm">Clear</button>
+          <div class="field">
+            <label for="adminVendorIcon">Icon</label>
+            <input class="input" name="icon" id="adminVendorIcon" value="🏪" maxlength="8">
           </div>
-          <input type="hidden" name="id">
-          <div class="form-grid">
-            <div class="field">
-              <label>Product Name</label>
-              <input class="input" name="name" required placeholder="e.g. Meat pie">
-            </div>
-            <div class="field">
-              <label>Vendor</label>
-              <select class="select" name="vendor" required>
-                ${vendors.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field">
-              <label>Price (₦)</label>
-              <input class="input" name="price" required min="0" type="number" placeholder="1000">
-            </div>
-            <div class="field">
-              <label>Category</label>
-              <input class="input" name="category" required placeholder="Food">
-            </div>
-            <div class="field">
-              <label>Icon</label>
-              <input class="input" name="icon" value="🍽️" maxlength="8">
-            </div>
-            <div class="field col-2">
-              <label>Image URL (optional)</label>
-              <input class="input" name="image" placeholder="https://… shown on product cards when set">
-            </div>
-            <div class="field col-2">
-              <label>Description</label>
-              <textarea class="textarea" name="desc" required placeholder="A short description for customers."></textarea>
-            </div>
+          <div class="field">
+            <label for="adminVendorTime">Delivery Time</label>
+            <input class="input" name="time" id="adminVendorTime" value="15–25 min">
           </div>
-          <button class="btn btn--block" type="submit">Save Product</button>
-        </form>
-      </div>
+          <div class="field">
+            <label for="adminVendorRating">Rating</label>
+            <input class="input" name="rating" id="adminVendorRating" type="number" min="0" max="5" step="0.1" value="4.5">
+          </div>
+          <div class="field">
+            <label for="adminVendorCover">Cover Colour</label>
+            <input class="input" name="cover" id="adminVendorCover" value="#d9f5e9" pattern="#[0-9a-fA-F]{6}">
+          </div>
+          <div class="field">
+            <label for="adminVendorImage">Image URL (optional)</label>
+            <input class="input" name="image" id="adminVendorImage" placeholder="https://… shown on vendor cards when set">
+          </div>
+          <div class="field">
+            <label for="adminVendorHours">Opening Hours (optional)</label>
+            <input class="input" name="opening_hours" id="adminVendorHours" placeholder="e.g. Mon–Fri 08:00–18:00, Sat 09:00–14:00">
+          </div>
+          <div class="field col-2">
+            <label for="adminVendorDescription">Description (optional)</label>
+            <textarea class="textarea" name="description" id="adminVendorDescription" placeholder="A short blurb shown on the vendor card."></textarea>
+          </div>
+          <div class="field">
+            <label for="adminVendorDeliveryMethod">Delivery Method</label>
+            <select class="select" name="delivery_method" id="adminVendorDeliveryMethod">
+              <option value="rider">Rider (rider collects & delivers)</option>
+              <option value="vendor_self">Vendor self-delivery</option>
+              <option value="both">Both (vendor can choose)</option>
+            </select>
+          </div>
+        </div>
+        <label class="radio-card">
+          <input name="open" type="checkbox" checked> Open for orders
+        </label>
+        <button class="btn btn--block" type="submit">Save Vendor</button>
+      </form>
 
       <!-- Vendors Table -->
-      <div class="card mt-3">
+      <div class="card">
         <div class="card__head">
           <h3>Vendors</h3>
-          <span class="muted small">Edit availability or details</span>
+          <span class="muted small">Edit availability or details · changes appear across the customer pages instantly</span>
         </div>
         <div class="table-wrap">
           <table class="table">
@@ -986,9 +1223,241 @@ function renderAdminWorkspace() {
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- Vendor Applications Section (Become a Vendor → vendor_applications) -->
+    <div class="card mt-3">
+      <div class="card__head">
+        <h3>Vendor Applications</h3>
+        <span class="muted small">${state.vendorApplications.filter(a => a.status === 'Pending').length} pending · ${state.vendorApplications.length} total — approve creates their storefront &amp; grants vendor access</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Applicant</th>
+              <th>Matric</th>
+              <th>College / Dept</th>
+              <th style="min-width:220px">What they want to sell</th>
+              <th>Price range</th>
+              <th>Status</th>
+              <th>Applied</th>
+              <th style="min-width:340px">Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderVendorApplicationRows()}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Riders: applications + active/suspended riders.
+// ---------------------------------------------------------------------------
+function renderRidersSection() {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Fleet</span>
+        <h1 class="mt-1">Riders</h1>
+        <p class="muted">Rider applications, approvals, and suspensions.</p>
+      </div>
+    </div>
+
+    <!-- Rider Applications Section -->
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Rider Applications</h3>
+        <span class="muted small">Pending riders awaiting approval</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Matric Number</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Applied</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.riders.length ? state.riders.map(rider => {
+              // Show only pending riders
+              if (rider.status !== 'pending') return '';
+              return `
+              <tr>
+                <td>${escHtml(rider.matric_number) || '—'}</td>
+                <td>${escHtml(rider.phone) || '—'}</td>
+                <td><span class="status--pending">Pending</span></td>
+                <td>${rider.created_at ? rider.created_at.substring(0, 10) : '—'}</td>
+                <td>
+                  <button class="link-btn btn--danger" data-approve-rider="${rider.id}">Approve</button>
+                  <button class="link-btn btn--danger" data-reject-rider="${rider.id}">Reject</button>
+                </td>
+              </tr>
+              `;
+            }).join('') : '<tr><td colspan="5" class="muted center">No pending rider applications.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Active Riders Section (approved) -->
+    <div class="card mt-3">
+      <div class="card__head">
+        <h3>Active Riders</h3>
+        <span class="muted small">Approved riders can be suspended; suspended riders can be reactivated with Unsuspend</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Matric Number</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.riders.length ? state.riders.map(rider => {
+              // Show approved (active) and suspended riders (suspended ones are reactivated here)
+              if (rider.status !== 'approved' && rider.status !== 'suspended') return '';
+              const isSuspended = rider.status === 'suspended';
+              return `
+              <tr>
+                <td>${escHtml(rider.matric_number) || '—'}</td>
+                <td>${escHtml(rider.phone) || '—'}</td>
+                <td><span class="status--${isSuspended ? 'cancelled' : 'approved'}">${isSuspended ? 'Suspended' : 'Approved'}</span></td>
+                <td>
+                  ${isSuspended
+                    ? `<button class="link-btn" data-unsuspend-rider="${rider.id}">Unsuspend</button>`
+                    : `<button class="link-btn btn--danger" data-suspend-rider="${rider.id}">Suspend</button>`}
+                </td>
+              </tr>
+              `;
+            }).join('') : '<tr><td colspan="4" class="muted center">No active or suspended riders.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Customers: user accounts + vendor assignment (the existing account/role table).
+// ---------------------------------------------------------------------------
+function renderCustomersSection({ vendors }) {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Accounts</span>
+        <h1 class="mt-1">Customers</h1>
+        <p class="muted">User accounts and vendor assignments.</p>
+      </div>
+    </div>
+
+    <!-- Vendor Assignment Section (admin only) -->
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Customers &amp; Vendor Assignment</h3>
+        <span class="muted small">Assign user accounts (role = user) to a vendor. Admin only.</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Current Vendor</th>
+              <th style="min-width:200px">Assign to Vendor</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.users.length ? state.users.map(user => {
+              const current = user.vendor_id ? vendors.find(v => v.id === user.vendor_id) : null;
+              return `
+              <tr data-user-id="${user.id}">
+                <td>${escHtml(user.full_name) || '—'}<div class="muted small">${escHtml(user.email) || ''}</div></td>
+                <td>${current ? escHtml(current.name) : escHtml(user.vendor_id) || '—'}</td>
+                <td>
+                  <select class="select" name="vendor" data-user-vendor="${user.id}">
+                    <option value="">(unassigned)</option>
+                    ${vendors.map(v => `<option value="${escHtml(v.id)}" ${user.vendor_id === v.id ? 'selected' : ''}>${escHtml(v.name)}</option>`).join('')}
+                  </select>
+                </td>
+                <td><button class="link-btn" data-assign-user="${user.id}">Assign</button></td>
+              </tr>
+              `;
+            }).join('') : '<tr><td colspan="4" class="muted center">No users to assign.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: products + product creation/editing.
+// ---------------------------------------------------------------------------
+function renderCatalogSection({ vendors, products }) {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Catalog</span>
+        <h1 class="mt-1">Catalog</h1>
+        <p class="muted">Product items available across the marketplace — changes are saved instantly and appear across the customer pages.</p>
+      </div>
+    </div>
+
+    <div class="split mt-2">
+      <!-- Add Product Form -->
+      <form class="card stack" id="productForm">
+        <div class="card__head">
+          <h3 id="productFormTitle">Add Product</h3>
+          <button class="link-btn" type="button" id="clearProductForm">Clear</button>
+        </div>
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <div class="field">
+            <label for="adminProductName">Product Name</label>
+            <input class="input" name="name" id="adminProductName" required placeholder="e.g. Meat pie">
+          </div>
+          <div class="field">
+            <label for="adminProductVendor">Vendor</label>
+            <select class="select" name="vendor" id="adminProductVendor" required>
+              ${vendors.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label for="adminProductPrice">Price (₦)</label>
+            <input class="input" name="price" id="adminProductPrice" required min="0" type="number" placeholder="1000">
+          </div>
+          <div class="field">
+            <label for="adminProductCategory">Category</label>
+            <input class="input" name="category" id="adminProductCategory" required placeholder="Food">
+          </div>
+          <div class="field">
+            <label for="adminProductIcon">Icon</label>
+            <input class="input" name="icon" id="adminProductIcon" value="🍽️" maxlength="8">
+          </div>
+          <div class="field col-2">
+            <label for="adminProductImage">Image URL (optional)</label>
+            <input class="input" name="image" id="adminProductImage" placeholder="https://… shown on product cards when set">
+          </div>
+          <div class="field col-2">
+            <label for="adminProductDesc">Description</label>
+            <textarea class="textarea" name="desc" id="adminProductDesc" required placeholder="A short description for customers."></textarea>
+          </div>
+        </div>
+        <button class="btn btn--block" type="submit">Save Product</button>
+      </form>
 
       <!-- Products Table -->
-      <div class="card mt-3">
+      <div class="card">
         <div class="card__head">
           <h3>Products</h3>
           <span class="muted small">${products.length} live items</span>
@@ -1024,301 +1493,150 @@ function renderAdminWorkspace() {
           </table>
         </div>
       </div>
-
-      <!-- Orders Table -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Orders</h3>
-          <span class="muted small">${filteredOrders.length} of ${orders.length} order${orders.length !== 1 ? 's' : ''}</span>
-        </div>
-
-        ${state.ordersError
-          ? `<div class="orders-error">⚠ ${state.ordersError}</div>`
-          : ''}
-
-        <!-- Order Status Filters / Tabs -->
-        <div class="admin-filters">
-          <div class="filter-tabs">
-            <button type="button" class="filter-tab ${orderFilter.status === 'all' ? 'is-active' : ''}" data-order-filter="all">All Orders</button>
-            <button type="button" class="filter-tab ${orderFilter.status === 'active' ? 'is-active' : ''}" data-order-filter="active">Active</button>
-            <button type="button" class="filter-tab ${orderFilter.status === 'completed' ? 'is-active' : ''}" data-order-filter="completed">Completed</button>
-            <button type="button" class="filter-tab ${orderFilter.status === 'cancelled' ? 'is-active' : ''}" data-order-filter="cancelled">Cancelled</button>
-          </div>
-          <div class="filter-date">
-            <label for="orderDateFrom" class="filter-date__label">From</label>
-            <input type="date" class="input input--sm" id="orderDateFrom" value="${orderFilter.dateFrom}">
-            <label for="orderDateTo" class="filter-date__label">To</label>
-            <input type="date" class="input input--sm" id="orderDateTo" value="${orderFilter.dateTo}">
-            <button type="button" class="btn btn--ghost btn--sm" data-order-filter-reset>Reset</button>
-          </div>
-        </div>
-
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Date</th>
-                <th>Items</th>
-                <th>Delivery</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${state.ordersLoading
-                ? '<tr><td colspan="7" class="muted center">Loading orders…</td></tr>'
-                : filteredOrders.length
-                  ? filteredOrders.map(order => `
-                    <tr>
-                      <td><b>#${order.id}</b></td>
-                      <td class="muted small">${formatDate(order.created)}</td>
-                      <td>${(Array.isArray(order.items) ? order.items : []).map(item => `${escHtml(item.name)} × ${item.qty}`).join(', ') || '—'}</td>
-                      <td>${escHtml(order.spot) || '—'}</td>
-                      <td>${money(order.total)}</td>
-                      <td>
-                        <span class="status-badge ${orderStatusClass(order.status)}">${escHtml(order.status) || 'Order confirmed'}</span>
-                      </td>
-                      <td>
-                        <select class="select select--sm" data-order-status="${order.id}">
-                          ${ORDER_STATUS_OPTIONS.map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
-                        </select>
-                        <button class="link-btn" data-save-order-status="${order.id}">Save</button>
-                      </td>
-                    </tr>
-                  `).join('')
-                  : '<tr><td colspan="7" class="muted center">No orders match the current filters.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Rider Applications Section -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Rider Applications</h3>
-          <span class="muted small">Pending riders awaiting approval</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Matric Number</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th>Applied</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${state.riders.length ? state.riders.map(rider => {
-                // Show only pending riders
-                if (rider.status !== 'pending') return '';
-                return `
-                <tr>
-                  <td>${escHtml(rider.matric_number) || '—'}</td>
-                  <td>${escHtml(rider.phone) || '—'}</td>
-                  <td><span class="status--pending">Pending</span></td>
-                  <td>${rider.created_at ? rider.created_at.substring(0, 10) : '—'}</td>
-                  <td>
-                    <button class="link-btn btn--danger" data-approve-rider="${rider.id}">Approve</button>
-                    <button class="link-btn btn--danger" data-reject-rider="${rider.id}">Reject</button>
-                  </td>
-                </tr>
-                `;
-              }).join('') : '<tr><td colspan="5" class="muted center">No pending rider applications.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Active Riders Section (approved) -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Active Riders</h3>
-          <span class="muted small">Approved riders can be suspended; suspended riders can be reactivated with Unsuspend</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Matric Number</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${state.riders.length ? state.riders.map(rider => {
-                // Show approved (active) and suspended riders (suspended ones are reactivated here)
-                if (rider.status !== 'approved' && rider.status !== 'suspended') return '';
-                const isSuspended = rider.status === 'suspended';
-                return `
-                <tr>
-                  <td>${escHtml(rider.matric_number) || '—'}</td>
-                  <td>${escHtml(rider.phone) || '—'}</td>
-                  <td><span class="status--${isSuspended ? 'cancelled' : 'approved'}">${isSuspended ? 'Suspended' : 'Approved'}</span></td>
-                  <td>
-                    ${isSuspended
-                      ? `<button class="link-btn" data-unsuspend-rider="${rider.id}">Unsuspend</button>`
-                      : `<button class="link-btn btn--danger" data-suspend-rider="${rider.id}">Suspend</button>`}
-                  </td>
-                </tr>
-                `;
-              }).join('') : '<tr><td colspan="4" class="muted center">No active or suspended riders.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Withdrawal Requests Section (admin review only) -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Rider Withdrawal Requests</h3>
-          <span class="muted small">Pending / admin-reviewed records only — no money moves in-app</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Rider</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Requested</th>
-                <th>Reviewed</th>
-                <th style="min-width:320px">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderWithdrawalRows()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Vendor Assignment Section (admin only) -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Vendor Assignment</h3>
-          <span class="muted small">Assign users (role = user) to a vendor. Admin only.</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Current Vendor</th>
-                <th style="min-width:200px">Assign to Vendor</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${state.users.length ? state.users.map(user => {
-                const current = user.vendor_id ? vendors.find(v => v.id === user.vendor_id) : null;
-                return `
-                <tr data-user-id="${user.id}">
-                  <td>${escHtml(user.full_name) || '—'}<div class="muted small">${escHtml(user.email) || ''}</div></td>
-                  <td>${current ? escHtml(current.name) : escHtml(user.vendor_id) || '—'}</td>
-                  <td>
-                    <select class="select" name="vendor" data-user-vendor="${user.id}">
-                      <option value="">(unassigned)</option>
-                      ${vendors.map(v => `<option value="${escHtml(v.id)}" ${user.vendor_id === v.id ? 'selected' : ''}>${escHtml(v.name)}</option>`).join('')}
-                    </select>
-                  </td>
-                  <td><button class="link-btn" data-assign-user="${user.id}">Assign</button></td>
-                </tr>
-                `;
-              }).join('') : '<tr><td colspan="4" class="muted center">No users to assign.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Refund Management Section -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Refund Requests</h3>
-          <span class="muted small">Review, approve/reject, and execute refunds</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Refund ID</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Reason</th>
-                <th>Requested</th>
-                <th>Approve</th>
-                <th>Reject</th>
-                <th>Execute</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderRefundRows()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Vendor Applications Section (Become a Vendor → vendor_applications) -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Vendor Applications</h3>
-          <span class="muted small">${state.vendorApplications.filter(a => a.status === 'Pending').length} pending · ${state.vendorApplications.length} total — approve creates their storefront &amp; grants vendor access</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Applicant</th>
-                <th>Matric</th>
-                <th>College / Dept</th>
-                <th style="min-width:220px">What they want to sell</th>
-                <th>Price range</th>
-                <th>Status</th>
-                <th>Applied</th>
-                <th style="min-width:340px">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderVendorApplicationRows()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Issue Reports Section (customer "Report an Issue") -->
-      <div class="card mt-3">
-        <div class="card__head">
-          <h3>Issue Reports</h3>
-          <span class="muted small">${state.reports.filter(r => r.status === 'Open').length} open · ${state.reports.length} total — change status or add a response</span>
-        </div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Reporter</th>
-                <th>Subject</th>
-                <th style="min-width:260px">Description</th>
-                <th>Order</th>
-                <th>Submitted</th>
-                <th>Status</th>
-                <th style="min-width:360px">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderReportRows()}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+    </div>
   `;
+}
 
-  // Attach event listeners
-  attachAdminEventListeners();
+// ---------------------------------------------------------------------------
+// Payments & Settlements: refunds + rider withdrawals (financial reviews).
+// ---------------------------------------------------------------------------
+function renderPaymentsSection() {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Finance</span>
+        <h1 class="mt-1">Payments &amp; Settlements</h1>
+        <p class="muted">Refund and rider-withdrawal reviews.</p>
+      </div>
+    </div>
+
+    <!-- Refund Management Section -->
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Refund Requests</h3>
+        <span class="muted small">Review, approve/reject, and execute refunds</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Refund ID</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Reason</th>
+              <th>Requested</th>
+              <th>Approve</th>
+              <th>Reject</th>
+              <th>Execute</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderRefundRows()}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Withdrawal Requests Section (admin review only) -->
+    <div class="card mt-3">
+      <div class="card__head">
+        <h3>Rider Withdrawal Requests</h3>
+        <span class="muted small">Pending / admin-reviewed records only — no money moves in-app</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Rider</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Requested</th>
+              <th>Reviewed</th>
+              <th style="min-width:320px">Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderWithdrawalRows()}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Reports / Activity: customer issue reports.
+// ---------------------------------------------------------------------------
+function renderReportsSection() {
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Support</span>
+        <h1 class="mt-1">Reports / Activity</h1>
+        <p class="muted">Customer issue reports and admin responses.</p>
+      </div>
+    </div>
+
+    <!-- Issue Reports Section (customer "Report an Issue") -->
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Issue Reports</h3>
+        <span class="muted small">${state.reports.filter(r => r.status === 'Open').length} open · ${state.reports.length} total — change status or add a response</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Reporter</th>
+              <th>Subject</th>
+              <th style="min-width:260px">Description</th>
+              <th>Order</th>
+              <th>Submitted</th>
+              <th>Status</th>
+              <th style="min-width:360px">Review</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderReportRows()}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Settings: read-only platform configuration (display only — no writes).
+// ---------------------------------------------------------------------------
+function renderSettingsSection({ vendors, orders }) {
+  const deliveryFees = [...new Set((orders || []).map(o => o.fee).filter(Boolean))];
+  const deliveryMethods = [...new Set((vendors || []).map(v => v.delivery_method || 'rider'))];
+  const rows = [
+    { k: 'Order statuses (admin editable)', v: ORDER_STATUS_OPTIONS.join(' · ') },
+    { k: 'Completed (terminal) statuses', v: COMPLETED_STATUSES.join(' · ') || '—' },
+    { k: 'Cancelled status', v: CANCELLED_STATUS },
+    { k: 'Delivery fee values (from loaded orders)', v: deliveryFees.map(f => money(f)).join(' · ') || '—' },
+    { k: 'Vendor delivery methods in use', v: deliveryMethods.join(' · ') || '—' }
+  ];
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">System</span>
+        <h1 class="mt-1">Settings</h1>
+        <p class="muted">Read-only platform configuration.</p>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Platform configuration</h3>
+        <span class="muted small">Display only — configuration lives in the application code and database; no runtime-editable settings exist.</span>
+      </div>
+      <dl class="settings-list">
+        ${rows.map(r => `<div class="settings-row"><dt>${r.k}</dt><dd>${r.v}</dd></div>`).join('')}
+      </dl>
+    </div>
+  `;
 }
 
 function attachAdminEventListeners() {
@@ -1372,6 +1690,16 @@ function attachAdminEventListeners() {
     btn.addEventListener('click', () => {
       const status = document.querySelector(`[data-order-status="${btn.dataset.saveOrderStatus}"]`).value;
       updateOrderStatus(btn.dataset.saveOrderStatus, status);
+    });
+  });
+
+  // F11: save immediately when the administrator changes the status select —
+  // no separate Save click required. updateOrderStatus guards duplicates and
+  // only confirms (toast / persisted value) once the server succeeds; failures
+  // restore the previous value. The Save button remains as a fallback.
+  document.querySelectorAll('[data-order-status]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      updateOrderStatus(sel.dataset.orderStatus, sel.value);
     });
   });
 
@@ -1449,8 +1777,8 @@ function attachAdminEventListeners() {
 
   // Approve a refund request
   document.querySelectorAll('[data-approve-refund]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (confirm('Approve this refund request? This will mark it as approved and ready for execution.')) {
+    btn.addEventListener('click', async () => {
+      if (await DropzyyModal.confirm({ title:'Approve refund request', message:'Approve this refund request? This will mark it as approved and ready for execution.', confirmText:'Approve refund' })) {
         approveRefund(btn.dataset.approveRefund);
       }
     });
@@ -1458,9 +1786,9 @@ function attachAdminEventListeners() {
 
   // Reject a refund request (with reason prompt)
   document.querySelectorAll('[data-reject-refund]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const reason = prompt('Reason for rejection (optional):') || '';
-      if (confirm(`Reject this refund request${reason ? ' with reason: ' + reason : ''}?`)) {
+    btn.addEventListener('click', async () => {
+      const reason = (await DropzyyModal.prompt({ title:'Reject refund request', message:'A reason is optional. It will be shown to the customer.', label:'Reason for rejection (optional)', placeholder:'e.g. Duplicate request', confirmText:'Next' })) || '';
+      if (await DropzyyModal.confirm({ title:'Reject refund request', message:`Reject this refund request${reason ? ' with reason: ' + reason : ''}?`, confirmText:'Reject refund', danger:true })) {
         rejectRefund(btn.dataset.rejectRefund, reason);
       }
     });
@@ -1468,8 +1796,8 @@ function attachAdminEventListeners() {
 
   // Execute an approved refund via Paystack Edge Function
   document.querySelectorAll('[data-execute-refund]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (confirm('Execute this refund through Paystack? This will initiate an actual refund transaction. This action cannot be undone.')) {
+    btn.addEventListener('click', async () => {
+      if (await DropzyyModal.confirm({ title:'Execute refund', message:'Execute this refund through Paystack? This will initiate an actual refund transaction. This action cannot be undone.', confirmText:'Execute refund', danger:true })) {
         executeRefund(btn.dataset.executeRefund);
       }
     });
@@ -2078,7 +2406,7 @@ async function approveVendorApplication(appId) {
   const app = state.vendorApplications.find(a => a.id === appId);
   if (!app) return false;
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
-  if (!confirm(`Approve ${app.full_name || 'this applicant'}'s vendor application? This creates their storefront and grants them vendor access.`)) return false;
+  if (!(await DropzyyModal.confirm({ title:'Approve vendor application', message:`Approve ${app.full_name || 'this applicant'}'s vendor application? This creates their storefront and grants them vendor access.`, confirmText:'Approve application' }))) return false;
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to approve', 'error'); return false; }
@@ -2134,8 +2462,8 @@ async function rejectVendorApplication(appId) {
   const app = state.vendorApplications.find(a => a.id === appId);
   if (!app) return false;
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
-  const reason = prompt('Reason for rejection (optional — shown to the applicant):') || '';
-  if (!confirm(`Reject ${app.full_name || 'this applicant'}'s vendor application${reason ? ' with reason: ' + reason : ''}?`)) return false;
+  const reason = (await DropzyyModal.prompt({ title:'Reject vendor application', message:'A reason is optional — it will be shown to the applicant.', label:'Reason for rejection (optional)', placeholder:'e.g. Incomplete information', confirmText:'Next' })) || '';
+  if (!(await DropzyyModal.confirm({ title:'Reject vendor application', message:`Reject ${app.full_name || 'this applicant'}'s vendor application${reason ? ' with reason: ' + reason : ''}?`, confirmText:'Reject application', danger:true }))) return false;
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to reject', 'error'); return false; }
@@ -2293,11 +2621,25 @@ window.AdminHub = {
 // Admin logout button (uses a unique ID to avoid conflict with the customer
 // logout button in app.js — both are called "logoutBtn" in their respective
 // contexts, so we use "adminLogoutBtn" here).
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   if (e.target.id === 'adminLogoutBtn' || e.target.closest('#adminLogoutBtn')) {
-    if (confirm('Sign out of admin panel?')) {
+    if (await DropzyyModal.confirm({ title:'Sign out', message:'Sign out of admin panel?', confirmText:'Sign out' })) {
       logout();
     }
+  }
+});
+
+// Section navigation: any element carrying data-admin-nav switches the active
+// admin section and re-renders the workspace. Used by the sidebar links,
+// dashboard "needs attention" rows and quick-action buttons.
+document.addEventListener('click', (e) => {
+  const navTrigger = e.target.closest('[data-admin-nav]');
+  if (!navTrigger) return;
+  const key = navTrigger.getAttribute('data-admin-nav');
+  if (key && key !== adminSection) {
+    adminSection = key;
+    renderAdminWorkspace();
+    window.scrollTo({ top: 0 });
   }
 });
 
@@ -2356,6 +2698,12 @@ function applyOrderFilter(orders) {
     if (orderFilter.status === 'active' && !isOrderActive(order)) return false;
     if (orderFilter.status === 'completed' && !isOrderCompleted(order)) return false;
     if (orderFilter.status === 'cancelled' && !isOrderCancelled(order)) return false;
+
+    // --- Exact status filter ---
+    // Any value that isn't one of the group keywords above is a real order
+    // status (e.g. 'Order confirmed', 'Preparing', 'On the Way'), so match it
+    // exactly — never create or rename statuses here.
+    if (orderFilter.status !== 'all' && status !== orderFilter.status) return false;
 
     // --- Date filter ---
     // Compare YYYY-MM-DD date parts (order.created is a full ISO timestamp, so
@@ -2471,23 +2819,31 @@ async function updateOrderStatus(orderId, status) {
   const order = state.orders.find(item => item.id === orderId);
   if (!order) return;
 
+  // Duplicate-submission guard: ignore re-triggers (rapid select changes,
+  // double Save clicks) while this order's save is still in flight.
+  if (orderStatusSaving.has(orderId)) return;
+  // No-op: the select already reflects this status — nothing to persist.
+  if (status === order.status) { renderAdminWorkspace(); return; }
+
+  orderStatusSaving.add(orderId);
+
   // Optimistically update the in-memory order so the UI responds immediately.
   const prevStatus = order.status;
   order.status = status;
 
-  // Supabase is the source of truth — we never write orders to localStorage.
-  if (!order.dbId || !supabaseAvailable()) {
-    toast('Order status saved locally (offline mode)', 'error');
-    renderAdminWorkspace();
-    return;
-  }
-
   try {
+    // Supabase is the source of truth — we never write orders to localStorage.
+    if (!order.dbId || !supabaseAvailable()) {
+      toast('Order status saved locally (offline mode)', 'error');
+      return;
+    }
+
     const { error } = await supabase
       .from('orders')
       .update({ status })
       .eq('id', order.dbId);
     if (error) throw error;
+    // Success toast fires ONLY after the server confirms (no error above).
     toast('Order status updated');
   } catch (err) {
     console.error('Supabase order status update failed:', err);
@@ -2495,9 +2851,10 @@ async function updateOrderStatus(orderId, status) {
     // was never persisted to the database.
     order.status = prevStatus;
     toast('Could not update order status: ' + (err.message || 'Unknown error'), 'error');
+  } finally {
+    orderStatusSaving.delete(orderId);
+    renderAdminWorkspace();
   }
-
-  renderAdminWorkspace();
 }
 
 // Load all rider applications from Supabase.

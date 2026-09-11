@@ -67,6 +67,7 @@ const structural = [
   'scripts/_smoke_action12_sql.js',
   'scripts/validate_action12.js',
   'scripts/validate_vendor_product_crud.js',
+  'scripts/validate_product_availability.js',
   'scripts/validate_notifications.js',
   'scripts/validate_refund.js',
   'scripts/validate_rider_pool_payment_gate.js',

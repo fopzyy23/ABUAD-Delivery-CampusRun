@@ -470,11 +470,11 @@ hr, .rule {
   padding: 11px 17px; border-radius: var(--r); border: 1.5px solid var(--btn-bd);
   background: var(--btn-bg); color: var(--btn-fg);
   font-weight: 600; font-size: .93rem; cursor: pointer; white-space: nowrap;
-  transition: background .12s var(--ease), color .12s var(--ease), border-color .12s var(--ease), box-shadow .12s var(--ease);
+  transition: background .12s var(--ease), color .12s var(--ease), border-color .12s var(--ease), box-shadow .12s var(--ease), transform .06s ease-in-out;
   line-height: 1;
 }
 .btn:hover { background: var(--brand-600); border-color: var(--brand-600); color: var(--paper); }
-.btn:active { transform: translateY(0); }
+.btn:active { transform: translateY(1px) scale(.98); box-shadow: none; }
 .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; filter: none; }
 .btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
@@ -1142,6 +1142,14 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
   line-clamp: 2;
 }
 .pcard__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+.pcard--unavailable { opacity: .72; position: relative; }
+.pcard--unavailable:hover { border-color: var(--line); transform: none; }
+.pcard__badge {
+  position: absolute; top: 20px; left: 20px; z-index: 2;
+  font-size: .68rem; font-weight: 800; padding: 3px 9px; border-radius: 999px;
+  background: rgba(0,0,0,.6); color: #fff; box-shadow: var(--sh-1);
+}
+.pcard--unavailable .pcard__foot .price { color: var(--muted); }
 .price { font-weight: 800; color: var(--ink); }
 .price--lg { font-size: 1.2rem; }
 
@@ -1191,6 +1199,8 @@ html[data-theme="dark"] .catalog-offline { color: var(--accent); }
 .line__main { flex: 1; min-width: 0; }
 .line__name { font-weight: 700; font-size: .93rem; }
 .line__sub { font-size: .79rem; color: var(--muted); }
+.line--unavailable { opacity: .7; }
+.line--unavailable .line__sub b { color: var(--accent, #d97706); }
 @media (max-width: 400px) {
   .line { flex-wrap: wrap; }
   .line > .qty { order: 3; }
@@ -1219,6 +1229,7 @@ html[data-theme="dark"] .catalog-offline { color: var(--accent); }
 .field { display: grid; gap: 6px; }
 .field > label { font-size: .84rem; font-weight: 700; color: var(--ink-2); }
 .field small { color: var(--muted); font-size: .77rem; }
+.input[aria-invalid="true"] { border-color: var(--danger); }
 .input, .select, .textarea {
   width: 100%; padding: 11px 13px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
@@ -1244,6 +1255,18 @@ html[data-theme="dark"] .catalog-offline { color: var(--accent); }
 .auth-wrap { max-width: 460px; margin: 34px auto; }
 .auth-wrap .card { padding: 24px; }
 .form-note { background: var(--info-soft); color: var(--info); padding: 10px 12px; border-radius: 10px; font-size: .85rem; font-weight: 600; }
+
+/* Inline payment-initialization error (pay page). Hidden by default and
+   revealed when the Paystack start call fails — pairs with #payTryAgain so
+   the user can retry without leaving the card. */
+.pay-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  background: var(--danger-soft); color: var(--danger);
+  padding: 10px 12px; border-radius: 10px;
+  font-size: .86rem; font-weight: 600;
+  margin-top: 12px;
+}
+.pay-error .btn { flex: 0 0 auto; }
 
 /* ---------------------------------- 8. TABLES --------------------------- */
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
@@ -1284,6 +1307,24 @@ table.table tr:last-child td { border-bottom: 0; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); } }
 
+/* Accessible confirmation dialog (window.DropzyyModal) */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 110; overflow-y: auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(10, 14, 20, .55);
+  animation: fade .18s var(--ease);
+}
+body.modal-open { overflow: hidden; }
+.modal__title { margin: 0 0 6px; font-size: 1.16rem; line-height: 1.35; }
+.modal__message { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.6; }
+.modal__actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 20px; }
+.modal .btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.modal .btn--danger:hover {
+  background: color-mix(in srgb, var(--danger) 85%, black);
+  border-color: color-mix(in srgb, var(--danger) 85%, black);
+  color: #fff;
+}
+
 .toast-root { position: fixed; z-index: 120; bottom: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; width: min(400px, calc(100vw - 24px)); }
 .toast {
   display: flex; align-items: center; gap: 10px;
@@ -1294,10 +1335,30 @@ table.table tr:last-child td { border-bottom: 0; }
 .toast--success { background: var(--success); }
 .toast--error { background: var(--danger); }
 .toast--info { background: var(--info); }
+.toast__text { flex: 1; min-width: 0; }
+.toast__dismiss {
+  flex: 0 0 auto; background: transparent; border: 0; padding: 2px 6px;
+  color: inherit; font-size: 1.05rem; line-height: 1; cursor: pointer; opacity: .8;
+}
+.toast__dismiss:hover { opacity: 1; }
+.toast__dismiss:focus-visible { outline: 2px solid rgba(255,255,255,.85); outline-offset: 2px; border-radius: 4px; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } }
 @media (max-width: 780px) { .toast-root { bottom: 78px; } }
 
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* Skeleton loading blocks (F18) — lightweight, reuse the shimmer keyframes */
+.skeleton-block { display: grid; gap: 14px; }
+.sk-row { display: flex; gap: 12px; align-items: center; }
+.sk {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%);
+  background-size: 400% 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: 8px; height: 14px;
+}
+.sk--thumb { width: 44px; height: 44px; border-radius: 10px; flex: 0 0 auto; }
+.sk-lines { flex: 1; display: grid; gap: 8px; }
+.sk--w60 { width: 60%; }
 
 /* ---------------------------------- 10. UTILITIES ----------------------- */
 .muted { color: var(--muted); }
@@ -1755,3 +1816,30 @@ html[data-theme="dark"] .dropzyy-faq__item[open] summary { color: var(--brand); 
   .dropzyy-hero__waybill { transform: none; }
 }
 
+
+/* ================= SKIP LINK (F9 a11y) ================= */
+/* Visually hidden until keyboard focus; first "useful" tab stop. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  padding: 12px 16px;
+  background: var(--brand);
+  color: #fff;
+  border-radius: 0 0 10px 0;
+  text-decoration: none;
+  font-weight: 700;
+  z-index: 9999;
+}
+.skip-link:focus {
+  left: 0;
+  width: auto;
+  height: auto;
+  clip: auto;
+  overflow: visible;
+}
