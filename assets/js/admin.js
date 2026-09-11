@@ -922,7 +922,7 @@ function renderAdminWorkspace() {
             <div class="field">
               <label>Vendor</label>
               <select class="select" name="vendor" required>
-                ${vendors.map(v => `<option value="${v.id}">${v.name}</option>`).join('')}
+                ${vendors.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.name)}</option>`).join('')}
               </select>
             </div>
             <div class="field">
@@ -971,8 +971,8 @@ function renderAdminWorkspace() {
             <tbody>
               ${vendors.map(v => `
                 <tr>
-                  <td>${v.icon} <b>${v.name}</b></td>
-                  <td>${v.type}</td>
+                  <td>${v.icon} <b>${escHtml(v.name)}</b></td>
+                  <td>${escHtml(v.type)}</td>
                   <td>${v.time}</td>
                   <td>${v.delivery_method || 'rider'}</td>
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
@@ -1009,9 +1009,9 @@ function renderAdminWorkspace() {
                 const vendor = vendors.find(v => v.id === p.vendor);
                 return `
                   <tr>
-                    <td>${p.icon} <b>${p.name}</b></td>
-                    <td>${vendor ? vendor.name : '—'}</td>
-                    <td>${p.category}</td>
+                    <td>${p.icon} <b>${escHtml(p.name)}</b></td>
+                    <td>${vendor ? escHtml(vendor.name) : '—'}</td>
+                    <td>${escHtml(p.category)}</td>
                     <td>${money(p.price)}</td>
                     <td>
                       <button class="link-btn" data-edit-product="${p.id}">Edit</button> ·
@@ -1223,7 +1223,7 @@ function renderAdminWorkspace() {
                   <td>
                     <select class="select" name="vendor" data-user-vendor="${user.id}">
                       <option value="">(unassigned)</option>
-                      ${vendors.map(v => `<option value="${v.id}" ${user.vendor_id === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+                      ${vendors.map(v => `<option value="${escHtml(v.id)}" ${user.vendor_id === v.id ? 'selected' : ''}>${escHtml(v.name)}</option>`).join('')}
                     </select>
                   </td>
                   <td><button class="link-btn" data-assign-user="${user.id}">Assign</button></td>

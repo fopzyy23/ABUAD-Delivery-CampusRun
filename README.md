@@ -9,8 +9,13 @@ Supabase backend** — no custom server, no build step.
 > order (server-priced via the `place_order` RPC) and redirects the customer
 > to Paystack for payment. Payment state is server-authoritative: the webhook
 > updates `payment_status` only after HMAC signature verification and amount
-> validation. No payouts, refunds, or revenue splitting happen yet — those
-> are B4B/B5.
+> validation. Refunds (customer `request_refund` -> admin `approve_refund`
+> -> `paystack-refund`) and payouts (vendor/delivery settlements ->
+> `paystack-transfer`) are implemented as server-side workflows. All
+> unsettled revenue is locked down: lossy fields are protected by unforgeable
+> RLS (`orders_update_vendor`, `prevent_order_unauthorized_changes`), only
+> server-approved RPCs may mutate payment columns, and `payments` allows at
+> most one 'pending' payment per order.
 
 ## Features
 
@@ -180,7 +185,26 @@ helpers) → `20260822` admin vendor-assignment RPC → `20260901` 'On the Way'
 + transition trigger + customer cancel → `20260902` order payment fields →
 `20260903` notifications → `20260904` discovery fields → `20260905`
 withdrawal requests → `20260906` **secure order pricing** (`place_order`
-RPC, direct-write lockdown, pricing trigger, vendor/rider policy fixes).
+RPC, direct-write lockdown, pricing trigger, vendor/rider policy fixes) →
+`20260907` lock order payment columns → `20260908` order-number uniqueness &
+obfuscation → `20260909` payments ledger → `20260910` settlement ledger →
+`20260911` rider 80/20 earnings cutover → `20260912` payment checkout fields
+→ `20260913` transfer ledger (B7 webhook guard) → `20260914` transfer
+execution RPCs → `20260915` drop obsolete pending payment → `20260916`
+require paid orders for rider claim → `20260917` notify riders of new pool
+orders → `20260918` settlement→transfer handoff → `20260919` refund
+infrastructure → `20260920` refund workflow → `20260921` refund
+notifications → `20260922` multi-role vendor capability (SQL-injection-safe)
+→ `20260923` assign_user_to_vendor overload fix → `20260924` refund GUC
+value fix → `20260925` apply_refund_result updated_at fix → `20260926`
+issue reports → `20260927` vendor applications + delivery fee →
+`20260928` place_order fix → `20260929` combined vendor fee + settlement
+tables → `20260930` **critical hardening** (payment-RPC lockdown, direct
+INSERT lockdown, quantity cap, generate_settlement admin gate, refund
+claim/release) → `20261001` rider-pool payment visibility gate →
+`20261002` **post-review hardening** (delivery-method hijack guard,
+one-pending-payment-per-order index, transfer claim-first TOCTOU closure,
+`orders.fee` CHECK).
 
 ## Seed / catalog setup
 
@@ -299,10 +323,15 @@ npm run validate:live    # + live read-only Supabase checks (publishable key)
 ```
 
 Validators (all dependency-free, in `scripts/`):
-`validate_all.js` (runner), `validate_action10.js`, `validate_action12.js`,
-`validate_vendor_migration.js`, `validate_discovery_migration.js`,
-`_validate_payment_prep.js`, `_smoke_action12_sql.js`,
-`validate_seed_sync.js`, and the live probes
+`validate_all.js` (runner), `validate_vendor_migration.js`,
+`validate_discovery_migration.js`, `_validate_payment_prep.js`,
+`validate_b1_b2.js`, `validate_b3.js`, `validate_b4a.js`,
+`validate_b4b.js`, `validate_b5.js`, `validate_b6.js`, `validate_b7.js`,
+`validate_paystack_checkout.js`, `validate_action10.js`,
+`_smoke_action12_sql.js`, `validate_action12.js`,
+`validate_vendor_product_crud.js`, `validate_notifications.js`,
+`validate_refund.js`, `validate_rider_pool_payment_gate.js`,
+`validate_seed_sync.js`, `validate_hardening.js`, and the live probes
 `validate_action11_live.js`, `validate_action12_live.js`,
 `verify_rls_readonly.js`.
 

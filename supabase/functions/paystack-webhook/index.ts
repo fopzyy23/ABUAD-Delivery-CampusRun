@@ -196,9 +196,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         },
       );
       if (rpcErr) {
+        // 500 so Paystack retries — a failure here means the DB never
+        // recorded the charge, and returning 200 would silently drop it.
         console.error("paystack-webhook: success RPC failed:", rpcErr);
-        return new Response(JSON.stringify({ received: true, note: "rpc error" }), {
-          status: 200,
+        return new Response(JSON.stringify({ error: "payment settlement failed" }), {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -212,9 +214,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
         },
       );
       if (rpcErr) {
+        // 500 so Paystack retries — a failure here means the DB never
+        // recorded the failed charge.
         console.error("paystack-webhook: failed RPC failed:", rpcErr);
-        return new Response(JSON.stringify({ received: true, note: "rpc error" }), {
-          status: 200,
+        return new Response(JSON.stringify({ error: "payment record update failed" }), {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

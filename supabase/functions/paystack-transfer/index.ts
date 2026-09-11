@@ -5,8 +5,11 @@
 // ledger row. Admin-only (JWT role check). Accepts ONLY the
 // transfer_id - every payout value (amount, recipient code,
 // reference) is loaded from the authoritative settlement data via
-// the prepare_transfer_for_payout RPC. The client can never set
-// payout amounts or destinations.
+// the claim_transfer_for_execution RPC (20261002), which ATOMICALLY
+// locks the row, verifies payout-eligibility, and flips the row to
+// 'processing' BEFORE Paystack is called - so only one concurrent
+// caller can ever reach the gateway (TOCTOU closed). The client can
+// never set payout amounts or destinations.
 //
 // Required environment variables (Supabase Dashboard -> Edge Functions -> Secrets):
 //   PAYSTACK_SECRET_KEY        Paystack secret key (sk_live_/sk_test_)
@@ -121,19 +124,30 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // ---- Load the AUTHORITATIVE payout values via the secure RPC ----
-    // Locks the row, refuses non-pending transfers/settlements, verifies
-    // the order is Delivered, and returns amount/recipient/reference
-    // straight from the database.
+    // ---- Atomically claim + load the AUTHORITATIVE payout values ----
+    // claim_transfer_for_execution() locks the row, refuses non-pending
+    // transfers/settlements, verifies the order is Delivered, flips the
+    // row to 'processing', and returns amount/recipient/reference
+    // straight from the database — ALL before Paystack is called.
+    // Exactly one concurrent request wins the claim; every other gets
+    // claim=false and we abort before any external call (TOCTOU closed).
     const { data: prep, error: prepErr } = await supabase.rpc(
-      "prepare_transfer_for_payout",
+      "claim_transfer_for_execution",
       { p_transfer_id: transferId },
     );
     if (prepErr || !prep) {
-      console.error("paystack-transfer: prepare failed:", prepErr?.message ?? "no data");
+      console.error("paystack-transfer: claim failed:", prepErr?.message ?? "no data");
       return json(req, 409, { error: "Transfer is not payout-eligible" });
     }
+    if (prep.claim === false) {
+      return json(req, 409, {
+        transfer_id: transferId,
+        status: prep.status ?? "processing",
+        message: "Transfer is already being processed",
+      });
+    }
     if (!prep.recipient_code || !prep.reference || !prep.amount_kobo) {
+      await supabase.rpc("release_transfer_for_retry", { p_transfer_id: transferId });
       return json(req, 409, { error: "Transfer is missing payout prerequisites (recipient?)" });
     }
 
@@ -156,22 +170,29 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const paystackBody = await paystackRes.json().catch(() => ({}));
     if (!paystackRes.ok || !paystackBody?.status) {
-      // Paystack refused - leave the ledger row pending (retryable).
+      // Paystack refused - roll the claimed row back to 'pending' so it
+      // remains retryable (no ledger row is stranded mid-execution).
       console.error(
         `paystack-transfer: Paystack HTTP ${paystackRes.status}:`,
         paystackBody?.message ?? "unknown",
       );
+      const { error: releaseErr } = await supabase.rpc("release_transfer_for_retry", {
+        p_transfer_id: transferId,
+      });
+      if (releaseErr) {
+        console.error("paystack-transfer: release_transfer_for_retry failed:", releaseErr.message);
+      }
       return json(req, 502, { error: "Paystack transfer request failed" });
     }
 
-    // ---- Flip the ledger row to processing ----
-    const { error: markErr } = await supabase.rpc("mark_transfer_processing", {
+    // ---- Record the Paystack transfer code on the claimed row ----
+    const { error: recordErr } = await supabase.rpc("record_transfer_code", {
       p_transfer_id: transferId,
       p_transfer_code: paystackBody?.data?.transfer_code ?? null,
     });
-    if (markErr) {
+    if (recordErr) {
       // Row moved elsewhere meanwhile (race) - do not claim success.
-      console.error("paystack-transfer: mark_transfer_processing failed:", markErr.message);
+      console.error("paystack-transfer: record_transfer_code failed:", recordErr.message);
       return json(req, 409, { error: "Transfer already in flight" });
     }
 

@@ -240,10 +240,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
     if (resultErr) {
       console.error("paystack-refund: apply_refund_result failed:", resultErr);
-      return json(req, 200, {
+      return json(req, 500, {
         refund_id: refundId,
-        status: "processed",
-        warning: "Paystack accepted refund but local record update failed — investigate",
+        status: "processing",
+        error: "Paystack accepted refund but local record update failed",
+        details: resultErr.message,
         gateway_refund_id: gatewayRefundId,
       });
     }

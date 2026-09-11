@@ -276,6 +276,41 @@ Deno.serve(async (req: Request): Promise<Response> => {
       },
     );
 
+    // ---- Unique-violation race resolution (20261002) ----
+    // Two concurrent initializes for the same order both passed the
+    // guard above, but the new UNIQUE (order_id) WHERE status =
+    // 'pending' index lets only ONE pending payment per order exist.
+    // The loser gets a 23505 on insert — resolve by reusing the
+    // winner's pending payment instead of failing the checkout.
+    if (paymentErr && paymentErr.code === "23505") {
+      const { data: raceWinner } = await supabase
+        .from("payments")
+        .select("reference, authorization_url, access_code, status")
+        .eq("order_id", order.id)
+        .eq("status", "pending")
+        .not("authorization_url", "is", null)
+        .maybeSingle();
+
+      if (raceWinner && raceWinner.authorization_url) {
+        return new Response(
+          JSON.stringify({
+            authorization_url: raceWinner.authorization_url,
+            access_code: raceWinner.access_code,
+            reference: raceWinner.reference,
+            reused: true,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+          },
+        );
+      }
+      console.error(
+        "paystack-initialize: pending-payment race lost with no reusable row:",
+        paymentErr,
+      );
+    }
+
     if (paymentErr) {
       console.error(
         "paystack-initialize: create_pending_payment failed:",

@@ -1,133 +1,133 @@
-const SEED_DATA = {
+﻿const SEED_DATA = {
   vendors: [
-    { id: 'captain-cook', name: 'Captain Cook', icon: '🍔', type: 'Restaurant', rating: '4.8', time: '15–25 min', cover: '#ffe7bc', open: true, description: 'Campus favourite for rice, chicken and hearty plates.', opening_hours: 'Mon–Sun 08:00–21:00' },
-    { id: 'season-deli', name: 'Season Deli', icon: '🥪', type: 'Restaurant', rating: '4.7', time: '10–18 min', cover: '#f4d7a6', open: true, description: 'Sandwiches, deli-style meals and quick bites.', opening_hours: 'Mon–Sat 09:00–19:00' },
-    { id: 'staff-caf', name: 'Staff Caf', icon: '🍛', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#d8e6ff', open: true, description: 'Reliable cafeteria meals for the whole campus.', opening_hours: 'Mon–Fri 07:00–18:00, Sat 08:00–14:00' },
-    { id: 'caf-1', name: 'Caf 1', icon: '🍲', type: 'Restaurant', rating: '4.8', time: '10–18 min', cover: '#d9f5e9', open: true, description: 'Wide menu of Nigerian classics and snacks.', opening_hours: 'Mon–Sun 08:00–20:00' },
-    { id: 'caf-2', name: 'Caf 2', icon: '🍝', type: 'Restaurant', rating: '4.5', time: '15–22 min', cover: '#f4def8', open: true, description: 'Rice, pasta and shared favourites.', opening_hours: 'Mon–Sun 08:00–20:00' },
-    { id: 'caf-3', name: 'Caf 3', icon: '🍗', type: 'Restaurant', rating: '4.6', time: '12–20 min', cover: '#ffe1d6', open: true, description: 'Grilled options and daily specials.', opening_hours: 'Mon–Fri 08:00–18:00, Sat 10:00–16:00' },
-    { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
-    { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
-    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
-    { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
+    { id: 'captain-cook', name: 'Captain Cook', icon: 'ðŸ”', type: 'Restaurant', rating: '4.8', time: '15â€“25 min', cover: '#ffe7bc', open: true, description: 'Campus favourite for rice, chicken and hearty plates.', opening_hours: 'Monâ€“Sun 08:00â€“21:00' },
+    { id: 'season-deli', name: 'Season Deli', icon: 'ðŸ¥ª', type: 'Restaurant', rating: '4.7', time: '10â€“18 min', cover: '#f4d7a6', open: true, description: 'Sandwiches, deli-style meals and quick bites.', opening_hours: 'Monâ€“Sat 09:00â€“19:00' },
+    { id: 'staff-caf', name: 'Staff Caf', icon: 'ðŸ›', type: 'Restaurant', rating: '4.6', time: '12â€“20 min', cover: '#d8e6ff', open: true, description: 'Reliable cafeteria meals for the whole campus.', opening_hours: 'Monâ€“Fri 07:00â€“18:00, Sat 08:00â€“14:00' },
+    { id: 'caf-1', name: 'Caf 1', icon: 'ðŸ²', type: 'Restaurant', rating: '4.8', time: '10â€“18 min', cover: '#d9f5e9', open: true, description: 'Wide menu of Nigerian classics and snacks.', opening_hours: 'Monâ€“Sun 08:00â€“20:00' },
+    { id: 'caf-2', name: 'Caf 2', icon: 'ðŸ', type: 'Restaurant', rating: '4.5', time: '15â€“22 min', cover: '#f4def8', open: true, description: 'Rice, pasta and shared favourites.', opening_hours: 'Monâ€“Sun 08:00â€“20:00' },
+    { id: 'caf-3', name: 'Caf 3', icon: 'ðŸ—', type: 'Restaurant', rating: '4.6', time: '12â€“20 min', cover: '#ffe1d6', open: true, description: 'Grilled options and daily specials.', opening_hours: 'Monâ€“Fri 08:00â€“18:00, Sat 10:00â€“16:00' },
+    { id: 'streat-food', name: 'Streat food', icon: 'ðŸŸ', type: 'Restaurant', rating: '4.7', time: '8â€“15 min', cover: '#fff1bd', open: true, description: 'Suya, chips and street-food classics.', opening_hours: 'Monâ€“Sun 12:00â€“22:00' },
+    { id: 'med-caf', name: 'Med Caf', icon: 'ðŸ¥˜', type: 'Restaurant', rating: '4.5', time: '15â€“25 min', cover: '#dceaff', open: true, description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Monâ€“Sat 08:00â€“18:00' },
+    { id: 'smoothie-shack', name: 'Smoothie Shack', icon: 'ðŸ¥¤', type: 'Restaurant', rating: '4.6', time: '10â€“18 min', cover: '#e4d9ff', open: true, description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Monâ€“Sun 09:00â€“20:00' },
+    { id: 'bookshop', name: 'Campus Bookshop', icon: 'ðŸ“š', type: 'Bookshop', rating: '4.7', time: '5â€“10 min', cover: '#d8e0ff', open: true, description: 'Textbooks, stationery and study essentials.', opening_hours: 'Monâ€“Fri 08:00â€“17:00, Sat 09:00â€“13:00' },
+    { id: 'campus-drinks', name: 'Campus Drinks', icon: 'ðŸ¥¤', type: 'Beverages', rating: '4.6', time: '5â€“10 min', cover: '#ffe4e1', open: true, description: 'Cold drinks, juices and refreshments.', opening_hours: 'Monâ€“Sun 08:00â€“22:00' }
   ],
   products: [
-    { id: 1, vendor: 'caf-1', name: 'Jollof Rice', desc: 'Caf 1 serving.', price: 400, icon: '🍛', category: 'Food' },
-    { id: 2, vendor: 'caf-1', name: 'Spaghetti', desc: 'Caf 1 serving.', price: 500, icon: '🍝', category: 'Meals' },
-    { id: 3, vendor: 'caf-1', name: 'Chicken', desc: 'Caf 1 serving.', price: 1500, icon: '🍗', category: 'Food' },
-    { id: 4, vendor: 'caf-1', name: 'Egg Sauce', desc: 'Caf 1 serving.', price: 650, icon: '🍳', category: 'Meals' },
-    { id: 5, vendor: 'caf-1', name: 'Rice & Chicken Sauce', desc: 'Caf 1 serving.', price: 3900, icon: '🍛', category: 'Food' },
-    { id: 6, vendor: 'caf-1', name: 'White Beans', desc: 'Caf 1 serving.', price: 500, icon: '🥣', category: 'Meals' },
-    { id: 7, vendor: 'caf-1', name: 'Sausages', desc: 'Caf 1 serving.', price: 350, icon: '🌭', category: 'Snacks' },
-    { id: 8, vendor: 'caf-1', name: 'Fried Egg', desc: 'Caf 1 serving.', price: 450, icon: '🍳', category: 'Meals' },
-    { id: 9, vendor: 'caf-1', name: 'Chicken Pasta', desc: 'Caf 1 serving.', price: 3000, icon: '🍝', category: 'Meals' },
-    { id: 10, vendor: 'caf-1', name: 'Moi Moi', desc: 'Caf 1 serving.', price: 500, icon: '🫔', category: 'Meals' },
-    { id: 11, vendor: 'caf-1', name: 'Suga Moi Moi', desc: 'Caf 1 serving.', price: 1000, icon: '🫔', category: 'Meals' },
-    { id: 12, vendor: 'caf-1', name: 'Salad', desc: 'Caf 1 serving.', price: 500, icon: '🥗', category: 'Food' },
-    { id: 13, vendor: 'caf-1', name: 'Plantain Portion', desc: 'Three plantains per portion.', price: 200, icon: '🍌', category: 'Food' },
-    { id: 14, vendor: 'caf-1', name: 'Diced Plantain', desc: 'Caf 1 serving.', price: 600, icon: '🍌', category: 'Food' },
-    { id: 15, vendor: 'caf-1', name: 'Boiled Egg', desc: 'Caf 1 serving.', price: 350, icon: '🥚', category: 'Meals' },
-    { id: 16, vendor: 'caf-1', name: 'Indomie', desc: 'Price per pack.', price: 700, icon: '🍜', category: 'Meals' },
-    { id: 17, vendor: 'caf-1', name: 'Porridge Yam (Half Pack)', desc: 'Caf 1 serving.', price: 1200, icon: '🍲', category: 'Meals' },
-    { id: 18, vendor: 'caf-1', name: 'Porridge Yam (Full Pack)', desc: 'Caf 1 serving.', price: 2400, icon: '🍲', category: 'Meals' },
-    { id: 19, vendor: 'caf-1', name: 'Emerald Delight', desc: 'White rice and vegetable soup.', price: 3200, icon: '🍚', category: 'Food' },
-    { id: 20, vendor: 'caf-1', name: 'Swallow with Soup', desc: 'Caf 1 serving.', price: 2500, icon: '🥘', category: 'Meals' },
-    { id: 21, vendor: 'caf-1', name: 'Extra Swallow Wrap', desc: 'Caf 1 serving.', price: 600, icon: '🥘', category: 'Meals' },
-    { id: 22, vendor: 'caf-1', name: 'Pizza', desc: 'Listed mid-range price (₦7,000–₦8,000).', price: 7500, icon: '🍕', category: 'Food' },
-    { id: 23, vendor: 'captain-cook', name: 'Jollof Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍛', category: 'Food' },
-    { id: 24, vendor: 'captain-cook', name: 'Fried Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍚', category: 'Food' },
-    { id: 25, vendor: 'captain-cook', name: 'Chicken (Small)', desc: 'Captain Cook serving.', price: 900, icon: '🍗', category: 'Food' },
-    { id: 26, vendor: 'captain-cook', name: 'Chicken (Large)', desc: 'Captain Cook serving.', price: 1500, icon: '🍗', category: 'Food' },
-    { id: 27, vendor: 'captain-cook', name: 'Basmati Rice', desc: 'Jollof or fried rice.', price: 1000, icon: '🍛', category: 'Food' },
-    { id: 28, vendor: 'captain-cook', name: 'Spaghetti', desc: 'Captain Cook serving.', price: 800, icon: '🍝', category: 'Meals' },
-    { id: 29, vendor: 'captain-cook', name: 'Porridge Beans', desc: 'Captain Cook serving.', price: 1000, icon: '🥣', category: 'Meals' },
-    { id: 30, vendor: 'captain-cook', name: 'Beef', desc: 'Captain Cook serving.', price: 500, icon: '🥩', category: 'Food' },
-    { id: 31, vendor: 'captain-cook', name: 'Fish (Regular)', desc: 'Captain Cook serving.', price: 600, icon: '🐟', category: 'Food' },
-    { id: 32, vendor: 'captain-cook', name: 'Fish (Large)', desc: 'Captain Cook serving.', price: 800, icon: '🐟', category: 'Food' },
-    { id: 33, vendor: 'captain-cook', name: 'Ofada Rice', desc: 'Captain Cook serving.', price: 800, icon: '🍚', category: 'Food' },
-    { id: 34, vendor: 'captain-cook', name: 'Ofada Sauce', desc: 'Captain Cook serving.', price: 500, icon: '🥘', category: 'Meals' },
-    { id: 35, vendor: 'captain-cook', name: 'Ice Cream Cone', desc: 'Captain Cook serving.', price: 1000, icon: '🍦', category: 'Snacks' },
-    { id: 36, vendor: 'captain-cook', name: 'Ice Cream Container', desc: 'Captain Cook serving.', price: 2000, icon: '🍨', category: 'Snacks' },
-    { id: 37, vendor: 'caf-2', name: 'Jollof Rice', desc: 'Caf 2 price aligned with Caf 1.', price: 400, icon: '🍛', category: 'Food' },
-    { id: 38, vendor: 'caf-2', name: 'Spaghetti', desc: 'Caf 2 price aligned with Caf 1.', price: 500, icon: '🍝', category: 'Meals' },
-    { id: 39, vendor: 'caf-2', name: 'Chicken', desc: 'Caf 2 price aligned with Caf 1.', price: 1500, icon: '🍗', category: 'Food' },
-    { id: 40, vendor: 'caf-2', name: 'Moi Moi', desc: 'Caf 2 price aligned with Caf 1.', price: 500, icon: '🫔', category: 'Meals' },
-    { id: 41, vendor: 'caf-2', name: 'Plantain Portion', desc: 'Three plantains per portion; Caf 1 price range.', price: 200, icon: '🍌', category: 'Food' },
-    { id: 42, vendor: 'caf-3', name: 'White Rice', desc: 'Caf 3 serving.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 43, vendor: 'caf-3', name: 'Jollof Rice', desc: 'Caf 3 serving.', price: 500, icon: '🍛', category: 'Food' },
-    { id: 44, vendor: 'caf-3', name: 'Chicken Curry', desc: 'Caf 3 serving; availability may be limited.', price: 2000, icon: '🍛', category: 'Food' },
-    { id: 45, vendor: 'med-caf', name: 'Jollof Rice', desc: 'Listed price is subject to confirmation.', price: 500, icon: '🍛', category: 'Food' },
-    { id: 46, vendor: 'med-caf', name: 'White Rice', desc: 'Listed price is subject to confirmation.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 47, vendor: 'season-deli', name: 'Jollof Rice', desc: 'Season Deli serving.', price: 500, icon: '🍛', category: 'Food' },
-    { id: 48, vendor: 'season-deli', name: 'Fried Rice', desc: 'Season Deli serving.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 49, vendor: 'season-deli', name: 'White Rice', desc: 'Season Deli serving.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 50, vendor: 'season-deli', name: 'Boiled Egg', desc: 'Price is subject to confirmation.', price: 350, icon: '🥚', category: 'Meals' },
-    { id: 51, vendor: 'streat-food', name: 'Suya', desc: 'Streat food serving.', price: 800, icon: '🍢', category: 'Food' },
-    { id: 52, vendor: 'streat-food', name: 'Suya (Other Stall)', desc: 'Alternative Streat food stall.', price: 500, icon: '🍢', category: 'Food' },
-    { id: 53, vendor: 'streat-food', name: 'Ponmo Sauce', desc: 'Streat food serving.', price: 700, icon: '🥘', category: 'Meals' },
-    { id: 54, vendor: 'streat-food', name: 'Chicken Sauce', desc: 'Streat food serving.', price: 500, icon: '🍗', category: 'Meals' },
-    { id: 55, vendor: 'streat-food', name: 'Asun', desc: 'Listed mid-range price (₦1,000–₦1,200).', price: 1100, icon: '🍖', category: 'Food' },
-    { id: 56, vendor: 'streat-food', name: 'Chips', desc: 'Without pack.', price: 1500, icon: '🍟', category: 'Snacks' },
-    { id: 57, vendor: 'streat-food', name: 'Chips (With Pack)', desc: 'Streat food serving.', price: 1750, icon: '🍟', category: 'Snacks' },
-    { id: 58, vendor: 'streat-food', name: 'Chicken & Chips', desc: 'Listed mid-range price (₦3,500–₦4,000).', price: 3750, icon: '🍗', category: 'Food' },
-    { id: 59, vendor: 'streat-food', name: 'Fish Pepper Soup', desc: 'Streat food serving.', price: 2500, icon: '🍲', category: 'Meals' },
-    { id: 60, vendor: 'streat-food', name: 'Akara', desc: 'Price per piece.', price: 200, icon: '🧆', category: 'Snacks' },
-    { id: 61, vendor: 'streat-food', name: 'Masa', desc: 'Listed higher price per piece.', price: 200, icon: '🫓', category: 'Snacks' },
-    { id: 62, vendor: 'streat-food', name: 'Coated Yam', desc: 'Price per piece.', price: 200, icon: '🍠', category: 'Snacks' },
-    { id: 63, vendor: 'streat-food', name: 'Shawarma', desc: 'Streat food serving.', price: 3000, icon: '🌯', category: 'Food' },
-    { id: 64, vendor: 'streat-food', name: 'Grilled Fish', desc: 'Listed entry price; sizes range to ₦7,000.', price: 1500, icon: '🐟', category: 'Food' },
-    { id: 65, vendor: 'streat-food', name: 'Toast', desc: 'Streat food serving.', price: 2300, icon: '🥪', category: 'Food' },
-    { id: 66, vendor: 'streat-food', name: 'Cheesesteak', desc: 'Streat food serving.', price: 5000, icon: '🥪', category: 'Food' },
-    { id: 67, vendor: 'streat-food', name: 'Bread & Egg', desc: 'Streat food serving.', price: 2500, icon: '🍞', category: 'Food' },
-    { id: 68, vendor: 'streat-food', name: 'Fried Egg', desc: 'Streat food serving.', price: 500, icon: '🍳', category: 'Meals' },
-    { id: 69, vendor: 'smoothie-shack', name: 'Jollof Rice', desc: 'Price is subject to confirmation.', price: 500, icon: '🍛', category: 'Food' },
-    { id: 70, vendor: 'smoothie-shack', name: 'Fried Rice', desc: 'Price is subject to confirmation.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 71, vendor: 'smoothie-shack', name: 'White Rice', desc: 'Smoothie Shack serving.', price: 500, icon: '🍚', category: 'Food' },
-    { id: 72, vendor: 'smoothie-shack', name: 'Chicken', desc: 'Smoothie Shack serving.', price: 2500, icon: '🍗', category: 'Food' },
-    { id: 73, vendor: 'smoothie-shack', name: 'Boiled Egg', desc: 'Listed higher price pending confirmation.', price: 350, icon: '🥚', category: 'Meals' },
-    { id: 74, vendor: 'smoothie-shack', name: 'Macaroni', desc: 'Price is subject to confirmation.', price: 500, icon: '🍝', category: 'Meals' },
-    { id: 75, vendor: 'bookshop', name: 'Engineering Mathematics Textbook', desc: 'Advanced Engineering Mathematics by Kreyszig.', price: 15000, icon: '📘', category: 'Bookshop' },
-    { id: 76, vendor: 'bookshop', name: 'University Physics Textbook', desc: 'Physics for Scientists and Engineers.', price: 12000, icon: '📕', category: 'Bookshop' },
-    { id: 77, vendor: 'bookshop', name: 'Organic Chemistry Textbook', desc: 'Organic Chemistry by Morrison and Boyd.', price: 10000, icon: '📗', category: 'Bookshop' },
-    { id: 78, vendor: 'bookshop', name: 'Biology Textbook', desc: 'Campbell Biology for students.', price: 18000, icon: '📙', category: 'Bookshop' },
-    { id: 79, vendor: 'bookshop', name: 'Calculus Textbook', desc: 'Calculus by Thomas.', price: 14000, icon: '📐', category: 'Bookshop' },
-    { id: 80, vendor: 'bookshop', name: 'Law Textbook', desc: 'Nigerian Legal Methods.', price: 20000, icon: '⚖️', category: 'Bookshop' },
-    { id: 81, vendor: 'bookshop', name: 'Anatomy Textbook', desc: 'Gray Anatomy for Students.', price: 25000, icon: '🩺', category: 'Bookshop' },
-    { id: 82, vendor: 'bookshop', name: 'A4 Notebook (80 pages)', desc: 'Hardcover lecture notebook.', price: 1500, icon: '📓', category: 'Bookshop' },
-    { id: 83, vendor: 'bookshop', name: 'Pen (Biro)', desc: 'Blue or black ink pen.', price: 200, icon: '🖊️', category: 'Bookshop' },
-    { id: 84, vendor: 'bookshop', name: 'Pencil Set', desc: 'HB pencil with eraser.', price: 150, icon: '✏️', category: 'Bookshop' },
-    { id: 85, vendor: 'bookshop', name: 'Scientific Calculator', desc: 'Casio fx-991S.', price: 12000, icon: '🧮', category: 'Bookshop' },
-    { id: 86, vendor: 'bookshop', name: 'Geometry Set', desc: 'Ruler, set square and protractor.', price: 1000, icon: '📏', category: 'Bookshop' },
-    { id: 87, vendor: 'bookshop', name: 'Highlighters (Pack of 4)', desc: 'Assorted colours.', price: 1200, icon: '🖍️', category: 'Bookshop' },
-    { id: 88, vendor: 'bookshop', name: 'A4 Drawing Book', desc: 'For technical drawing and art.', price: 2000, icon: '🎨', category: 'Bookshop' },
-    { id: 89, vendor: 'bookshop', name: 'File Folder', desc: 'Document folder for assignments.', price: 800, icon: '📁', category: 'Bookshop' },
-    { id: 90, vendor: 'bookshop', name: 'Stapler and Staples', desc: 'Office stapler with pins.', price: 2500, icon: '📎', category: 'Bookshop' },
-    { id: 91, vendor: 'campus-drinks', name: 'Coca-Cola', desc: 'Classic refreshing cola drink.', price: 300, icon: '🥤', category: 'Drinks' },
-    { id: 92, vendor: 'campus-drinks', name: 'Fanta Orange', desc: 'Sweet orange flavored soda.', price: 300, icon: '🍊', category: 'Drinks' },
-    { id: 93, vendor: 'campus-drinks', name: 'Fanta Pineapple', desc: 'Tropical pineapple flavor.', price: 300, icon: '🍍', category: 'Drinks' },
-    { id: 94, vendor: 'campus-drinks', name: 'Exotic Juice', desc: 'Premium mixed fruit juice.', price: 500, icon: '🧃', category: 'Drinks' },
-    { id: 95, vendor: 'campus-drinks', name: 'Red Wine', desc: 'Premium quality red wine.', price: 3500, icon: '🍷', category: 'Drinks' },
-    { id: 96, vendor: 'campus-drinks', name: 'Pepsi', desc: 'Refreshing cola beverage.', price: 300, icon: '🥤', category: 'Drinks' },
-    { id: 97, vendor: 'campus-drinks', name: 'Sprite', desc: 'Lemon-lime flavored soda.', price: 300, icon: '🥤', category: 'Drinks' },
-    { id: 98, vendor: 'campus-drinks', name: 'Malt Drink', desc: 'Nutritious malt beverage.', price: 400, icon: '🍺', category: 'Drinks' },
-    { id: 99, vendor: 'campus-drinks', name: 'Chivita Orange Juice', desc: 'Fresh squeezed orange juice.', price: 600, icon: '🍊', category: 'Drinks' },
-    { id: 100, vendor: 'campus-drinks', name: 'Bottled Water', desc: 'Pure drinking water 50cl.', price: 200, icon: '💧', category: 'Drinks' },
-    { id: 101, vendor: 'campus-drinks', name: 'Energy Drink', desc: 'Boost your energy levels.', price: 800, icon: '⚡', category: 'Drinks' }
+    { id: 1, vendor: 'caf-1', name: 'Jollof Rice', desc: 'Caf 1 serving.', price: 400, icon: 'ðŸ›', category: 'Food' },
+    { id: 2, vendor: 'caf-1', name: 'Spaghetti', desc: 'Caf 1 serving.', price: 500, icon: 'ðŸ', category: 'Meals' },
+    { id: 3, vendor: 'caf-1', name: 'Chicken', desc: 'Caf 1 serving.', price: 1500, icon: 'ðŸ—', category: 'Food' },
+    { id: 4, vendor: 'caf-1', name: 'Egg Sauce', desc: 'Caf 1 serving.', price: 650, icon: 'ðŸ³', category: 'Meals' },
+    { id: 5, vendor: 'caf-1', name: 'Rice & Chicken Sauce', desc: 'Caf 1 serving.', price: 3900, icon: 'ðŸ›', category: 'Food' },
+    { id: 6, vendor: 'caf-1', name: 'White Beans', desc: 'Caf 1 serving.', price: 500, icon: 'ðŸ¥£', category: 'Meals' },
+    { id: 7, vendor: 'caf-1', name: 'Sausages', desc: 'Caf 1 serving.', price: 350, icon: 'ðŸŒ­', category: 'Snacks' },
+    { id: 8, vendor: 'caf-1', name: 'Fried Egg', desc: 'Caf 1 serving.', price: 450, icon: 'ðŸ³', category: 'Meals' },
+    { id: 9, vendor: 'caf-1', name: 'Chicken Pasta', desc: 'Caf 1 serving.', price: 3000, icon: 'ðŸ', category: 'Meals' },
+    { id: 10, vendor: 'caf-1', name: 'Moi Moi', desc: 'Caf 1 serving.', price: 500, icon: 'ðŸ«”', category: 'Meals' },
+    { id: 11, vendor: 'caf-1', name: 'Suga Moi Moi', desc: 'Caf 1 serving.', price: 1000, icon: 'ðŸ«”', category: 'Meals' },
+    { id: 12, vendor: 'caf-1', name: 'Salad', desc: 'Caf 1 serving.', price: 500, icon: 'ðŸ¥—', category: 'Food' },
+    { id: 13, vendor: 'caf-1', name: 'Plantain Portion', desc: 'Three plantains per portion.', price: 200, icon: 'ðŸŒ', category: 'Food' },
+    { id: 14, vendor: 'caf-1', name: 'Diced Plantain', desc: 'Caf 1 serving.', price: 600, icon: 'ðŸŒ', category: 'Food' },
+    { id: 15, vendor: 'caf-1', name: 'Boiled Egg', desc: 'Caf 1 serving.', price: 350, icon: 'ðŸ¥š', category: 'Meals' },
+    { id: 16, vendor: 'caf-1', name: 'Indomie', desc: 'Price per pack.', price: 700, icon: 'ðŸœ', category: 'Meals' },
+    { id: 17, vendor: 'caf-1', name: 'Porridge Yam (Half Pack)', desc: 'Caf 1 serving.', price: 1200, icon: 'ðŸ²', category: 'Meals' },
+    { id: 18, vendor: 'caf-1', name: 'Porridge Yam (Full Pack)', desc: 'Caf 1 serving.', price: 2400, icon: 'ðŸ²', category: 'Meals' },
+    { id: 19, vendor: 'caf-1', name: 'Emerald Delight', desc: 'White rice and vegetable soup.', price: 3200, icon: 'ðŸš', category: 'Food' },
+    { id: 20, vendor: 'caf-1', name: 'Swallow with Soup', desc: 'Caf 1 serving.', price: 2500, icon: 'ðŸ¥˜', category: 'Meals' },
+    { id: 21, vendor: 'caf-1', name: 'Extra Swallow Wrap', desc: 'Caf 1 serving.', price: 600, icon: 'ðŸ¥˜', category: 'Meals' },
+    { id: 22, vendor: 'caf-1', name: 'Pizza', desc: 'Listed mid-range price (â‚¦7,000â€“â‚¦8,000).', price: 7500, icon: 'ðŸ•', category: 'Food' },
+    { id: 23, vendor: 'captain-cook', name: 'Jollof Rice', desc: 'Captain Cook serving.', price: 800, icon: 'ðŸ›', category: 'Food' },
+    { id: 24, vendor: 'captain-cook', name: 'Fried Rice', desc: 'Captain Cook serving.', price: 800, icon: 'ðŸš', category: 'Food' },
+    { id: 25, vendor: 'captain-cook', name: 'Chicken (Small)', desc: 'Captain Cook serving.', price: 900, icon: 'ðŸ—', category: 'Food' },
+    { id: 26, vendor: 'captain-cook', name: 'Chicken (Large)', desc: 'Captain Cook serving.', price: 1500, icon: 'ðŸ—', category: 'Food' },
+    { id: 27, vendor: 'captain-cook', name: 'Basmati Rice', desc: 'Jollof or fried rice.', price: 1000, icon: 'ðŸ›', category: 'Food' },
+    { id: 28, vendor: 'captain-cook', name: 'Spaghetti', desc: 'Captain Cook serving.', price: 800, icon: 'ðŸ', category: 'Meals' },
+    { id: 29, vendor: 'captain-cook', name: 'Porridge Beans', desc: 'Captain Cook serving.', price: 1000, icon: 'ðŸ¥£', category: 'Meals' },
+    { id: 30, vendor: 'captain-cook', name: 'Beef', desc: 'Captain Cook serving.', price: 500, icon: 'ðŸ¥©', category: 'Food' },
+    { id: 31, vendor: 'captain-cook', name: 'Fish (Regular)', desc: 'Captain Cook serving.', price: 600, icon: 'ðŸŸ', category: 'Food' },
+    { id: 32, vendor: 'captain-cook', name: 'Fish (Large)', desc: 'Captain Cook serving.', price: 800, icon: 'ðŸŸ', category: 'Food' },
+    { id: 33, vendor: 'captain-cook', name: 'Ofada Rice', desc: 'Captain Cook serving.', price: 800, icon: 'ðŸš', category: 'Food' },
+    { id: 34, vendor: 'captain-cook', name: 'Ofada Sauce', desc: 'Captain Cook serving.', price: 500, icon: 'ðŸ¥˜', category: 'Meals' },
+    { id: 35, vendor: 'captain-cook', name: 'Ice Cream Cone', desc: 'Captain Cook serving.', price: 1000, icon: 'ðŸ¦', category: 'Snacks' },
+    { id: 36, vendor: 'captain-cook', name: 'Ice Cream Container', desc: 'Captain Cook serving.', price: 2000, icon: 'ðŸ¨', category: 'Snacks' },
+    { id: 37, vendor: 'caf-2', name: 'Jollof Rice', desc: 'Caf 2 price aligned with Caf 1.', price: 400, icon: 'ðŸ›', category: 'Food' },
+    { id: 38, vendor: 'caf-2', name: 'Spaghetti', desc: 'Caf 2 price aligned with Caf 1.', price: 500, icon: 'ðŸ', category: 'Meals' },
+    { id: 39, vendor: 'caf-2', name: 'Chicken', desc: 'Caf 2 price aligned with Caf 1.', price: 1500, icon: 'ðŸ—', category: 'Food' },
+    { id: 40, vendor: 'caf-2', name: 'Moi Moi', desc: 'Caf 2 price aligned with Caf 1.', price: 500, icon: 'ðŸ«”', category: 'Meals' },
+    { id: 41, vendor: 'caf-2', name: 'Plantain Portion', desc: 'Three plantains per portion; Caf 1 price range.', price: 200, icon: 'ðŸŒ', category: 'Food' },
+    { id: 42, vendor: 'caf-3', name: 'White Rice', desc: 'Caf 3 serving.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 43, vendor: 'caf-3', name: 'Jollof Rice', desc: 'Caf 3 serving.', price: 500, icon: 'ðŸ›', category: 'Food' },
+    { id: 44, vendor: 'caf-3', name: 'Chicken Curry', desc: 'Caf 3 serving; availability may be limited.', price: 2000, icon: 'ðŸ›', category: 'Food' },
+    { id: 45, vendor: 'med-caf', name: 'Jollof Rice', desc: 'Listed price is subject to confirmation.', price: 500, icon: 'ðŸ›', category: 'Food' },
+    { id: 46, vendor: 'med-caf', name: 'White Rice', desc: 'Listed price is subject to confirmation.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 47, vendor: 'season-deli', name: 'Jollof Rice', desc: 'Season Deli serving.', price: 500, icon: 'ðŸ›', category: 'Food' },
+    { id: 48, vendor: 'season-deli', name: 'Fried Rice', desc: 'Season Deli serving.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 49, vendor: 'season-deli', name: 'White Rice', desc: 'Season Deli serving.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 50, vendor: 'season-deli', name: 'Boiled Egg', desc: 'Price is subject to confirmation.', price: 350, icon: 'ðŸ¥š', category: 'Meals' },
+    { id: 51, vendor: 'streat-food', name: 'Suya', desc: 'Streat food serving.', price: 800, icon: 'ðŸ¢', category: 'Food' },
+    { id: 52, vendor: 'streat-food', name: 'Suya (Other Stall)', desc: 'Alternative Streat food stall.', price: 500, icon: 'ðŸ¢', category: 'Food' },
+    { id: 53, vendor: 'streat-food', name: 'Ponmo Sauce', desc: 'Streat food serving.', price: 700, icon: 'ðŸ¥˜', category: 'Meals' },
+    { id: 54, vendor: 'streat-food', name: 'Chicken Sauce', desc: 'Streat food serving.', price: 500, icon: 'ðŸ—', category: 'Meals' },
+    { id: 55, vendor: 'streat-food', name: 'Asun', desc: 'Listed mid-range price (â‚¦1,000â€“â‚¦1,200).', price: 1100, icon: 'ðŸ–', category: 'Food' },
+    { id: 56, vendor: 'streat-food', name: 'Chips', desc: 'Without pack.', price: 1500, icon: 'ðŸŸ', category: 'Snacks' },
+    { id: 57, vendor: 'streat-food', name: 'Chips (With Pack)', desc: 'Streat food serving.', price: 1750, icon: 'ðŸŸ', category: 'Snacks' },
+    { id: 58, vendor: 'streat-food', name: 'Chicken & Chips', desc: 'Listed mid-range price (â‚¦3,500â€“â‚¦4,000).', price: 3750, icon: 'ðŸ—', category: 'Food' },
+    { id: 59, vendor: 'streat-food', name: 'Fish Pepper Soup', desc: 'Streat food serving.', price: 2500, icon: 'ðŸ²', category: 'Meals' },
+    { id: 60, vendor: 'streat-food', name: 'Akara', desc: 'Price per piece.', price: 200, icon: 'ðŸ§†', category: 'Snacks' },
+    { id: 61, vendor: 'streat-food', name: 'Masa', desc: 'Listed higher price per piece.', price: 200, icon: 'ðŸ«“', category: 'Snacks' },
+    { id: 62, vendor: 'streat-food', name: 'Coated Yam', desc: 'Price per piece.', price: 200, icon: 'ðŸ ', category: 'Snacks' },
+    { id: 63, vendor: 'streat-food', name: 'Shawarma', desc: 'Streat food serving.', price: 3000, icon: 'ðŸŒ¯', category: 'Food' },
+    { id: 64, vendor: 'streat-food', name: 'Grilled Fish', desc: 'Listed entry price; sizes range to â‚¦7,000.', price: 1500, icon: 'ðŸŸ', category: 'Food' },
+    { id: 65, vendor: 'streat-food', name: 'Toast', desc: 'Streat food serving.', price: 2300, icon: 'ðŸ¥ª', category: 'Food' },
+    { id: 66, vendor: 'streat-food', name: 'Cheesesteak', desc: 'Streat food serving.', price: 5000, icon: 'ðŸ¥ª', category: 'Food' },
+    { id: 67, vendor: 'streat-food', name: 'Bread & Egg', desc: 'Streat food serving.', price: 2500, icon: 'ðŸž', category: 'Food' },
+    { id: 68, vendor: 'streat-food', name: 'Fried Egg', desc: 'Streat food serving.', price: 500, icon: 'ðŸ³', category: 'Meals' },
+    { id: 69, vendor: 'smoothie-shack', name: 'Jollof Rice', desc: 'Price is subject to confirmation.', price: 500, icon: 'ðŸ›', category: 'Food' },
+    { id: 70, vendor: 'smoothie-shack', name: 'Fried Rice', desc: 'Price is subject to confirmation.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 71, vendor: 'smoothie-shack', name: 'White Rice', desc: 'Smoothie Shack serving.', price: 500, icon: 'ðŸš', category: 'Food' },
+    { id: 72, vendor: 'smoothie-shack', name: 'Chicken', desc: 'Smoothie Shack serving.', price: 2500, icon: 'ðŸ—', category: 'Food' },
+    { id: 73, vendor: 'smoothie-shack', name: 'Boiled Egg', desc: 'Listed higher price pending confirmation.', price: 350, icon: 'ðŸ¥š', category: 'Meals' },
+    { id: 74, vendor: 'smoothie-shack', name: 'Macaroni', desc: 'Price is subject to confirmation.', price: 500, icon: 'ðŸ', category: 'Meals' },
+    { id: 75, vendor: 'bookshop', name: 'Engineering Mathematics Textbook', desc: 'Advanced Engineering Mathematics by Kreyszig.', price: 15000, icon: 'ðŸ“˜', category: 'Bookshop' },
+    { id: 76, vendor: 'bookshop', name: 'University Physics Textbook', desc: 'Physics for Scientists and Engineers.', price: 12000, icon: 'ðŸ“•', category: 'Bookshop' },
+    { id: 77, vendor: 'bookshop', name: 'Organic Chemistry Textbook', desc: 'Organic Chemistry by Morrison and Boyd.', price: 10000, icon: 'ðŸ“—', category: 'Bookshop' },
+    { id: 78, vendor: 'bookshop', name: 'Biology Textbook', desc: 'Campbell Biology for students.', price: 18000, icon: 'ðŸ“™', category: 'Bookshop' },
+    { id: 79, vendor: 'bookshop', name: 'Calculus Textbook', desc: 'Calculus by Thomas.', price: 14000, icon: 'ðŸ“', category: 'Bookshop' },
+    { id: 80, vendor: 'bookshop', name: 'Law Textbook', desc: 'Nigerian Legal Methods.', price: 20000, icon: 'âš–ï¸', category: 'Bookshop' },
+    { id: 81, vendor: 'bookshop', name: 'Anatomy Textbook', desc: 'Gray Anatomy for Students.', price: 25000, icon: 'ðŸ©º', category: 'Bookshop' },
+    { id: 82, vendor: 'bookshop', name: 'A4 Notebook (80 pages)', desc: 'Hardcover lecture notebook.', price: 1500, icon: 'ðŸ““', category: 'Bookshop' },
+    { id: 83, vendor: 'bookshop', name: 'Pen (Biro)', desc: 'Blue or black ink pen.', price: 200, icon: 'ðŸ–Šï¸', category: 'Bookshop' },
+    { id: 84, vendor: 'bookshop', name: 'Pencil Set', desc: 'HB pencil with eraser.', price: 150, icon: 'âœï¸', category: 'Bookshop' },
+    { id: 85, vendor: 'bookshop', name: 'Scientific Calculator', desc: 'Casio fx-991S.', price: 12000, icon: 'ðŸ§®', category: 'Bookshop' },
+    { id: 86, vendor: 'bookshop', name: 'Geometry Set', desc: 'Ruler, set square and protractor.', price: 1000, icon: 'ðŸ“', category: 'Bookshop' },
+    { id: 87, vendor: 'bookshop', name: 'Highlighters (Pack of 4)', desc: 'Assorted colours.', price: 1200, icon: 'ðŸ–ï¸', category: 'Bookshop' },
+    { id: 88, vendor: 'bookshop', name: 'A4 Drawing Book', desc: 'For technical drawing and art.', price: 2000, icon: 'ðŸŽ¨', category: 'Bookshop' },
+    { id: 89, vendor: 'bookshop', name: 'File Folder', desc: 'Document folder for assignments.', price: 800, icon: 'ðŸ“', category: 'Bookshop' },
+    { id: 90, vendor: 'bookshop', name: 'Stapler and Staples', desc: 'Office stapler with pins.', price: 2500, icon: 'ðŸ“Ž', category: 'Bookshop' },
+    { id: 91, vendor: 'campus-drinks', name: 'Coca-Cola', desc: 'Classic refreshing cola drink.', price: 300, icon: 'ðŸ¥¤', category: 'Drinks' },
+    { id: 92, vendor: 'campus-drinks', name: 'Fanta Orange', desc: 'Sweet orange flavored soda.', price: 300, icon: 'ðŸŠ', category: 'Drinks' },
+    { id: 93, vendor: 'campus-drinks', name: 'Fanta Pineapple', desc: 'Tropical pineapple flavor.', price: 300, icon: 'ðŸ', category: 'Drinks' },
+    { id: 94, vendor: 'campus-drinks', name: 'Exotic Juice', desc: 'Premium mixed fruit juice.', price: 500, icon: 'ðŸ§ƒ', category: 'Drinks' },
+    { id: 95, vendor: 'campus-drinks', name: 'Red Wine', desc: 'Premium quality red wine.', price: 3500, icon: 'ðŸ·', category: 'Drinks' },
+    { id: 96, vendor: 'campus-drinks', name: 'Pepsi', desc: 'Refreshing cola beverage.', price: 300, icon: 'ðŸ¥¤', category: 'Drinks' },
+    { id: 97, vendor: 'campus-drinks', name: 'Sprite', desc: 'Lemon-lime flavored soda.', price: 300, icon: 'ðŸ¥¤', category: 'Drinks' },
+    { id: 98, vendor: 'campus-drinks', name: 'Malt Drink', desc: 'Nutritious malt beverage.', price: 400, icon: 'ðŸº', category: 'Drinks' },
+    { id: 99, vendor: 'campus-drinks', name: 'Chivita Orange Juice', desc: 'Fresh squeezed orange juice.', price: 600, icon: 'ðŸŠ', category: 'Drinks' },
+    { id: 100, vendor: 'campus-drinks', name: 'Bottled Water', desc: 'Pure drinking water 50cl.', price: 200, icon: 'ðŸ’§', category: 'Drinks' },
+    { id: 101, vendor: 'campus-drinks', name: 'Energy Drink', desc: 'Boost your energy levels.', price: 800, icon: 'âš¡', category: 'Drinks' }
   ]
 };
 
 // ============================================================
-// Reach Us — contact configuration (homepage "Reach Us" cards)
+// Reach Us â€” contact configuration (homepage "Reach Us" cards)
 // ============================================================
 // TODO: Replace both placeholder values with the real Dropzyy
 // support email and WhatsApp Channel invite link. They are used by
-// homeReachUs() (WhatsApp / Email cards) — change them here only.
-const DROPZYY_SUPPORT_EMAIL = 'support@dropzyy.app'; // ← PASTE EMAIL HERE
-const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/PASTE_WHATSAPP_CHANNEL_LINK_HERE'; // ← PASTE WHATSAPP CHANNEL LINK HERE
+// homeReachUs() (WhatsApp / Email cards) â€” change them here only.
+const DROPZYY_SUPPORT_EMAIL = 'support@dropzyy.app'; // â† PASTE EMAIL HERE
+const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/PASTE_WHATSAPP_CHANNEL_LINK_HERE'; // â† PASTE WHATSAPP CHANNEL LINK HERE
 
 const $ = s => document.querySelector(s);
-const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
+const money = n => `â‚¦${Number(n).toLocaleString('en-NG')}`;
 const store = (key, value) => localStorage.setItem(`campusrun_${key}`, JSON.stringify(value));
 const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(`campusrun_${key}`)) ?? fallback; } catch { return fallback; } };
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -140,9 +140,9 @@ const state = { cart: load('cart', []), orders: [], user: null, notifications: l
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
 // the localStorage copy is only an offline fallback. We deliberately do NOT
-// merge seed data back in here — that would resurrect vendors/products the
+// merge seed data back in here â€” that would resurrect vendors/products the
 // admin deleted in Supabase. We also prune cart entries that reference
-// now-deleted products so the cart/checkout views never crash or show ₦NaN.
+// now-deleted products so the cart/checkout views never crash or show â‚¦NaN.
 const data = () => {
   const cat = load('catalog_v3', clone(SEED_DATA));
   state.catalog = cat;
@@ -184,7 +184,7 @@ async function loadCatalogFromSupabase() {
     store('catalog_v3', state.catalog);
     render();
   } catch (err) {
-    console.error('Supabase catalog load failed — using localStorage fallback:', err);
+    console.error('Supabase catalog load failed â€” using localStorage fallback:', err);
     state.catalogLoadError = true;
   }
 }
@@ -195,7 +195,7 @@ function product(id) { return data().products.find(p => p.id === Number(id)); }
 // Customer-facing persistence. IMPORTANT: this must NOT write the catalog.
 // The admin panel writes the same 'catalog_v3' key; if a customer action wrote a
 // stale in-memory copy of the catalog here, it would silently revert the admin's
-// changes — that was the root cause of the admin-to-main-site sync bug.
+// changes â€” that was the root cause of the admin-to-main-site sync bug.
 function save() { store('cart', state.cart); store('user', state.user); store('notifications', state.notifications); updateChrome(); }
 
 // Add a notification for the CURRENT user only. Persisted to Supabase when a
@@ -230,9 +230,9 @@ function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 
 // Order number generation (ACTION 9)
 // ============================================
 // Previously orders used CR- + 4 random digits, which collided easily.
-// Delivery fee: flat ₦1,500 campus delivery charge, kept strictly separate
+// Delivery fee: flat â‚¦1,500 campus delivery charge, kept strictly separate
 // from the product subtotal everywhere it is used.
-// Split: rider = ₦1,000, Dropzyy/company = ₦500.
+// Split: rider = â‚¦1,000, Dropzyy/company = â‚¦500.
 const DELIVERY_FEE = 1500;
 const RIDER_DELIVERY_SHARE = 1000;
 const COMPANY_DELIVERY_SHARE = 500;
@@ -243,7 +243,7 @@ function riderShareAmount() {
 }
 
 // ============================================
-// ABUAD hostels — single source of truth for the checkout
+// ABUAD hostels â€” single source of truth for the checkout
 // "Delivery location" select. The chosen hostel is sent to the
 // place_order RPC as part of the free-text `spot` field. The
 // orders.spot column has no enum/CHECK restriction, so these values
@@ -251,30 +251,30 @@ function riderShareAmount() {
 // ============================================
 const HOSTELS = [
   { group: 'Female Hostels', items: [
-    'Female Hall 1 — ABUAD Hostel',
-    'Female Hall 2 — WEMA Hostel',
-    'Female Hall 3 — NFH1 (New Female Hall 1)',
-    'Female Hall 4 — NFH2 (New Female Hall 2)',
+    'Female Hall 1 â€” ABUAD Hostel',
+    'Female Hall 2 â€” WEMA Hostel',
+    'Female Hall 3 â€” NFH1 (New Female Hall 1)',
+    'Female Hall 4 â€” NFH2 (New Female Hall 2)',
     'Female Hall 5',
-    'Female Medical Hall 1 — FMH1',
-    'Female Medical Hall 2 — FMH2',
-    'Female Medical Hall 3 — FMH3',
-    'Female Medical Hall 4 — FMH4',
+    'Female Medical Hall 1 â€” FMH1',
+    'Female Medical Hall 2 â€” FMH2',
+    'Female Medical Hall 3 â€” FMH3',
+    'Female Medical Hall 4 â€” FMH4',
   ] },
   { group: 'Other Hostels', items: [
     'AMSH',
     'Summer Hostel',
   ] },
   { group: 'Male Hostels', items: [
-    'Male Hall 1 — Jamaica',
-    'Male Hall 2 — Kuvuki',
-    'Male Hall 3 — Freshers Male Hostel',
+    'Male Hall 1 â€” Jamaica',
+    'Male Hall 2 â€” Kuvuki',
+    'Male Hall 3 â€” Freshers Male Hostel',
     'Male Hall 4',
     'Male Hall 5',
     'Male Hall 7',
-    'Male Medical Hall 1 — MMH1',
-    'Male Medical Hall 2 — MMH2',
-    'Male Medical Hall 3 — MMH3',
+    'Male Medical Hall 1 â€” MMH1',
+    'Male Medical Hall 2 â€” MMH2',
+    'Male Medical Hall 3 â€” MMH3',
   ] },
 ];
 
@@ -326,7 +326,7 @@ async function loadRiderFromSupabase() {
 // Submit a rider application to Supabase (with duplicate prevention).
 async function submitRiderApplication(formData) {
   if (!state.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — application could not be saved', 'error'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” application could not be saved', 'error'); return; }
   if (state.rider && ['pending','approved'].includes(state.rider.status)) {
     toast(state.rider.status === 'approved' ? 'You are already an approved rider' : 'You already have a pending application', 'info');
     location.hash = '#/rider';
@@ -373,7 +373,7 @@ async function submitRiderApplication(formData) {
     location.hash = '#/rider';
   } catch (err) {
     console.error('Rider application error:', err);
-    toast('Application failed — please try again', 'error');
+    toast('Application failed â€” please try again', 'error');
   }
 }
 
@@ -381,10 +381,10 @@ async function submitRiderApplication(formData) {
 // Rider earnings & withdrawal requests (ACTION 10, B5 cutover)
 // ============================================
 // Earnings are NEVER client-supplied. They are always DERIVED from the
-// authoritative fixed rider delivery share (B5: rider = ₦1,000 per delivery,
-// Dropzyy = ₦500) on the rider's completed (Delivered) deliveries.
-// The rider share is computed by riderShareAmount() — exactly the same value
-// the server-side settlement RPC stores in delivery_settlements.rider_amount —
+// authoritative fixed rider delivery share (B5: rider = â‚¦1,000 per delivery,
+// Dropzyy = â‚¦500) on the rider's completed (Delivered) deliveries.
+// The rider share is computed by riderShareAmount() â€” exactly the same value
+// the server-side settlement RPC stores in delivery_settlements.rider_amount â€”
 // so the figure always matches what backs real payouts.
 // Because no settlement/payout has occurred, every figure is clearly
 // labelled as an ESTIMATE and PENDING.
@@ -446,16 +446,16 @@ async function loadWithdrawalsFromSupabase() {
 }
 
 // Request a withdrawal of `amount` from the rider's PENDING (estimated)
-// earnings. This only CREATES a pending/admin-reviewed record — no money
+// earnings. This only CREATES a pending/admin-reviewed record â€” no money
 // moves. The server-side INSERT policy requires the caller to be an approved
 // rider and the row to be born status = 'pending', so a rider can never forge
 // an approved/paid row or an arbitrary rider_id.
 async function requestWithdrawal(amount) {
   if (!state.user) { toast('Please sign in to request a withdrawal', 'info'); return false; }
   if (!state.rider || state.rider.status !== 'approved') { toast('Only approved riders can request withdrawals', 'error'); return false; }
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — request could not be saved', 'error'); return false; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” request could not be saved', 'error'); return false; }
   const value = Number(amount);
-  if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid amount greater than ₦0', 'error'); return false; }
+  if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid amount greater than â‚¦0', 'error'); return false; }
   const available = Math.max(0, riderPendingEarnings() - riderPendingRequestsTotal());
   if (value > available) { toast(`Amount exceeds your available estimated earnings of ${money(available)}`, 'error'); return false; }
 
@@ -494,12 +494,12 @@ async function submitRiderRatingForm(form) {
   const riderId = f.get('riderId');
   const review = (f.get('review') || '').trim();
   const activeStar = form.querySelector('.stars--input button.is-on');
-  if (!orderId || !riderId) { toast('Could not submit rating — missing order details', 'error'); return; }
+  if (!orderId || !riderId) { toast('Could not submit rating â€” missing order details', 'error'); return; }
   const rating = activeStar ? Number(activeStar.dataset.rating) : 0;
-  if (rating < 1 || rating > 5 || !Number.isInteger(rating)) { toast('Please select a star rating (1–5)', 'error'); return; }
+  if (rating < 1 || rating > 5 || !Number.isInteger(rating)) { toast('Please select a star rating (1â€“5)', 'error'); return; }
   const submitted = await submitRiderRating(orderId, riderId, rating, review);
   if (!submitted) return;
-  // Mark as rated locally, then persist the Delivered → Rated transition via
+  // Mark as rated locally, then persist the Delivered â†’ Rated transition via
   // the permitted RLS path. On failure keep the order Delivered and show the
   // form again so the user can retry.
   const order = state.orders.find(x => x.dbId === orderId);
@@ -526,7 +526,7 @@ async function submitRiderRatingForm(form) {
 // Rate and review the rider assigned to a delivered order.
 async function submitRiderRating(orderId, riderId, rating, review) {
   if (!state.user) { toast('Please sign in to rate your rider', 'info'); return false; }
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — rating could not be saved', 'error'); return false; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” rating could not be saved', 'error'); return false; }
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Please sign in to rate your rider', 'info'); return false; }
@@ -553,7 +553,7 @@ async function submitRiderRating(orderId, riderId, rating, review) {
     return true;
   } catch (err) {
     console.error('Rating error:', err);
-    toast('Rating failed — please try again', 'error');
+    toast('Rating failed â€” please try again', 'error');
     return false;
   }
 }
@@ -585,9 +585,9 @@ function formatOrderCreated(createdAt) {
 
 // Full absolute timestamp for the order details view (ACTION 9).
 function formatFullDate(iso) {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return 'â€”';
   return d.toLocaleString('en-NG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -608,7 +608,7 @@ function sortOrdersNewestFirst(arr) {
 // from localStorage for order history or the rider pool.
 async function loadOrdersFromSupabase() {
   if (typeof supabase === 'undefined' || !supabase) {
-    console.error('Supabase client is missing — using localStorage orders fallback');
+    console.error('Supabase client is missing â€” using localStorage orders fallback');
     state.ordersLoadError = true;
     state.ordersLoadedFromSupabase = true;
     return false;
@@ -616,7 +616,7 @@ async function loadOrdersFromSupabase() {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) {
-      // No authenticated session — clear any cached orders. LocalStorage orders
+      // No authenticated session â€” clear any cached orders. LocalStorage orders
       // are shared per-browser, so without an authenticated user we cannot know
       // whose orders they are; keeping them would leak the previous user's
       // order history. They are reloaded from Supabase on the next sign-in.
@@ -628,7 +628,7 @@ async function loadOrdersFromSupabase() {
     const userId = session.user.id;
 
     // Per-user Rider Hub pool: rebuilt from Supabase below. Never reuse a stale
-    // cached/previously-logged-in-user pool — this also guarantees that an error
+    // cached/previously-logged-in-user pool â€” this also guarantees that an error
     // mid-load cannot leave another user's (or a stale) pool visible..
     state.riderPool = [];
 
@@ -692,8 +692,8 @@ async function loadOrdersFromSupabase() {
     });
 
         // Resolve rider details (name + phone) for orders that already have an
-    // assigned rider. The customer may read the assigned rider's row — including
-    // `phone` — via the existing riders_select_order_assigned policy, so phone is
+    // assigned rider. The customer may read the assigned rider's row â€” including
+    // `phone` â€” via the existing riders_select_order_assigned policy, so phone is
     // "existing profile data where permitted". Only the name is shown on the
     // orders list; the phone is shown on the Track page for an active delivery
     // (see track()) so a customer can contact the rider who is on the way.
@@ -716,7 +716,7 @@ async function loadOrdersFromSupabase() {
           (riderProfiles || []).forEach(p => { nameByUser[p.id] = p.full_name; });
           riderRows.forEach(r => {
             riderNames[r.id] = nameByUser[r.user_id] || null;
-            // Only expose the rider's phone — never a customer's phone to a rider.
+            // Only expose the rider's phone â€” never a customer's phone to a rider.
             riderPhones[r.id] = r.phone || null;
           });
         }
@@ -783,7 +783,7 @@ async function loadOrdersFromSupabase() {
     // 5. Replace local orders entirely with the Supabase result, sorted
     //    newest-first by created_at. Supabase queries here are
     //    scoped to the authenticated user (user_id = session.user.id), so this is the
-    //    authoritative per-user order set. We do NOT merge with stale localStorage orders —
+    //    authoritative per-user order set. We do NOT merge with stale localStorage orders â€”
     //    that merge was the root cause of one user's orders leaking into another user's view
     //    after logout/login. Orders placed earlier in this session were persisted via the
     //    place_order RPC and are included in this Supabase result.
@@ -792,7 +792,7 @@ async function loadOrdersFromSupabase() {
     state.ordersLoadedFromSupabase = true;
     return true;
   } catch (err) {
-    console.error('Supabase orders load failed — using localStorage fallback:', err);
+    console.error('Supabase orders load failed â€” using localStorage fallback:', err);
     state.ordersLoadError = true;
     state.ordersLoadedFromSupabase = true;
     return false;
@@ -860,7 +860,7 @@ function refundStatusLabel(status) {
 
 // Submit a refund request for an order.
 // Calls the server-side request_refund RPC (ownership + eligibility validated
-// server-side). Sends ONLY the order ID and reason — never an amount or
+// server-side). Sends ONLY the order ID and reason â€” never an amount or
 // payment reference. Returns true on a newly created request, 'existing' when
 // a refund already exists for the order, false on failure. Does not re-render;
 // the caller decides (the dedicated Refund Request page owns navigation).
@@ -871,7 +871,7 @@ async function requestRefund(orderDbId, reason) {
     return false;
   }
   if (typeof supabase === 'undefined' || !supabase) {
-    toast('Supabase unavailable — could not submit refund request', 'error');
+    toast('Supabase unavailable â€” could not submit refund request', 'error');
     return false;
   }
   try {
@@ -893,7 +893,7 @@ async function requestRefund(orderDbId, reason) {
       }
       return false;
     }
-    // Success — data contains { refund_id, payment_id, order_id, amount, status, already_existed }
+    // Success â€” data contains { refund_id, payment_id, order_id, amount, status, already_existed }
     // Note: The server-side trigger (trg_refund_status_notify) creates the notification
     // authoritatively when the refund row is inserted. We deliberately do NOT call
     // addNotification() here to avoid duplicate notifications.
@@ -906,7 +906,7 @@ async function requestRefund(orderDbId, reason) {
     return true;
   } catch (err) {
     console.error('Refund request error:', err);
-    toast('Refund request failed — please try again', 'error');
+    toast('Refund request failed â€” please try again', 'error');
     return false;
   }
 }
@@ -923,7 +923,7 @@ const REFUND_REASON_MAX = 500;
 async function refundRequestView(orderDbId) {
   if (!state.user) { location.hash = '#/login'; return ''; }
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>Request a Refund</h1><p class="muted">Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Request a Refund</h1><p class="muted">Loading your orderâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   await ensureOrdersLoaded();
   await loadRefundsFromSupabase();
@@ -931,28 +931,28 @@ async function refundRequestView(orderDbId) {
   if (!o) return notFound();
   const items = o.items || [];
   const vnames = orderVendorNames(o);
-  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || '—');
+  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || 'â€”');
   const fee = o.fee != null ? o.fee : DELIVERY_FEE;
   const total = o.total != null ? o.total : (o.subtotal != null ? o.subtotal + fee : null);
   const itemLines = items.length ? items.map(it => {
     const p = product(it.id);
     const name = p ? p.name : (it.name || `Item #${it.id}`);
-    return `<li>${esc(name)} <span class="muted">× ${it.qty || 0}</span></li>`;
+    return `<li>${esc(name)} <span class="muted">Ã— ${it.qty || 0}</span></li>`;
   }).join('') : '<li class="muted">No items recorded for this order.</li>';
   const successNotice = state.refundSuccessNotice === orderDbId
-    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ Refund request submitted</h3><p class="muted small mb-0">Your refund request has been sent to our team for review. You'll get a notification as soon as its status changes.</p></div>`
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">âœ… Refund request submitted</h3><p class="muted small mb-0">Your refund request has been sent to our team for review. You'll get a notification as soon as its status changes.</p></div>`
     : '';
-  // Existing refund for this order → show its status; never allow another request.
+  // Existing refund for this order â†’ show its status; never allow another request.
   const existingRefund = getOrderRefund(o.dbId);
   if (existingRefund) {
-    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div>${successNotice}<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">A refund request already exists for this order, so another request can't be submitted.</p><p class="muted small mt-1 mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
+    return `<section class="section container"><a href="#/orders" class="muted small">â† Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div>${successNotice}<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">A refund request already exists for this order, so another request can't be submitted.</p><p class="muted small mt-1 mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
   }
   // Backend remains authoritative: without a successful payment the
   // request_refund RPC would reject the request, so don't offer the form.
   if (o.payment_status !== 'success') {
-    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div><div class="card mt-2"><h3 class="mb-0">This order isn't eligible for a refund</h3><p class="muted small mb-0">Refunds can only be requested for orders whose payment was successful. The payment for this order is currently <b>${esc(o.payment_status || 'pending')}</b>.</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
+    return `<section class="section container"><a href="#/orders" class="muted small">â† Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div><div class="card mt-2"><h3 class="mb-0">This order isn't eligible for a refund</h3><p class="muted small mb-0">Refunds can only be requested for orders whose payment was successful. The payment for this order is currently <b>${esc(o.payment_status || 'pending')}</b>.</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
   }
-  return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1><p class="muted">Tell us what went wrong with this order and our team will review your request. Refunds are issued to your original payment method and the amount is determined by our system — you'll get a notification when the status changes.</p></div></div>${successNotice}<div class="split mt-2"><div class="card stack">
+  return `<section class="section container"><a href="#/orders" class="muted small">â† Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1><p class="muted">Tell us what went wrong with this order and our team will review your request. Refunds are issued to your original payment method and the amount is determined by our system â€” you'll get a notification when the status changes.</p></div></div>${successNotice}<div class="split mt-2"><div class="card stack">
     <form id="refundRequestForm" class="stack" novalidate>
       <input type="hidden" name="orderDbId" value="${esc(orderDbId)}">
       <div class="field"><label for="refundReasonInput">What went wrong with this order?</label><textarea class="textarea" id="refundReasonInput" name="reason" rows="6" maxlength="${REFUND_REASON_MAX}" placeholder="Please explain the issue with your order..."></textarea><div class="row row--between mt-1"><span class="muted xs" id="refundReasonError"></span><span class="muted xs" id="refundReasonCount">0 / ${REFUND_REASON_MAX}</span></div></div>
@@ -967,7 +967,7 @@ async function refundRequestView(orderDbId) {
     <div><span class="muted small">Date</span><div><b>${esc(placedAt)}</b></div></div>
     <div><span class="muted small">Items</span><ul class="muted small" style="padding-left:18px">${itemLines}</ul></div>
     <div><span class="muted small">Vendor${items.length > 1 ? 's' : ''}</span><div><b>${esc(vnames)}</b></div></div>
-    <div><span class="muted small">Amount paid</span><div><b>${total != null ? money(total) : '—'}</b></div></div>
+    <div><span class="muted small">Amount paid</span><div><b>${total != null ? money(total) : 'â€”'}</b></div></div>
     <div><span class="muted small">Payment status</span><div><span class="badge badge--success">${esc(o.payment_status)}</span></div></div>
     <div class="divider"></div>
     <a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View full order</a>
@@ -986,10 +986,10 @@ function refundStatusBadgeClass(status) {
   return classes[status] || 'badge--info';
 }
 // ============================================
-// Issue reports (customer → admin support intake)
+// Issue reports (customer â†’ admin support intake)
 // ============================================
 // Routes: #/report (Report an Issue) and #/vendor/apply (vendor
-// interest — same form, mode 'vendor'). Both write to the Supabase
+// interest â€” same form, mode 'vendor'). Both write to the Supabase
 // `issue_reports` table; RLS hard-guarantees user_id = auth.uid() and
 // denies users any read/update access beyond their own rows.
 const REPORT_SUBJECTS = ['Order problem', 'Payment problem', 'Delivery / Rider problem', 'Vendor problem', 'App problem', 'Account problem', 'Become a vendor', 'Other'];
@@ -999,18 +999,18 @@ const REPORT_DESC_MAX = 1000;
 async function reportView(mode = '') {
   if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>${mode === 'vendor' ? 'Become a Vendor' : 'Report an Issue'}</h1><p class="muted">Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>${mode === 'vendor' ? 'Become a Vendor' : 'Report an Issue'}</h1><p class="muted">Loadingâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   await ensureOrdersLoaded();
   const isVendor = mode === 'vendor';
   const title = isVendor ? 'Become a Vendor' : 'Report an Issue';
   const intro = isVendor
-    ? 'Interested in selling on Dropzyy? Tell us a little about yourself and your offer — the team reviews every application and reaches out once it is approved.'
+    ? 'Interested in selling on Dropzyy? Tell us a little about yourself and your offer â€” the team reviews every application and reaches out once it is approved.'
     : 'Something went wrong? Tell us what happened and our team will look into it. Reports go straight to the Dropzyy Admin Panel.';
   const success = state.reportSuccess
-    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ ${state.reportSuccess === 'vendor' ? 'Application submitted' : 'Report submitted successfully'}</h3><p class="muted small mb-0">${state.reportSuccess === 'vendor' ? 'Application submitted successfully. The Dropzyy team will review it shortly.' : 'Report submitted successfully. Our team will review it shortly.'}</p><a class="btn btn--ghost btn--sm mt-2" href="${isVendor ? '#/vendor/apply' : '#/report'}">Submit another</a></div>`
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">âœ… ${state.reportSuccess === 'vendor' ? 'Application submitted' : 'Report submitted successfully'}</h3><p class="muted small mb-0">${state.reportSuccess === 'vendor' ? 'Application submitted successfully. The Dropzyy team will review it shortly.' : 'Report submitted successfully. Our team will review it shortly.'}</p><a class="btn btn--ghost btn--sm mt-2" href="${isVendor ? '#/vendor/apply' : '#/report'}">Submit another</a></div>`
     : '';
-  // Optional "which order" dropdown — only the user's own Supabase-backed
+  // Optional "which order" dropdown â€” only the user's own Supabase-backed
   // orders are offered (order_id is server-validated to belong to them).
   const ownOrders = sortOrdersNewestFirst(state.orders || []).filter(o => o.dbId);
   const orderField = isVendor || !ownOrders.length
@@ -1018,18 +1018,18 @@ async function reportView(mode = '') {
     : `<div class="field"><label for="reportOrder">Related order (optional)</label>
         <select class="select" id="reportOrder" name="order">
           <option value="">No specific order</option>
-          ${ownOrders.map(o => `<option value="${esc(o.dbId)}">Order #${esc(o.id)}${o.payment_status === 'success' ? ' · paid' : ''}</option>`).join('')}
+          ${ownOrders.map(o => `<option value="${esc(o.dbId)}">Order #${esc(o.id)}${o.payment_status === 'success' ? ' Â· paid' : ''}</option>`).join('')}
         </select></div>`;
   const subjectField = isVendor
     ? `<input type="hidden" name="subject" value="Become a vendor">
        <div class="field"><label>Subject</label><input class="input" value="Become a vendor" aria-label="Subject" disabled></div>`
     : `<div class="field"><label for="reportSubject">Issue subject</label>
         <select class="select" id="reportSubject" name="subject" required>
-          <option value="" disabled selected>Select a subject…</option>
+          <option value="" disabled selected>Select a subjectâ€¦</option>
           ${REPORT_SUBJECTS.filter(s => s !== 'Become a vendor').map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
         </select></div>`;
   return `<section class="section container">
-    <a href="#/" class="muted small">← Back to home</a>
+    <a href="#/" class="muted small">â† Back to home</a>
     <div class="page-head mt-1"><div><h1>${esc(title)}</h1><p class="muted">${esc(intro)}</p></div></div>
     ${success}
     <div class="split mt-1">
@@ -1039,7 +1039,7 @@ async function reportView(mode = '') {
           ${subjectField}
           <div class="field">
             <label for="reportDescription">${isVendor ? 'About you / your offer' : 'Description'}</label>
-            <textarea class="textarea" id="reportDescription" name="description" rows="6" minlength="${REPORT_DESC_MIN}" maxlength="${REPORT_DESC_MAX}" required placeholder="${isVendor ? 'Tell us about yourself and what you would like to offer on Dropzyy...' : 'Please describe the issue — what happened, and any steps we can reproduce.'}"></textarea>
+            <textarea class="textarea" id="reportDescription" name="description" rows="6" minlength="${REPORT_DESC_MIN}" maxlength="${REPORT_DESC_MAX}" required placeholder="${isVendor ? 'Tell us about yourself and what you would like to offer on Dropzyy...' : 'Please describe the issue â€” what happened, and any steps we can reproduce.'}"></textarea>
             <div class="row row--between mt-1"><span class="muted xs" id="reportDescError" role="status"></span><span class="muted xs" id="reportDescCount">0 / ${REPORT_DESC_MAX}</span></div>
           </div>
           ${orderField}
@@ -1049,16 +1049,16 @@ async function reportView(mode = '') {
       </div>
       <aside class="card sticky-side stack">
         <h3 class="mb-0">${isVendor ? 'Application details' : 'Reporting as'}</h3>
-        <div><span class="muted small">Name</span><div><b>${esc(state.user.name || '—')}</b></div></div>
-        <div><span class="muted small">Email</span><div><b>${esc(state.user.email || '—')}</b></div></div>
+        <div><span class="muted small">Name</span><div><b>${esc(state.user.name || 'â€”')}</b></div></div>
+        <div><span class="muted small">Email</span><div><b>${esc(state.user.email || 'â€”')}</b></div></div>
         <div class="divider"></div>
-        <p class="muted xs mb-0">${isVendor ? 'Your application is submitted to the Dropzyy team for review. Keep an eye on your inbox.' : 'Your report is attached to your Dropzyy account automatically — no need to enter anything we already know.'}</p>
+        <p class="muted xs mb-0">${isVendor ? 'Your application is submitted to the Dropzyy team for review. Keep an eye on your inbox.' : 'Your report is attached to your Dropzyy account automatically â€” no need to enter anything we already know.'}</p>
       </aside>
     </div>
   </section>`;
 }
 // Submit an issue report (or vendor application). Client sends ONLY the
-// subject/category, description and an optional order id — the user_id is
+// subject/category, description and an optional order id â€” the user_id is
 // fetched from the authenticated session (never typed in), and the server
 // enforces ownership via the issue_reports_insert_own RLS policy.
 async function submitIssueReport(formData) {
@@ -1072,11 +1072,11 @@ async function submitIssueReport(formData) {
   const submitBtn = document.getElementById('reportSubmitBtn');
   const fail = (msg) => { if (errEl) errEl.textContent = msg; toast(msg, 'error'); };
   if (!subject) { fail('Please choose a subject for your report'); return; }
-  if (description.length < REPORT_DESC_MIN) { fail(`Please describe the ${isVendor ? 'application' : 'issue'} — at least ${REPORT_DESC_MIN} characters.`); return; }
+  if (description.length < REPORT_DESC_MIN) { fail(`Please describe the ${isVendor ? 'application' : 'issue'} â€” at least ${REPORT_DESC_MIN} characters.`); return; }
   if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
-  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — this could not be saved'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable â€” this could not be saved'); return; }
   state.reportSubmitting = true;
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submittingâ€¦'; }
   try {
     const userId = await getSupabaseUserId();
     if (!userId) { fail('Sign in required to submit'); location.hash = '#/login'; return; }
@@ -1099,7 +1099,7 @@ async function submitIssueReport(formData) {
   }
 }
 // ============================================
-// Vendor Applications (#/vendor/apply → vendor_applications table)
+// Vendor Applications (#/vendor/apply â†’ vendor_applications table)
 // ============================================
 // A structured intake separate from customer issue reports. Posts to the
 // `vendor_applications` table so the Admin Panel can review/approve/reject
@@ -1126,15 +1126,15 @@ async function vendorApplyView() {
     }
   }
 
-  const back = '<a href="#/" class="muted small">← Back to home</a>';
+  const back = '<a href="#/" class="muted small">â† Back to home</a>';
   const successBanner = state.reportSuccess === 'vendor'
-    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ Application submitted</h3><p class="muted small mb-0">Application submitted successfully. The Dropzyy team will review it shortly.</p></div>`
+    ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">âœ… Application submitted</h3><p class="muted small mb-0">Application submitted successfully. The Dropzyy team will review it shortly.</p></div>`
     : '';
 
   // Already applied: show the applicant their own status (no resubmission).
   if (existing) {
     const st = existing.status || 'Pending';
-    const icon = st === 'Approved' ? '🎉' : st === 'Rejected' ? 'ℹ️' : '⏳';
+    const icon = st === 'Approved' ? 'ðŸŽ‰' : st === 'Rejected' ? 'â„¹ï¸' : 'â³';
     const msg = st === 'Approved'
       ? 'Your vendor account is approved! Head to the Vendor dashboard to manage your storefront and products.'
       : st === 'Rejected'
@@ -1158,7 +1158,7 @@ async function vendorApplyView() {
       </div></section>`;
   }
 return `<section class="section container">${back}
-    <div class="page-head mt-1"><div><h1>Become a Vendor</h1><p class="muted">Tell us about yourself and what you want to sell — the Dropzyy team reviews every application and activates your storefront once approved.</p></div></div>
+    <div class="page-head mt-1"><div><h1>Become a Vendor</h1><p class="muted">Tell us about yourself and what you want to sell â€” the Dropzyy team reviews every application and activates your storefront once approved.</p></div></div>
     ${successBanner}
     <div class="split mt-1">
       <div class="card stack">
@@ -1171,23 +1171,23 @@ return `<section class="section container">${back}
             <div class="field"><label for="vaEmail">Email</label><input class="input" id="vaEmail" name="email" type="email" required maxlength="120" value="${esc(state.user.email || '')}" autocomplete="email"></div>
             <div class="field"><label for="vaPhone">Phone number</label><input class="input" id="vaPhone" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div>
           </div>
-          <div class="field"><label for="vaOffer">What do you want to sell?</label><textarea class="textarea" id="vaOffer" name="what_they_want_to_sell" rows="3" required maxlength="1000" placeholder="Describe the products/services you intend to offer on Dropzyy…"></textarea></div>
-          <div class="field"><label for="vaPrice">Expected price range</label><input class="input" id="vaPrice" name="expected_price_range" required maxlength="120" placeholder="e.g. ₦500 – ₦3,000"></div>
-          <div class="field"><label for="vaExtra">Additional information (optional)</label><textarea class="textarea" id="vaExtra" name="additional_info" rows="3" maxlength="1000" placeholder="Anything else the team should know…"></textarea><div class="row row--between mt-1"><span class="muted xs" id="vaError" role="status"></span></div></div>
+          <div class="field"><label for="vaOffer">What do you want to sell?</label><textarea class="textarea" id="vaOffer" name="what_they_want_to_sell" rows="3" required maxlength="1000" placeholder="Describe the products/services you intend to offer on Dropzyyâ€¦"></textarea></div>
+          <div class="field"><label for="vaPrice">Expected price range</label><input class="input" id="vaPrice" name="expected_price_range" required maxlength="120" placeholder="e.g. â‚¦500 â€“ â‚¦3,000"></div>
+          <div class="field"><label for="vaExtra">Additional information (optional)</label><textarea class="textarea" id="vaExtra" name="additional_info" rows="3" maxlength="1000" placeholder="Anything else the team should knowâ€¦"></textarea><div class="row row--between mt-1"><span class="muted xs" id="vaError" role="status"></span></div></div>
           <button type="submit" class="btn btn--block" id="vaSubmitBtn">Submit Vendor Application</button>
           <a class="btn btn--ghost btn--block" href="#/">Cancel</a>
         </form>
       </div>
       <aside class="card sticky-side stack">
         <h3 class="mb-0">Application details</h3>
-        <div><span class="muted small">Signed in as</span><div><b>${esc(state.user.email || '—')}</b></div></div>
+        <div><span class="muted small">Signed in as</span><div><b>${esc(state.user.email || 'â€”')}</b></div></div>
         <div class="divider"></div>
-        <p class="muted xs mb-0">We attach your application to your Dropzyy account automatically — no need to enter anything we already know. On approval the Admin Panel activates your storefront and you can manage it from the Vendor dashboard.</p>
+        <p class="muted xs mb-0">We attach your application to your Dropzyy account automatically â€” no need to enter anything we already know. On approval the Admin Panel activates your storefront and you can manage it from the Vendor dashboard.</p>
       </aside>
     </div></section>`;
 }
 
-// Submit a vendor application. The client sends ONLY the applicant's details —
+// Submit a vendor application. The client sends ONLY the applicant's details â€”
 // full name, matric, college, department, email, phone, offer, price range,
 // optional note. The user_id is taken from the authenticated session (never
 // typed in), and the server enforces ownership + one application per user.
@@ -1211,12 +1211,12 @@ async function submitVendorApplication(formData) {
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fail('Please enter a valid email address'); return; }
   if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
-  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — application could not be saved'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable â€” application could not be saved'); return; }
   const userId = await getSupabaseUserId();
   if (!userId) { fail('Sign in required to apply'); location.hash = '#/login'; return; }
   state.reportSubmitting = true;
   const btn = document.getElementById('vaSubmitBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Submittingâ€¦'; }
   try {
     const { data, error } = await supabase
       .from('vendor_applications')
@@ -1237,7 +1237,7 @@ async function submitVendorApplication(formData) {
       .single();
     if (error) {
       if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
-        fail('You already have an application on file — our team will reach out once it is reviewed.');
+        fail('You already have an application on file â€” our team will reach out once it is reviewed.');
       } else {
         console.error('Vendor application insert failed:', error);
         fail('Application failed: ' + error.message);
@@ -1249,7 +1249,7 @@ async function submitVendorApplication(formData) {
     location.hash = '#/vendor/apply';
   } catch (err) {
     console.error('Vendor application error:', err);
-    fail('Application failed — please try again');
+    fail('Application failed â€” please try again');
   } finally {
     state.reportSubmitting = false;
     if (btn && document.body.contains(btn)) { btn.disabled = false; btn.textContent = 'Submit Vendor Application'; }
@@ -1260,7 +1260,7 @@ async function submitVendorApplication(formData) {
 // Notifications from Supabase
 // ============================================
 // Supabase is the source of truth for the signed-in user's notifications
-// (RLS: notifications_select_own — own rows only); the localStorage copy is
+// (RLS: notifications_select_own â€” own rows only); the localStorage copy is
 // only an offline fallback. Rows are mapped into the existing panel shape
 // { id, title, body, time, unread } and are shown newest first.
 function mapNotificationRow(n) {
@@ -1297,7 +1297,7 @@ async function loadNotificationsFromSupabase() {
     save();
     return true;
   } catch (err) {
-    console.error('Notifications load failed — using localStorage fallback:', err);
+    console.error('Notifications load failed â€” using localStorage fallback:', err);
     state.notificationsLoading = false;
     state.notificationsError = true;
     save();
@@ -1352,16 +1352,16 @@ function subscribeNotificationsRealtime() {
         )
         .subscribe(status => {
           // If Realtime fails, the pull-based loader (triggered on panel open,
-          // login, and boot) remains the fallback — no user-visible error.
+          // login, and boot) remains the fallback â€” no user-visible error.
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn('Notifications realtime channel unavailable — using pull fallback:', status);
+            console.warn('Notifications realtime channel unavailable â€” using pull fallback:', status);
             if (state.notificationsChannel === channel) state.notificationsChannel = null;
           }
         });
       state.notificationsChannel = channel;
     }).catch(() => { /* pull-based fallback only */ });
   } catch (err) {
-    console.warn('Notifications realtime setup failed — using pull fallback:', err);
+    console.warn('Notifications realtime setup failed â€” using pull fallback:', err);
   }
 }
 
@@ -1415,7 +1415,7 @@ function markAllNotificationsRead() {
 // current loading state, oldest-first ordering comes straight from the query.
 function renderNotificationList() {
   if (state.notificationsLoading && !state.notifications.length) {
-    return '<div class="muted small center" style="padding:14px">Loading notifications…</div>';
+    return '<div class="muted small center" style="padding:14px">Loading notificationsâ€¦</div>';
   }
   if (state.notificationsError && !state.notifications.length) {
     return '<div class="muted small center" style="padding:14px">Could not load notifications right now.</div>';
@@ -1424,7 +1424,7 @@ function renderNotificationList() {
     return '<div class="muted small center" style="padding:14px">No notifications yet.</div>';
   }
   return state.notifications.map(n =>
-    `<div class="notif ${n.unread ? 'notif--unread' : ''}"><span>🔔</span><div>` +
+    `<div class="notif ${n.unread ? 'notif--unread' : ''}"><span>ðŸ””</span><div>` +
     `<div class="notif__title" data-notif-id="${esc(n.id)}"${(n.unread || n.is_read === false) ? `<button class="link-btn" data-notif-read="${esc(n.id)}">Mark as read</button>` : ''}>${esc(n.title)}</div>` +
     `<div class="notif__body">${esc(n.body)}</div>` +
     `<div class="notif__time">${esc(n.time)}</div></div></div>`
@@ -1449,10 +1449,10 @@ function safeImageUrl(url) {
   return '';
 }
 
-// Day index map: 0 = Sunday … 6 = Saturday (matches Date#getDay()).
+// Day index map: 0 = Sunday â€¦ 6 = Saturday (matches Date#getDay()).
 const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
-// Parse a single time token ("08:00", "8am", "9:30pm", "12pm"…) → minutes.
+// Parse a single time token ("08:00", "8am", "9:30pm", "12pm"â€¦) â†’ minutes.
 function parseTimeToken(t) {
   const s = String(t || '').trim().toLowerCase().replace(/\s+/g, '');
   if (!s) return null;
@@ -1467,14 +1467,14 @@ function parseTimeToken(t) {
   return h * 60 + min;
 }
 
-// Parse a day-set fragment ("mon-fri", "sat", "daily", "every day") → day indexes.
+// Parse a day-set fragment ("mon-fri", "sat", "daily", "every day") â†’ day indexes.
 function parseDaySet(part) {
   const p = String(part || '').trim().toLowerCase();
   if (!p || /every|daily|all\s+day|open\s+7/i.test(p)) return [0, 1, 2, 3, 4, 5, 6];
   const days = new Set();
   const groups = p.split(/[&\s]+/).filter(Boolean);
   for (const g of groups) {
-    const m = g.match(/^(sun|mon|tue|wed|thu|fri|sat)(?:\s*[-–]\s*(sun|mon|tue|wed|thu|fri|sat))?$/);
+    const m = g.match(/^(sun|mon|tue|wed|thu|fri|sat)(?:\s*[-â€“]\s*(sun|mon|tue|wed|thu|fri|sat))?$/);
     if (!m) continue;
     const a = DAY_INDEX[m[1]];
     const b = m[2] ? DAY_INDEX[m[2]] : a;
@@ -1486,11 +1486,11 @@ function parseDaySet(part) {
 }
 
 // Parse an opening_hours string into { alwaysOpen, rules } or null.
-// Supported shapes: "08:00–18:00", "Mon–Fri 08:00–18:00, Sat 09:00–14:00",
-// "8am–6pm", "24 hours", "Daily 08:00–18:00". Unparseable input → null so the
+// Supported shapes: "08:00â€“18:00", "Monâ€“Fri 08:00â€“18:00, Sat 09:00â€“14:00",
+// "8amâ€“6pm", "24 hours", "Daily 08:00â€“18:00". Unparseable input â†’ null so the
 // caller falls back to the vendor's existing `open` boolean.
 function parseOpeningHours(text) {
-  const s = String(text || '').trim().toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
+  const s = String(text || '').trim().toLowerCase().replace(/[â€“â€”]/g, '-').replace(/\s+/g, ' ').trim();
   if (!s) return null;
   if (/24\s*(hours|hrs|h)?/.test(s) && /open|always|daily|every/i.test(s)) {
     return { alwaysOpen: true, rules: [] };
@@ -1498,7 +1498,7 @@ function parseOpeningHours(text) {
   const rules = [];
   const segments = s.split(',').map(x => x.trim()).filter(Boolean);
   for (const seg of segments) {
-    const timeMatch = seg.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-–to]+\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+    const timeMatch = seg.match(/(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-â€“to]+\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
     if (!timeMatch) continue;
     const open = parseTimeToken(timeMatch[1]);
     const close = parseTimeToken(timeMatch[2]);
@@ -1506,7 +1506,7 @@ function parseOpeningHours(text) {
     const dayPart = seg.slice(0, timeMatch.index).trim();
     const days = parseDaySet(dayPart);
     if (!days) continue;
-    rules.push({ days, open, close, display: `${timeMatch[1].trim()} – ${timeMatch[2].trim()}` });
+    rules.push({ days, open, close, display: `${timeMatch[1].trim()} â€“ ${timeMatch[2].trim()}` });
   }
   if (!rules.length) return null;
   return { alwaysOpen: false, rules };
@@ -1527,8 +1527,8 @@ function vendorOpenStatus(v) {
       if (!rule) return { open: false, label: 'Closed', hint: `Hours: ${v.opening_hours}` };
       const isOpen = rule.open <= rule.close
         ? mins >= rule.open && mins < rule.close
-        : mins >= rule.open || mins < rule.close; // overnight (e.g. 22:00–02:00)
-      const [openTxt, closeTxt] = rule.display.split(' – ');
+        : mins >= rule.open || mins < rule.close; // overnight (e.g. 22:00â€“02:00)
+      const [openTxt, closeTxt] = rule.display.split(' â€“ ');
       return {
         open: isOpen,
         label: isOpen ? 'Open now' : 'Closed',
@@ -1566,16 +1566,16 @@ function vendorCard(v) {
     </div>
     <div class="vcard__body">
       <h3>${esc(v.name)}</h3>
-      <div class="vcard__meta"><span class="stars">★★★★★</span><b>${esc(v.rating)}</b><span>• ${esc(v.time)}</span></div>
+      <div class="vcard__meta"><span class="stars">â˜…â˜…â˜…â˜…â˜…</span><b>${esc(v.rating)}</b><span>â€¢ ${esc(v.time)}</span></div>
       ${v.description ? `<div class="vcard__desc">${esc(v.description)}</div>` : ''}
-      ${status.hint ? `<div class="vcard__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? '●' : '○'} ${esc(status.hint)}</div>` : ''}
+      ${status.hint ? `<div class="vcard__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? 'â—' : 'â—‹'} ${esc(status.hint)}</div>` : ''}
     </div>
   </a>`;
 }
 
 
 // Restaurant/vendor showcase card for the homepage. Rendered from the SAME
-// vendor data as the rest of the site (Supabase → localStorage fallback), so
+// vendor data as the rest of the site (Supabase â†’ localStorage fallback), so
 // vendor data is never duplicated. The card image prefers the vendor's own
 // `image` field.
 function homeVendorCard(v, i) {
@@ -1584,7 +1584,7 @@ function homeVendorCard(v, i) {
   const rating = Number(v.rating) || 0;
   const stars = Math.max(0, Math.min(5, Math.round(rating)));
   const ratingBlock = v.rating
-    ? `<span class="showcase-card__rating" aria-label="Rated ${rating.toFixed(1)} out of 5"><span class="stars" aria-hidden="true">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</span><b>${esc(v.rating)}</b></span>`
+    ? `<span class="showcase-card__rating" aria-label="Rated ${rating.toFixed(1)} out of 5"><span class="stars" aria-hidden="true">${'â˜…'.repeat(stars)}${'â˜†'.repeat(5 - stars)}</span><b>${esc(v.rating)}</b></span>`
     : '';
   return `<article class="showcase-card">
     <a class="showcase-card__media" href="#/vendor/${esc(v.id)}" aria-label="View menu of ${esc(v.name)}">
@@ -1598,10 +1598,10 @@ function homeVendorCard(v, i) {
         <h3><a href="#/vendor/${esc(v.id)}">${esc(v.name)}</a></h3>
         ${ratingBlock}
       </div>
-      <div class="showcase-card__meta">${esc(v.type)}${v.time ? ` • ${esc(v.time)}` : ''}</div>
+      <div class="showcase-card__meta">${esc(v.type)}${v.time ? ` â€¢ ${esc(v.time)}` : ''}</div>
       ${v.description ? `<p class="showcase-card__desc">${esc(v.description)}</p>` : ''}
       <div class="showcase-card__foot">
-        <span class="showcase-card__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? '● Open now' : '○ Closed'}${status.hint ? ` · ${esc(status.hint)}` : ''}</span>
+        <span class="showcase-card__hours ${status.open ? 'is-open' : 'is-closed'}">${status.open ? 'â— Open now' : 'â—‹ Closed'}${status.hint ? ` Â· ${esc(status.hint)}` : ''}</span>
         <a class="btn btn--soft btn--sm" href="#/vendor/${esc(v.id)}">View Menu</a>
       </div>
     </div>
@@ -1613,7 +1613,7 @@ function empty(icon, title, copy, action = '') { return `<div class="empty"><div
 // site is rendering the cached localStorage copy (offline fallback).
 function catalogBanner() {
   return state.catalogLoadError
-    ? `<div class="catalog-offline">Showing a saved catalog — live items could not be refreshed. Check your connection.</div>`
+    ? `<div class="catalog-offline">Showing a saved catalog â€” live items could not be refreshed. Check your connection.</div>`
     : '';
 }
 
@@ -1710,24 +1710,24 @@ function initVendorCarousel() {
 }
 
 // ============================================================
-// Homepage "Reach Us" — contact/help section shown near the bottom
+// Homepage "Reach Us" â€” contact/help section shown near the bottom
 // of the homepage, before the footer (see index.html).
 //   * WhatsApp channel (updates/coupons/offers/announcements)
 //   * Email card (mailto link)
 //   * Report an Issue (dedicated #/report route, Supabase-backed)
-//   * FAQs (dedicated #/faqs page — full accordion moved off the homepage)
-//   * Work With Dropzyy (vendor interest → #/vendor/apply reusing the
-//     issue_reports backend; rider application → #/rider/apply)
+//   * FAQs (dedicated #/faqs page â€” full accordion moved off the homepage)
+//   * Work With Dropzyy (vendor interest â†’ #/vendor/apply reusing the
+//     issue_reports backend; rider application â†’ #/rider/apply)
 // All text is escaped where user content is interpolated; the contact
 // values come from DROPZYY_SUPPORT_EMAIL / DROPZYY_WHATSAPP_CHANNEL.
 // ============================================================
 const REACH_FAQ_ITEMS = [
   ['How do I place an order?', 'Browse the catalogue, add items to your cart, then check out. Payment is handled securely through Paystack, and you can follow every step from confirmation to delivery.'],
-  ['How long does delivery take?', 'Most campus deliveries arrive in about 15–35 minutes depending on the vendor and how far away you are. Your order page shows the live status as it moves from the vendor to a rider.'],
-  ['Can I track my rider?', 'Yes — open any active order to see the status timeline (Order confirmed → Preparing → Ready → Picked up → On the way → Delivered) updated in real time.'],
-  ['How do vendors get paid and how do riders earn?', 'Vendors receive orders as soon as they are placed, along with the full value of their products on delivered orders. Riders earn ₦1,000 of the ₦1,500 delivery fee for every completed delivery — you can track your estimated earnings and withdrawal requests in the Rider hub.'],
-  ['What if something goes wrong with my order?', 'Use the Report an Issue card — pick a subject, describe what happened, and our team will review it from the Admin Panel. For paid orders, the Refund option on My Orders covers payment-specific problems.'],
-  ['How do I become a rider or vendor?', 'Riders can apply straight from the Rider hub or the Work With Dropzyy section below. Vendors can complete the vendor interest form — the Dropzyy team reviews every application.'],
+  ['How long does delivery take?', 'Most campus deliveries arrive in about 15â€“35 minutes depending on the vendor and how far away you are. Your order page shows the live status as it moves from the vendor to a rider.'],
+  ['Can I track my rider?', 'Yes â€” open any active order to see the status timeline (Order confirmed â†’ Preparing â†’ Ready â†’ Picked up â†’ On the way â†’ Delivered) updated in real time.'],
+  ['How do vendors get paid and how do riders earn?', 'Vendors receive orders as soon as they are placed, along with the full value of their products on delivered orders. Riders earn â‚¦1,000 of the â‚¦1,500 delivery fee for every completed delivery â€” you can track your estimated earnings and withdrawal requests in the Rider hub.'],
+  ['What if something goes wrong with my order?', 'Use the Report an Issue card â€” pick a subject, describe what happened, and our team will review it from the Admin Panel. For paid orders, the Refund option on My Orders covers payment-specific problems.'],
+  ['How do I become a rider or vendor?', 'Riders can apply straight from the Rider hub or the Work With Dropzyy section below. Vendors can complete the vendor interest form â€” the Dropzyy team reviews every application.'],
 ];
 function homeReachUs() {
   const waUrl = String(DROPZYY_WHATSAPP_CHANNEL || '').trim();
@@ -1738,33 +1738,33 @@ function homeReachUs() {
     <div class="dropzyy-reach__head">
       <span class="dropzyy-reach__eyebrow">Reach Us</span>
       <h2 id="reachUsTitle">We're here to help</h2>
-      <p>Questions, feedback, or something that went wrong — pick the fastest channel to get it sorted.</p>
+      <p>Questions, feedback, or something that went wrong â€” pick the fastest channel to get it sorted.</p>
     </div>
 
     <div class="dropzyy-reach__grid">
       <article class="dropzyy-reach__card dropzyy-reach__card--wa">
-        <span class="dropzyy-reach__icon" aria-hidden="true">💬</span>
+        <span class="dropzyy-reach__icon" aria-hidden="true">ðŸ’¬</span>
         <h3>Join Our WhatsApp Channel</h3>
         <p>Get updates, coupons, and offers on WhatsApp. Not for support.</p>
         <a class="btn dropzyy-reach__btn" href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">Join WhatsApp Channel</a>
       </article>
 
       <article class="dropzyy-reach__card">
-        <span class="dropzyy-reach__icon" aria-hidden="true">✉️</span>
+        <span class="dropzyy-reach__icon" aria-hidden="true">âœ‰ï¸</span>
         <h3>Email Us</h3>
         <p>Questions or feedback? Send us an email.</p>
         <a class="btn btn--ghost dropzyy-reach__btn" href="${esc(emailHref)}">Send us an Email</a>
       </article>
 
       <article class="dropzyy-reach__card dropzyy-reach__card--report">
-        <span class="dropzyy-reach__icon" aria-hidden="true">🛠️</span>
+        <span class="dropzyy-reach__icon" aria-hidden="true">ðŸ› ï¸</span>
         <h3>Report an Issue</h3>
         <p>Something went wrong? Let us know.</p>
         <a class="btn btn--accent dropzyy-reach__btn" href="#/report">Report an Issue</a>
       </article>
 
       <article class="dropzyy-reach__card">
-        <span class="dropzyy-reach__icon" aria-hidden="true">❓</span>
+        <span class="dropzyy-reach__icon" aria-hidden="true">â“</span>
         <h3>FAQs</h3>
         <p>Quick answers on ordering, delivery, and riders.</p>
         <a class="btn btn--soft dropzyy-reach__btn" href="#/faqs">View FAQs</a>
@@ -1785,7 +1785,7 @@ function homeReachUs() {
 </section>`;
 }
 
-// Dedicated FAQs page (#/faqs). Public — no auth required. Holds the full
+// Dedicated FAQs page (#/faqs). Public â€” no auth required. Holds the full
 // accordion that used to sit halfway down the homepage "Reach Us" section;
 // the homepage FAQs card now simply navigates here.
 function faqsView() {
@@ -1796,7 +1796,7 @@ function faqsView() {
           <div class="dropzyy-faq__answer">${esc(a)}</div>
         </details>`).join('');
   return `<section class="section container">
-    <a href="#/" class="muted small">← Back to home</a>
+    <a href="#/" class="muted small">â† Back to home</a>
     <div class="page-head mt-1"><div><h1>Frequently asked questions</h1>
       <p class="muted">Quick answers about ordering, delivery, vendors, riders, and Dropzyy. Can't find what you need? <a href="#/report">Report an issue</a> or <a href="${esc(emailHref)}">email us</a>.</p></div></div>
     <div class="dropzyy-faq" style="margin-top:12px">
@@ -1831,7 +1831,7 @@ function home() {
       </div>
     </div>
     <div class="dropzyy-hero__visual hero-visual">
-      <!-- Rider illustration — right column, above the live-tracking card -->
+      <!-- Rider illustration â€” right column, above the live-tracking card -->
       <svg class="dropzyy-hero__art" viewBox="0 0 340 250" aria-hidden="true" focusable="false">
         <ellipse class="art-blob" cx="182" cy="140" rx="156" ry="102"/>
         <path class="art-speed" d="M8 116h40"/>
@@ -1869,7 +1869,7 @@ function home() {
           <div class="dropzyy-hero__waybill-route-marker" id="waybillRouteMarker" aria-hidden="true">
             <div class="dropzyy-hero__waybill-route-marker-inner"></div>
           </div>
-          <div class="dropzyy-hero__waybill-route-truck" id="waybillTruck" aria-hidden="true">🚚</div>
+          <div class="dropzyy-hero__waybill-route-truck" id="waybillTruck" aria-hidden="true">ðŸšš</div>
           <div class="dropzyy-hero__waybill-route-runner" aria-hidden="true"></div>
           <div class="dropzyy-hero__waybill-route-origin" aria-label="Origin">Caf 2</div>
           <div class="dropzyy-hero__waybill-route-dest" aria-label="Destination">Your hostel</div>
@@ -1877,7 +1877,7 @@ function home() {
         <div class="dropzyy-hero__waybill-eta" id="waybillEta">
           <span class="dropzyy-hero__waybill-status-live-dot" aria-hidden="true"></span>
           <span class="dropzyy-hero__waybill-status-text">Arriving in</span>
-          <span class="dropzyy-hero__waybill-eta-value" id="waybillEtaValue">—</span>
+          <span class="dropzyy-hero__waybill-eta-value" id="waybillEtaValue">â€”</span>
         </div>
       </div>
       <div class="dropzyy-hero__waybill-stamp" aria-label="On time">On time</div>
@@ -1894,7 +1894,7 @@ function home() {
         <h2>Popular on Campus</h2>
         <p>Discover places students are ordering from.</p>
       </div>
-      <a class="btn btn--ghost btn--sm" href="#/vendors">See all vendors →</a>
+      <a class="btn btn--ghost btn--sm" href="#/vendors">See all vendors â†’</a>
     </div>
     <div class="vcarousel" id="vendorCarousel" aria-roledescription="carousel" aria-label="Campus vendors">
       <div class="vcarousel__viewport" id="vendorViewport">
@@ -1920,7 +1920,7 @@ ${books.length ? `
       <span class="dropzyy-bookshop__eyebrow">Books &amp; materials</span>
       <h2>Featured Bookshop Materials</h2>
       <p>Get the books and materials you need for campus.</p>
-      <a class="btn" href="#/browse?cat=Bookshop">Browse Bookshop →</a>
+      <a class="btn" href="#/browse?cat=Bookshop">Browse Bookshop â†’</a>
     </div>
     <div class="dropzyy-bookshop__grid">
       ${books.slice(0, 4).map(p => productCard(p)).join('')}
@@ -1933,28 +1933,28 @@ ${books.length ? `
     <div class="dropzyy-features__head">
       <span class="dropzyy-features__eyebrow">More than food delivery</span>
       <h2>Everything you need, one app</h2>
-      <p>Dropzyy brings the campus together — food, drinks, books and deliveries, all in one place.</p>
+      <p>Dropzyy brings the campus together â€” food, drinks, books and deliveries, all in one place.</p>
     </div>
     <div class="dropzyy-features__grid">
       <a class="dropzyy-feature" href="#/browse?cat=Food">
-        <span class="dropzyy-feature__icon" aria-hidden="true">🍔</span>
+        <span class="dropzyy-feature__icon" aria-hidden="true">ðŸ”</span>
         <span class="dropzyy-feature__title">Food & meals</span>
-        <span class="dropzyy-feature__desc">Order from campus vendors — snacks, hostel meals, sandwiches and more.</span>
+        <span class="dropzyy-feature__desc">Order from campus vendors â€” snacks, hostel meals, sandwiches and more.</span>
       </a>
       <a class="dropzyy-feature" href="#/browse?cat=Drinks">
-        <span class="dropzyy-feature__icon" aria-hidden="true">🥤</span>
+        <span class="dropzyy-feature__icon" aria-hidden="true">ðŸ¥¤</span>
         <span class="dropzyy-feature__title">Drinks & snacks</span>
         <span class="dropzyy-feature__desc">Cold drinks, juices and study fuel, ready when you are.</span>
       </a>
       <a class="dropzyy-feature" href="#/browse?cat=Bookshop">
-        <span class="dropzyy-feature__icon" aria-hidden="true">📚</span>
+        <span class="dropzyy-feature__icon" aria-hidden="true">ðŸ“š</span>
         <span class="dropzyy-feature__title">Books & materials</span>
         <span class="dropzyy-feature__desc">Textbooks, stationery and course materials from campus sellers.</span>
       </a>
       <a class="dropzyy-feature" href="#/orders">
-        <span class="dropzyy-feature__icon" aria-hidden="true">📦</span>
+        <span class="dropzyy-feature__icon" aria-hidden="true">ðŸ“¦</span>
         <span class="dropzyy-feature__title">Track your order</span>
-        <span class="dropzyy-feature__desc">See your order status in real time — from confirmed to delivered.</span>
+        <span class="dropzyy-feature__desc">See your order status in real time â€” from confirmed to delivered.</span>
       </a>
     </div>
   </div>
@@ -1970,13 +1970,13 @@ function browse() {
   const cats = ['All','Food','Meals','Snacks','Drinks','Bookshop'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
   const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
-  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
+  return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>ðŸ”</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${list.length} items available</span><span class="badge badge--success">â— Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('ðŸ”','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
 }
 
 function vendors() {
   const list = data().vendors;
   const allOpen = list.length > 0 && list.every(v => vendorOpenStatus(v).open);
-  return `<section class="section container"><div class="page-head"><div><h1>Campus Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">● ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${list.map(vendorCard).join('')}</div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Campus Restaurants</h1><p>Your campus, full of options.</p></div><span class="badge badge--${allOpen?'success':'warn'}">â— ${allOpen?'All open now':'Some vendors are closed'}</span></div><div class="grid grid--3">${list.map(vendorCard).join('')}</div></section>`;
 }
 function vendorView(id) {
   const v = vendor(id);
@@ -1985,7 +1985,7 @@ function vendorView(id) {
   const status = vendorOpenStatus(v);
   const img = safeImageUrl(v.image);
   return `<section class="section container">
-    <a href="#/vendors" class="muted small">← All vendors</a>
+    <a href="#/vendors" class="muted small">â† All vendors</a>
     <div class="card mt-1" style="background:linear-gradient(135deg,${esc(v.cover)},var(--surface));">
       <div class="row">
         <div class="vcard__cover" style="width:74px;height:74px;background:var(--surface);border-radius:16px;flex:none;position:relative;overflow:hidden">
@@ -1994,15 +1994,15 @@ function vendorView(id) {
         </div>
         <div>
           <h1>${esc(v.name)}</h1>
-          <div class="vcard__meta"><span class="stars">★★★★★</span><b>${esc(v.rating)}</b><span>• ${esc(v.type)}</span><span>• ${esc(v.time)}</span></div>
-          <p class="muted small mb-0">${status.open ? 'Open now' : 'Closed'} · Campus delivery available</p>
+          <div class="vcard__meta"><span class="stars">â˜…â˜…â˜…â˜…â˜…</span><b>${esc(v.rating)}</b><span>â€¢ ${esc(v.type)}</span><span>â€¢ ${esc(v.time)}</span></div>
+          <p class="muted small mb-0">${status.open ? 'Open now' : 'Closed'} Â· Campus delivery available</p>
           ${status.hint ? `<p class="muted small mb-0">${esc(status.hint)}</p>` : ''}
         </div>
       </div>
       ${v.description ? `<p class="mt-2 mb-0">${esc(v.description)}</p>` : ''}
     </div>
     <div class="page-head mt-3"><div><h2>Menu</h2><p>Tap a product for details, or add it straight to your order.</p></div></div>
-    <div class="grid grid--4">${items.length ? items.map(productCard).join('') : empty('🍽️','No menu items yet','This vendor has not added any products.')}</div>
+    <div class="grid grid--4">${items.length ? items.map(productCard).join('') : empty('ðŸ½ï¸','No menu items yet','This vendor has not added any products.')}</div>
   </section>`;
 }
 
@@ -2017,7 +2017,7 @@ function productView(id) {
   const img = safeImageUrl(p.image);
   const available = p.active !== false;
   return `<section class="section container">
-    <a href="#/browse" class="muted small">← Back to browse</a>
+    <a href="#/browse" class="muted small">â† Back to browse</a>
     <div class="card product-detail mt-1">
       <div class="product-detail__media">
         <span class="product-detail__fallback">${esc(p.icon)}</span>
@@ -2029,11 +2029,11 @@ function productView(id) {
           <span class="badge ${available ? 'badge--success' : 'badge--warn'}">${available ? 'Available' : 'Currently unavailable'}</span>
         </div>
         <h1 class="mt-1 mb-0">${esc(p.name)}</h1>
-        <a class="muted small" href="#/vendor/${esc(v ? v.id : '')}">${esc(v ? v.name : 'Campus vendor')}${v && status.hint ? ` · ${esc(status.hint)}` : ''}</a>
+        <a class="muted small" href="#/vendor/${esc(v ? v.id : '')}">${esc(v ? v.name : 'Campus vendor')}${v && status.hint ? ` Â· ${esc(status.hint)}` : ''}</a>
         <p class="mt-2">${esc(p.desc) || 'No description provided yet.'}</p>
         <div class="product-detail__price"><span class="price price--lg">${money(p.price)}</span><span class="muted small">${esc(v ? v.time : '')}</span></div>
         ${available
-          ? `<button class="btn btn--lg" data-add="${p.id}">Add to cart · ${money(p.price)}</button>`
+          ? `<button class="btn btn--lg" data-add="${p.id}">Add to cart Â· ${money(p.price)}</button>`
           : `<button class="btn btn--lg" disabled>Currently unavailable</button>`}
       </div>
     </div>
@@ -2043,13 +2043,13 @@ function productView(id) {
 function cart() {
   const items = cartItems();
   const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
-  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${items.map(x=>`<div class="line"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} · ${money(x.price)}</div></div><div class="qty"><button data-qty="${x.id}" data-delta="-1">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1">+</button></div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">✕</button></div>`).join('')}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div><span>Service fee</span><span>₦0</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div><a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p></aside></div>`}</section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('ðŸ›’','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${items.map(x=>`<div class="line"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} Â· ${money(x.price)}</div></div><div class="qty"><button data-qty="${x.id}" data-delta="-1">âˆ’</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1">+</button></div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">âœ•</button></div>`).join('')}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div><span>Service fee</span><span>â‚¦0</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div><a class="btn btn--block mt-2" href="#/checkout">Checkout Â· ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p></aside></div>`}</section>`;
 }
 
 // Get the current Supabase user id (or null if not signed in via Supabase).
 async function getSupabaseUserId() {
   if (typeof supabase === 'undefined' || !supabase) {
-    console.error('Supabase client is missing — check that config.js loaded correctly after the Supabase CDN script.');
+    console.error('Supabase client is missing â€” check that config.js loaded correctly after the Supabase CDN script.');
     return null;
   }
   try {
@@ -2059,7 +2059,7 @@ async function getSupabaseUserId() {
       return null;
     }
     if (!session || !session.user) {
-      console.error('No authenticated Supabase session found — the user must be signed in via Supabase auth to place an order.');
+      console.error('No authenticated Supabase session found â€” the user must be signed in via Supabase auth to place an order.');
       return null;
     }
     return session.user.id;
@@ -2070,15 +2070,15 @@ async function getSupabaseUserId() {
 }
 
 // Save an order to Supabase (ACTION 12: server-side pricing).
-// The client sends ONLY product ids + quantities + the delivery spot —
+// The client sends ONLY product ids + quantities + the delivery spot â€”
 // never prices, totals or fees. The place_order RPC re-prices every line
 // from the authoritative products table, rejects inactive/unknown
-// products, applies the flat ₦1,500 delivery fee, generates the order
+// products, applies the flat â‚¦1,500 delivery fee, generates the order
 // number server-side and inserts the order + items atomically.
 // Returns the authoritative order row, or null on failure.
 async function saveOrderToSupabase(order) {
   if (typeof supabase === 'undefined' || !supabase) {
-    console.error('Supabase client is missing in saveOrderToSupabase — cannot place order.');
+    console.error('Supabase client is missing in saveOrderToSupabase â€” cannot place order.');
     return null;
   }
 
@@ -2103,7 +2103,7 @@ async function saveOrderToSupabase(order) {
       error.details,
       error.hint,
       error.code ? `(code ${error.code})` : ''
-    ].filter(Boolean).join(' — ') || 'unknown Supabase error';
+    ].filter(Boolean).join(' â€” ') || 'unknown Supabase error';
     return null;
   }
   if (!data || !data.order) {
@@ -2112,7 +2112,7 @@ async function saveOrderToSupabase(order) {
     return null;
   }
 
-  // Adopt the SERVER-authoritative values — the local cart math is only
+  // Adopt the SERVER-authoritative values â€” the local cart math is only
   // a preview and is never persisted.
   order.id = data.order.order_number;   // server-generated order number
   order.dbId = data.order.id;           // DB uuid, used by later updates
@@ -2143,7 +2143,7 @@ async function saveOrderToSupabase(order) {
 // vendor_id matches the vendor_id on the caller's profile (role = 'vendor'),
 // so Vendor A can never see Vendor B's data through these queries.
 
-// Reset ALL vendor-session state (in-memory only — never touches Supabase
+// Reset ALL vendor-session state (in-memory only â€” never touches Supabase
 // rows). Called on logout and whenever a NEW authenticated session is
 // established, so a different account can never inherit the previous
 // vendor's cached orders/products, the one-shot vendorLoaded flag, or the
@@ -2170,7 +2170,7 @@ async function loadVendorDataFromSupabase() {
     const vid = state.user.vendor_id;
 
     // 1. Vendor's OWN order_items (RLS order_items_select_vendor restricts
-    //    to this vendor's vendor_id only — never another vendor's lines).
+    //    to this vendor's vendor_id only â€” never another vendor's lines).
     const { data: vendorItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
@@ -2259,7 +2259,7 @@ async function ensureVendorLoaded() {
 // Vendor Dashboard: product management (own products only)
 // ============================================
 // Every operation below is scoped to the signed-in vendor's own vendor_id
-// (profiles.vendor_id) — and RLS (products_select/insert/update_vendor)
+// (profiles.vendor_id) â€” and RLS (products_select/insert/update_vendor)
 // independently enforces the same restriction, so a vendor can never read or
 // modify another vendor's products. "Delete" is a soft delete (active=false)
 // because RLS grants vendors no products DELETE policy; this mirrors the
@@ -2319,13 +2319,13 @@ async function nextVendorProductId() {
 // between INSERT (new product) and UPDATE (own product only).
 async function submitVendorProductForm(form) {
   if (!state.user || !state.user.vendor_id) return; // vendor capability = linked vendor_id (multi-role)
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” product changes could not be saved', 'error'); return; }
   const f = new FormData(form);
   const editId = (f.get('id') || '').toString().trim();
   const name = (f.get('name') || '').trim();
   const priceRaw = (f.get('price') || '').toString().trim();
   const category = (f.get('category') || '').trim();
-  const icon = (f.get('icon') || '').trim() || '🍽️';
+  const icon = (f.get('icon') || '').trim() || 'ðŸ½ï¸';
   const desc = (f.get('desc') || '').trim();
   const image = safeImageUrl(f.get('image')); // empty string when blank/invalid
 
@@ -2349,20 +2349,20 @@ async function submitVendorProductForm(form) {
     } else {
       // INSERT with a client-assigned id. nextVendorProductId() can collide when
       // the highest id belongs to a hidden product (public catalog RLS hides it)
-      // or when two vendors add products concurrently — so a unique primary-key
+      // or when two vendors add products concurrently â€” so a unique primary-key
       // violation (Postgres 23505) is retried exactly ONCE with a freshly fetched
-      // id. Any other error — and any second failure — surfaces as before.
+      // id. Any other error â€” and any second failure â€” surfaces as before.
       // No upsert; an existing product is never overwritten.
       const insertProduct = (newId) => supabase
         .from('products')
         .insert({ id: newId, vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true });
       const isDuplicateKey = (e) => e && (e.code === '23505' || /duplicate key|unique constraint/i.test(e.message || ''));
       let id = await nextVendorProductId();
-      if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
+      if (id == null) { toast('Could not create the product â€” please try again', 'error'); return; }
       let inserted = await insertProduct(id);
       if (inserted.error && isDuplicateKey(inserted.error)) {
         id = await nextVendorProductId(); // fresh max id before the single retry
-        if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
+        if (id == null) { toast('Could not create the product â€” please try again', 'error'); return; }
         inserted = await insertProduct(id);
       }
       if (inserted.error) throw inserted.error;
@@ -2411,7 +2411,7 @@ function resetVendorProductForm() {
 async function toggleVendorProductActive(productId) {
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — availability could not be updated', 'error'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” availability could not be updated', 'error'); return; }
   const newActive = !(p.active !== false);
   try {
     const { error } = await supabase
@@ -2436,7 +2436,7 @@ async function toggleVendorProductActive(productId) {
 async function deleteVendorProduct(productId) {
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” product could not be deleted', 'error'); return; }
   if (!confirm(`Delete "${p.name}"? It will be removed from the customer menu. This cannot be undone from the vendor dashboard.`)) return;
   try {
     const { error } = await supabase
@@ -2462,10 +2462,10 @@ async function deleteVendorProduct(productId) {
 // Vendor Dashboard: views
 // ============================================
 function vendorOrderCard(o, activeTab) {
-  const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
+  const itemsHtml = o.items.map(item => `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">Ã— ${item.qty}</small></span><b>${money(item.price * item.qty)}</b></div>`).join('');
   // Your products subtotal = ONLY this vendor's own lines on this order
-  // (price × qty). `orders.total` is deliberately NOT shown as the vendor's
-  // value: it includes the ₦1,500 delivery fee and, on multi-vendor orders,
+  // (price Ã— qty). `orders.total` is deliberately NOT shown as the vendor's
+  // value: it includes the â‚¦1,500 delivery fee and, on multi-vendor orders,
   // other vendors' items. o.items is the RLS-scoped own-lines list from
   // loadVendorDataFromSupabase().
   const mySubtotal = (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
@@ -2497,7 +2497,7 @@ function vendorOrderCard(o, activeTab) {
       actions = `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Delivered">Mark delivered</button>`;
     } else {
       // 'both': the vendor must still choose rider vs self-delivery before
-      // progressing — the DB only permits vendor 'Delivered' on vendor_self
+      // progressing â€” the DB only permits vendor 'Delivered' on vendor_self
       // deliveries; rider-delivery orders are completed by the rider.
       actions = `
         <div class="row mt-1">
@@ -2516,7 +2516,7 @@ function vendorOrderCard(o, activeTab) {
       <div>
         ${statusBadge} ${deliveryBadge}
         <h3 class="mt-1">Order #${o.id}</h3>
-        <p class="muted small mb-0">${o.items.length} of your item${o.items.length>1?'s':''} · Your products: <b>${money(mySubtotal)}</b> · ${esc(o.spot)}</p>
+        <p class="muted small mb-0">${o.items.length} of your item${o.items.length>1?'s':''} Â· Your products: <b>${money(mySubtotal)}</b> Â· ${esc(o.spot)}</p>
       </div>
       <div class="right">
         <span class="muted small">Your products</span><br>
@@ -2537,13 +2537,13 @@ function vendorDashboard() {
   const pending = orders.filter(o => o.status === 'Order confirmed');
   const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
   const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
-  // Vendor revenue = ONLY this vendor's own order_items (price × qty) on
+  // Vendor revenue = ONLY this vendor's own order_items (price Ã— qty) on
   // Delivered orders. `orders.total` is deliberately NEVER used here: it
-  // includes the flat ₦1,500 delivery fee (which belongs to the
+  // includes the flat â‚¦1,500 delivery fee (which belongs to the
   // deliverer/platform, not the vendor) and, on multi-vendor orders, other
-  // vendors' items. `o.items` contains ONLY this vendor's own lines — they
+  // vendors' items. `o.items` contains ONLY this vendor's own lines â€” they
   // are grouped in loadVendorDataFromSupabase() from the RLS-scoped
-  // order_items query (order_items_select_vendor) — so this sum can never
+  // order_items query (order_items_select_vendor) â€” so this sum can never
   // include the delivery fee or another vendor's products.
   const revenue = orders
     .filter(o => o.status === 'Delivered')
@@ -2552,25 +2552,25 @@ function vendorDashboard() {
 
   const pendingHtml = pending.length
     ? pending.map(o => vendorOrderCard(o)).join('')
-    : empty('📦','No pending orders','New orders will appear here when customers place them.');
+    : empty('ðŸ“¦','No pending orders','New orders will appear here when customers place them.');
   const activeHtml = active.length
     ? active.map(o => vendorOrderCard(o)).join('')
-    : empty('⏳','No active orders','Orders you accept will appear here.');
+    : empty('â³','No active orders','Orders you accept will appear here.');
   const completedHtml = completed.length
     ? completed.map(o => vendorOrderCard(o)).join('')
-    : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
+    : empty('âœ…','No completed orders','Delivered and cancelled orders will appear here.');
 
   const productsHtml = products.length
-    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
-    : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
+    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'Live':'Hidden'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> Â· <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Hide':'Show'}</button> Â· <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="muted center">No products yet â€” add your first item with the form.</td></tr>';
 
   return `<section class="section container">
-    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">â† Back to site</a></div>
     <div class="grid grid--stats">
       <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
       <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
       <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
-      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,500 delivery fee</span></div>
+      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders Â· excludes the â‚¦1,500 delivery fee</span></div>
     </div>
     <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
     <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
@@ -2583,10 +2583,10 @@ function vendorDashboard() {
         <input type="hidden" name="id">
         <div class="form-grid">
           <div class="field"><label>Product name</label><input class="input" name="name" required placeholder="e.g. Jollof Rice"></div>
-          <div class="field"><label>Price (₦)</label><input class="input" name="price" type="number" min="0" step="0.01" required placeholder="1000"></div>
+          <div class="field"><label>Price (â‚¦)</label><input class="input" name="price" type="number" min="0" step="0.01" required placeholder="1000"></div>
           <div class="field"><label>Category</label><input class="input" name="category" required placeholder="Food"></div>
-          <div class="field"><label>Icon</label><input class="input" name="icon" value="🍽️" maxlength="8"></div>
-          <div class="field col-2"><label>Image URL (optional)</label><input class="input" name="image" placeholder="https://… (shown when available, else the icon)"></div>
+          <div class="field"><label>Icon</label><input class="input" name="icon" value="ðŸ½ï¸" maxlength="8"></div>
+          <div class="field col-2"><label>Image URL (optional)</label><input class="input" name="image" placeholder="https://â€¦ (shown when available, else the icon)"></div>
           <div class="field col-2"><label>Description</label><textarea class="textarea" name="desc" placeholder="A short description for customers."></textarea></div>
         </div>
         <button class="btn btn--block" type="submit">Save Product</button>
@@ -2606,19 +2606,19 @@ function checkout() {
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Hostel / Delivery location</label><select class="select" name="location" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label>Room, block or landmark</label><input required class="input" name="spot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>👛 Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label>Hostel / Delivery location</label><select class="select" name="location" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label>Room, block or landmark</label><input required class="input" name="spot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label>Delivery note (optional)</label><textarea class="textarea" name="note" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">ðŸ”’ Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>ðŸ’³ Card / Transfer</span></label><label class="radio-card"><input type="radio" name="payment"> <span>ðŸ‘› Campus wallet</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">Ã— ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 async function orders() {
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your orders…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your ordersâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   await ensureOrdersLoaded();
   if (state.ordersLoadError && !state.orders.length) {
-    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div></div><div class="card"><b>Could not load your orders</b><span class="muted">Showing offline data if available. Please check your connection and try again.</span></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything youâ€™ve ordered on campus.</p></div></div><div class="card"><b>Could not load your orders</b><span class="muted">Showing offline data if available. Please check your connection and try again.</span></div></section>`;
   }
   if (!state.orders.length) {
-    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${empty('📦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>')}</section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything youâ€™ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div>${empty('ðŸ“¦','No orders yet','When you place an order, it will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>')}</section>`;
   }
   // Always render newest-first by created_at (covers in-session drift after a
   // new order is placed or refunds are refreshed).
@@ -2629,24 +2629,24 @@ async function orders() {
     const vnames = orderVendorNames(o);
     const cancellable = ['Order confirmed','Preparing'].includes(o.status);
     const reorderable = ['Delivered','Rated'].includes(o.status);
-    const riderLine = o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : (o.rider_id ? ' · 🛵 Rider assigned' : '');
+    const riderLine = o.rider_name ? ` Â· ðŸ›µ ${esc(o.rider_name)}` : (o.rider_id ? ' Â· ðŸ›µ Rider assigned' : '');
     const items = (o.items || []).map(item =>
-      `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price*item.qty)}</b></div>`
+      `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">Ã— ${item.qty}</small></span><b>${money(item.price*item.qty)}</b></div>`
     ).join('');
     const cancelBtn = cancellable ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel order</button>` : '';
-    const reorderBtn = reorderable ? `<br><button class="link-btn small" data-reorder="${o.id}">🔁 Reorder</button>` : '';
+    const reorderBtn = reorderable ? `<br><button class="link-btn small" data-reorder="${o.id}">ðŸ” Reorder</button>` : '';
     // Refund action/status for this card. Mirrors orderView eligibility exactly:
     // a successful payment + no existing/terminal refund. Request amount is NEVER
-    // sent from the client — the backend is authoritative.
+    // sent from the client â€” the backend is authoritative.
     const existingRefund = getOrderRefund(o.dbId);
     const refundUi = existingRefund
       ? `<br><span class="muted small">Refund: ${esc(refundStatusLabel(existingRefund.status))}</span>`
       : (o.payment_status === 'success'
           ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
           : '');
-    return `<article class="card"><div class="row row--between row--wrap"><div><span class="badge badge--${o.status==='Delivered'?'success':o.status==='Cancelled'?'danger':'info'}">${o.status}</span><h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+    return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} Â· ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} Â· ${o.created}</p><p class="muted small mb-0">ðŸ“ ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> Â· <a class="link-btn small" href="#/track/${o.id}">Track order â†’</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` Â· <a class="link-btn small" href="#/pay/${o.id}">Pay â†’</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
   }).join('');
-  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything youâ€™ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
 async function track(id) {
   await ensureOrdersLoaded();
@@ -2657,21 +2657,25 @@ async function track(id) {
   const current = o.status==='Rated' ? 6 : (stageIndex[o.status] ?? 0);
   const cancelled = o.status === 'Cancelled';
   const vendorNames = orderVendorNames(o);
-  const riderInitial = o.rider_name ? o.rider_name.charAt(0).toUpperCase() : '🚵';
+  const riderInitial = o.rider_name ? o.rider_name.charAt(0).toUpperCase() : 'ðŸšµ';
   const riderTitle = o.rider_name || (o.rider_id ? 'Rider assigned' : 'No rider assigned yet');
   // The assigned rider's phone is shown only during an ACTIVE delivery
-  // (Rider assigned → On the Way). This is already permitted by RLS
+  // (Rider assigned â†’ On the Way). This is already permitted by RLS
   // (riders_select_order_assigned + profiles_select_rider_details) and is
   // intentionally hidden once the order is completed so contact details are
   // not left exposed unnecessarily.
   const riderIsActive = ['Rider assigned', 'Picked up', 'On the Way'].includes(o.status);
   const riderMeta = o.rider_name
-    ? (riderIsActive && o.rider_phone ? `Your delivery rider · 📞 ${esc(o.rider_phone)}` : 'Your delivery rider')
+    ? (riderIsActive && o.rider_phone ? `Your delivery rider Â· ðŸ“ž ${esc(o.rider_phone)}` : 'Your delivery rider')
     : 'A rider will be assigned once your order is ready';
   const canCancel = ['Order confirmed','Preparing'].includes(o.status);
+  // Presentation-only flag: when payment is still pending the stage list
+  // (and stageIndex) keep the internal 'Order confirmed' workflow value,
+  // but the timeline DISPLAYS the first step as "Awaiting payment".
+  const payPending = o.payment_status === 'pending' && o.status === 'Order confirmed';
 
   // Rider rating: only for the customer's own DELIVERED order that had an
-  // assigned rider (rider-delivery only — vendor-self orders have no rider).
+  // assigned rider (rider-delivery only â€” vendor-self orders have no rider).
   // The existing rider_ratings RLS (rider_ratings_insert_own) re-validates
   // ownership/Delivered/assigned-rider server-side, and UNIQUE(order_id,
   // reviewer_id) plus the client-side state.ratingCompleteOrder guard prevent
@@ -2679,7 +2683,7 @@ async function track(id) {
   let ratingUi = '';
   if (o.rider_id && o.status === 'Delivered') {
     if (state.ratingCompleteOrder === o.dbId) {
-      ratingUi = `<div class="card"><div class="row row--between row--wrap"><div><b>Your rating was submitted</b><div class="small muted">Thanks for rating your rider!</div></div><span class="badge badge--success">★ Rated</span></div></div>`;
+      ratingUi = `<div class="card"><div class="row row--between row--wrap"><div><b>Your rating was submitted</b><div class="small muted">Thanks for rating your rider!</div></div><span class="badge badge--success">â˜… Rated</span></div></div>`;
     } else {
       ratingUi = `
       <div class="card">
@@ -2689,29 +2693,29 @@ async function track(id) {
           <input type="hidden" name="orderId" value="${o.dbId}">
           <input type="hidden" name="riderId" value="${o.rider_id}">
           <div class="stars stars--input" id="ratingStars">
-            ${[1,2,3,4,5].map(n=>`<button type="button" data-star-order="${o.dbId}" data-rating="${n}" aria-label="${n} star${n>1?'s':''}">★</button>`).join('')}
+            ${[1,2,3,4,5].map(n=>`<button type="button" data-star-order="${o.dbId}" data-rating="${n}" aria-label="${n} star${n>1?'s':''}">â˜…</button>`).join('')}
           </div>
-          <div class="field"><label>Comment (optional)</label><textarea class="textarea" name="review" maxlength="500" placeholder="Tell others about your delivery experience…"></textarea></div>
+          <div class="field"><label>Comment (optional)</label><textarea class="textarea" name="review" maxlength="500" placeholder="Tell others about your delivery experienceâ€¦"></textarea></div>
           <button class="btn" type="submit">Submit rating</button>
         </form>
       </div>`;
     }
   }
 
-  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card"><span class="badge badge--${cancelled?'danger':'info'}">${o.status}</span><h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${s}</b><small>${i<=current ? (i===current?'In progress now':'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
+  return `<section class="section container"><a href="#/orders" class="muted small">â† My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} Â· Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">ðŸš«</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'âœ“':i===current?'â—':'â—‹'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || 'â€”')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>ðŸ“ž ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">ðŸ” Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
 }
 // ============================================
 // Order details view (ACTION 9)
 // ============================================
 // Full receipt-style view of a single past order: items with quantities, the
 // price actually paid (from order_items), the CURRENT catalog price when it
-// differs, subtotal, the flat ₦1,500 delivery fee, total, status, delivery
+// differs, subtotal, the flat â‚¦1,500 delivery fee, total, status, delivery
 // method, vendor(s) and the placed-at timestamp. Loading / not-found / empty
 // states mirror the orders() view.
 async function orderView(id) {
   if (!state.user) { location.hash = '#/login'; return ''; }
   if (!state.ordersLoadedFromSupabase) {
-    return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your orderâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
@@ -2722,16 +2726,16 @@ async function orderView(id) {
   const subtotal = o.subtotal != null ? o.subtotal : items.reduce((n,it)=>n+(it.price||0)*(it.qty||0),0);
   const fee = o.fee != null ? o.fee : DELIVERY_FEE;
   const total = o.total != null ? o.total : subtotal + fee;
-  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || '—');
+  const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || 'â€”');
   const rows = items.length ? items.map(it => {
     const p = product(it.id);
     const ordered = it.price != null ? it.price : (p ? p.price : null);
     const changed = p && ordered != null && p.price !== ordered;
     return `<tr>
       <td><b>${esc(p ? p.name : (it.name || `Item #${it.id}`))}</b>${p ? `<div class="small muted">${esc(p.category || '')}</div>` : '<div class="small muted">No longer available</div>'}</td>
-      <td>× ${it.qty || 0}</td>
-      <td>${ordered != null ? money(ordered) : '—'}${changed ? `<div class="small muted">Now ${money(p.price)}</div>` : ''}</td>
-      <td><b>${ordered != null ? money(ordered * (it.qty || 0)) : '—'}</b></td>
+      <td>Ã— ${it.qty || 0}</td>
+      <td>${ordered != null ? money(ordered) : 'â€”'}${changed ? `<div class="small muted">Now ${money(p.price)}</div>` : ''}</td>
+      <td><b>${ordered != null ? money(ordered * (it.qty || 0)) : 'â€”'}</b></td>
     </tr>`;
   }).join('') : `<tr><td colspan="4" class="muted center">No items recorded for this order.</td></tr>`;
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
@@ -2746,21 +2750,21 @@ async function orderView(id) {
   } else if (canRequestRefund) {
     refundUi = `<div class="card mt-2"><h3 class="mb-0">Request a refund</h3><p class="muted small">If there's a problem with this order, you can request a full refund. All refunds are reviewed by our team.</p><button class="btn btn--block" data-refund-request="${esc(o.dbId)}">Request refund</button></div>`;
   }
-  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card stack">
-    <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div><span class="badge badge--${badge}">${esc(o.status)}</span></div>
-    <p class="muted small mb-0">🏪 ${esc(vnames)} · ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} · 📍 ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : ''}</p>
+  return `<section class="section container"><a href="#/orders" class="muted small">â† My orders</a><div class="split mt-1"><div class="card stack">
+    <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div>${customerOrderStatusBadge(o)}</div>
+    <p class="muted small mb-0">ðŸª ${esc(vnames)} Â· ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} Â· ðŸ“ ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` Â· ðŸ›µ ${esc(o.rider_name)}` : ''}</p>
     <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
-    <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
+    <p class="muted xs mb-0">Prices shown are what you paid at order time. â€œNowâ€ notes highlight where today's catalog price has changed.</p>
     ${refundUi}
   </div>
   <aside class="card sticky-side stack">
     <h3 class="mb-0">Order actions</h3>
     <a class="btn btn--ghost btn--block" href="#/track/${esc(o.id)}">Track order</a>
-    ${canReorder ? `<button class="btn btn--block" data-reorder="${esc(o.id)}">🔁 Reorder</button><p class="muted xs center mb-0">Rebuilds your cart at today's prices — unavailable items are skipped.</p>` : `<p class="muted xs mb-0">Reordering is available for completed (delivered) orders.</p>`}
+    ${canReorder ? `<button class="btn btn--block" data-reorder="${esc(o.id)}">ðŸ” Reorder</button><p class="muted xs center mb-0">Rebuilds your cart at today's prices â€” unavailable items are skipped.</p>` : `<p class="muted xs mb-0">Reordering is available for completed (delivered) orders.</p>`}
     <div class="divider"></div>
-    <div><span class="muted small">Delivery location</span><div><b>${esc(o.spot || '—')}</b></div></div>
-    <div><span class="muted small">Payment status</span><div><b>${esc(o.payment_status || 'pending')}</b></div></div>
+    <div><span class="muted small">Delivery location</span><div><b>${esc(o.spot || 'â€”')}</b></div></div>
+    <div><span class="muted small">Payment status</span><div>${moneyStatusBadge(o.payment_status || 'pending')}</div></div>
     <div><span class="muted small">Placed</span><div><b>${esc(placedAt)}</b></div></div>
   </aside></div></section>`;
 }
@@ -2769,10 +2773,10 @@ async function orderView(id) {
 // Reorder (ACTION 9)
 // ============================================
 // Rebuilds the cart from a previous Delivered/Rated order using the CURRENT
-// catalog — prices and availability come from live products, never from the
+// catalog â€” prices and availability come from live products, never from the
 // historical order_items rows. Items that no longer resolve in the live
 // catalog (deleted, deactivated by the vendor/admin, or dropped by the
-// active=true customer query) are skipped and clearly reported — they are
+// active=true customer query) are skipped and clearly reported â€” they are
 // never silently added.
 function reorder(orderId) {
   if (!state.user) { toast('Please sign in to reorder', 'info'); location.hash = '#/login'; return; }
@@ -2806,7 +2810,7 @@ function reorder(orderId) {
   location.hash = '#/cart';
 }
 
-function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="••••••••"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
+function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">ðŸ›µ</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label>University email</label><input required class="input" type="email" name="email" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label>Full name</label><input required class="input" name="name" placeholder="Your full name"></div><div class="field"><label>Phone (optional)</label><input class="input" name="phone" placeholder="080..."></div><div class="field"><label>Hostel / Residence (optional)</label><input class="input" name="hostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label>Password</label><input required class="input" type="password" name="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"></div>${!login?'<div class="field"><label>Confirm password</label><input required class="input" type="password" name="confirmPassword" placeholder="Re-enter your password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
 // ============================================
 // Customer Profile
@@ -2821,13 +2825,13 @@ function auth(kind) { const login = kind==='login'; return `<section class="cont
 function profile() {
   if (!state.user) { location.hash = '#/login'; return ''; }
   if (state.profileLoading) {
-    return `<section class="section container"><div class="page-head"><div><h1>My profile</h1><p>Loading your details…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>My profile</h1><p>Loading your detailsâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   const u = state.user;
   const phone = u.phone || '';
   const hostel = u.hostel || '';
   return `<section class="section container">
-    <div class="page-head"><div><h1>My profile</h1><p>Manage your personal details.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    <div class="page-head"><div><h1>My profile</h1><p>Manage your personal details.</p></div><a class="btn btn--ghost btn--sm" href="#/">â† Back to site</a></div>
     ${state.profileError ? `<div class="card mb-2"><b>Could not load your profile:</b> <span class="muted">${esc(state.profileError)}</span></div>` : ''}
     ${state.profileSaved ? `<div class="card mb-2"><b>Profile updated</b> <span class="muted">Your changes were saved.</span></div>` : ''}
     <div class="split">
@@ -2849,7 +2853,7 @@ function profile() {
 // role/vendor_id/id untouched). state.user is refreshed from the returned row.
 async function submitProfileForm(form) {
   if (!state.user) { toast('Please sign in to edit your profile', 'info'); location.hash = '#/login'; return; }
-  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — profile could not be saved', 'error'); return; }
+  if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable â€” profile could not be saved', 'error'); return; }
   const f = new FormData(form);
   const phone = (f.get('phone') || '').trim();
   const hostel = (f.get('hostel') || '').trim();
@@ -2883,22 +2887,22 @@ async function submitProfileForm(form) {
 }
 
 // Rider Hub order-items renderer. Uses the persisted order_items snapshot
-// (o.items — mapped from the Supabase order_items rows fetched in
+// (o.items â€” mapped from the Supabase order_items rows fetched in
 // loadOrdersFromSupabase) so item names/prices stay historically accurate even
 // if a product later changes. Reuses the same .line markup as the customer's
-// My Orders page. No localStorage/catalog reconstruction — Supabase is the
+// My Orders page. No localStorage/catalog reconstruction â€” Supabase is the
 // source of truth and RLS (order_items_select_rider) gates what is returned.
 function riderOrderItemsHtml(o) {
   const items = Array.isArray(o.items) ? o.items : [];
   if (!items.length) return '';
-  const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || '🛒')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">× ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
+  const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || 'ðŸ›’')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">Ã— ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
   return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.total)}</b></div></div>`;
 }
 
 function rider() {
   const riderStatus = state.rider ? state.rider.status : null;
   if (!state.riderLoaded) {
-    return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Loadingâ€¦</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
   }
   const isApprovedRider = riderStatus === 'approved';
   const isOnline = !!(state.rider && state.rider.available === true);
@@ -2909,28 +2913,28 @@ function rider() {
   const earnings = riderPendingEarnings();
   const pendingRequestsTotal = riderPendingRequestsTotal();
   const pendingRequestsCount = (state.withdrawals || []).filter(w => w.status === 'pending').length;
-  const pickupName = o => { const v = o.items[0] ? vendor(o.items[0].vendor) : null; return `${esc(v ? v.name : 'Campus vendor')} → ${esc(o.spot)}`; };
+  const pickupName = o => { const v = o.items[0] ? vendor(o.items[0].vendor) : null; return `${esc(v ? v.name : 'Campus vendor')} â†’ ${esc(o.spot)}`; };
   // Transparent ETA estimate: exact routing data is unavailable, so the figure
   // is derived from the order size + queue position and is always clearly
-  // labelled as an ESTIMATE — never presented as a guaranteed ETA.
-  const pickupEstimate = (o, i) => `≈ ${10 + ((o.items && o.items.length) || 1) * 2 + i * 3} min (est.)`;
+  // labelled as an ESTIMATE â€” never presented as a guaranteed ETA.
+  const pickupEstimate = (o, i) => `â‰ˆ ${10 + ((o.items && o.items.length) || 1) * 2 + i * 3} min (est.)`;
   const statusBadge = !state.rider
-    ? '<span class="badge badge--warn">● Not a rider yet</span>'
+    ? '<span class="badge badge--warn">â— Not a rider yet</span>'
     : riderStatus === 'pending'
-      ? '<span class="badge badge--warn">● Application pending review</span>'
+      ? '<span class="badge badge--warn">â— Application pending review</span>'
       : riderStatus === 'rejected'
-        ? '<span class="badge badge--danger">● Application rejected — you can reapply</span>'
+        ? '<span class="badge badge--danger">â— Application rejected â€” you can reapply</span>'
         : riderStatus === 'suspended'
-          ? '<span class="badge badge--danger">● Account suspended</span>'
+          ? '<span class="badge badge--danger">â— Account suspended</span>'
           : isBusy
-            ? '<span class="badge badge--info">● On a delivery — busy</span>'
+            ? '<span class="badge badge--info">â— On a delivery â€” busy</span>'
             : isOnline
-              ? '<span class="badge badge--success">● Online — available</span>'
-              : '<span class="badge badge--warn">● Offline — unavailable</span>';
+              ? '<span class="badge badge--success">â— Online â€” available</span>'
+              : '<span class="badge badge--warn">â— Offline â€” unavailable</span>';
 
   const actionBtn = isApprovedRider
     ? (isBusy
-        ? '<button class="btn btn--soft" disabled title="Finish your active delivery first">On delivery…</button>'
+        ? '<button class="btn btn--soft" disabled title="Finish your active delivery first">On deliveryâ€¦</button>'
         : `<button class="btn btn--soft" id="riderToggle">${isOnline ? 'Go offline' : 'Go online'}</button>`)
     : riderStatus === 'pending'
       ? '<button class="btn btn--ghost" disabled>Application pending</button>'
@@ -2938,10 +2942,10 @@ function rider() {
   const ratingCard = state.rider ? `
     <div class="card mt-3">
       <div class="card__head"><h3>My rider profile</h3></div>
-      <div class="row"><span class="avatar avatar--lg">🛵</span><div>
+      <div class="row"><span class="avatar avatar--lg">ðŸ›µ</span><div>
         <b>${esc(state.user ? state.user.name : 'Rider')}</b>
-        <div class="small muted">Matric: ${esc(state.rider.matric_number || '—')} · Phone: ${esc(state.rider.phone || '—')}</div>
-        <div class="small"><span class="stars">${'★'.repeat(Math.round(Number(state.rider.rating_avg) || 5))}${'☆'.repeat(5 - Math.round(Number(state.rider.rating_avg) || 5))}</span>
+        <div class="small muted">Matric: ${esc(state.rider.matric_number || 'â€”')} Â· Phone: ${esc(state.rider.phone || 'â€”')}</div>
+        <div class="small"><span class="stars">${'â˜…'.repeat(Math.round(Number(state.rider.rating_avg) || 5))}${'â˜†'.repeat(5 - Math.round(Number(state.rider.rating_avg) || 5))}</span>
         <b>${state.rider.rating_avg ? Number(state.rider.rating_avg).toFixed(1) : '5.0'}</b>
         <span class="muted">(${state.rider.rating_count || 0} ratings)</span></div>
       </div></div>
@@ -2951,68 +2955,68 @@ function rider() {
     ? '<div class="card mt-3"><b>Could not refresh rider status</b><span class="muted">Showing the last known status. Check your connection and try again.</span></div>'
     : '';
 
-  // Available deliveries — only shown to an approved rider who is ONLINE.
+  // Available deliveries â€” only shown to an approved rider who is ONLINE.
   // Eligibility is enforced by RLS (orders_select_unassigned): the server only
   // returns unassigned rider-delivery orders to approved riders.
   const availableHtml = (isApprovedRider && isOnline)
     ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
-        : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
+        ? `<div class="grid grid--2">${pending.map((o, i) => `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} Â· Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}">Accept delivery</button></article>`).join('')}</div>`
+        : `<div class="empty"><div class="empty__icon">ðŸ›µ</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
     : isApprovedRider
-      ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
-      : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
+      ? `<div class="empty"><div class="empty__icon">ðŸŒ™</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
+      : `<div class="empty"><div class="empty__icon">ðŸ›µ</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
-    : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
+    ? `<div class="stack">${active.map(o => { const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}">Mark as picked up</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}">On the way</button>` : `<button class="btn btn--block" data-delivered="${o.id}">Mark delivered</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} Â· ðŸ“ ${esc(o.spot || 'No location')} Â· ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
+    : '<div class="empty"><div class="empty__icon">ðŸ“­</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
-    : `<div class="empty"><div class="empty__icon">📦</div><b>No completed deliveries yet</b><span>Your delivery history and estimated earnings will appear here.</span></div>`;
+    : `<div class="empty"><div class="empty__icon">ðŸ“¦</div><b>No completed deliveries yet</b><span>Your delivery history and estimated earnings will appear here.</span></div>`;
 
-  // Withdrawal foundation — approved riders only. Requests are pending /
+  // Withdrawal foundation â€” approved riders only. Requests are pending /
   // admin-reviewed records; nothing in this UI transfers money.
   let withdrawalHtml = '';
   if (isApprovedRider) {
     const list = state.withdrawals || [];
     const rowsHtml = !state.withdrawalsLoaded
-      ? '<div class="muted center" style="padding:16px">Loading your requests…</div>'
+      ? '<div class="muted center" style="padding:16px">Loading your requestsâ€¦</div>'
       : state.withdrawalsError
-        ? '<div class="muted center" style="padding:16px">Could not load your requests — please try again.</div>'
+        ? '<div class="muted center" style="padding:16px">Could not load your requests â€” please try again.</div>'
         : list.length
-          ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
-          : `<div class="empty"><div class="empty__icon">🏦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
+          ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : 'â€”'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : 'â€”'}</td><td class="muted small">${esc(w.admin_note || 'â€”')}</td></tr>`).join('')}</tbody></table></div>`
+          : `<div class="empty"><div class="empty__icon">ðŸ¦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
     const requestable = Math.max(0, earnings - pendingRequestsTotal);
     withdrawalHtml = `
       <div class="card mt-3">
-        <div class="card__head"><h3>Withdrawals</h3><span class="muted small">Pending admin review — no money moves in-app</span></div>
+        <div class="card__head"><h3>Withdrawals</h3><span class="muted small">Pending admin review â€” no money moves in-app</span></div>
         ${rowsHtml}
         <div class="divider"></div>
         <form id="withdrawalForm" class="row row--wrap row--between" style="gap:8px">
           <div class="muted small">Requestable now (estimated): <b>${money(requestable)}</b></div>
           <div class="row row--wrap" style="gap:8px">
-            <input class="input" name="amount" type="number" min="1" step="any" placeholder="Amount (₦)" style="max-width:180px" required>
-            <button class="btn" type="submit" ${state.withdrawalSubmitting ? 'disabled' : ''}>${state.withdrawalSubmitting ? 'Submitting…' : 'Request withdrawal'}</button>
+            <input class="input" name="amount" type="number" min="1" step="any" placeholder="Amount (â‚¦)" style="max-width:180px" required>
+            <button class="btn" type="submit" ${state.withdrawalSubmitting ? 'disabled' : ''}>${state.withdrawalSubmitting ? 'Submittingâ€¦' : 'Request withdrawal'}</button>
           </div>
         </form>
         <p class="muted xs mb-0 mt-1">Requests are validated against your estimated earnings and stay pending until an admin reviews them.</p>
       </div>`;
   }
 
-  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} · pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} Â· pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown â€” assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">â— Online</span>' : '<span class="badge badge--warn">â— Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
 }
 function riderApply() {
   if (state.rider && ['pending','approved','suspended'].includes(state.rider.status)) {
     return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
-      <span style="font-size:3rem">${state.rider.status === 'approved' ? '🛵' : state.rider.status === 'suspended' ? '⛔' : '⏳'}</span>
+      <span style="font-size:3rem">${state.rider.status === 'approved' ? 'ðŸ›µ' : state.rider.status === 'suspended' ? 'â›”' : 'â³'}</span>
       <h1 class="mt-1">${state.rider.status === 'approved' ? 'You are an approved rider!' : state.rider.status === 'suspended' ? 'Account suspended' : 'Application pending'}</h1>
       <p class="muted">${state.rider.status === 'approved' ? 'You can now accept deliveries from the Rider hub.' : state.rider.status === 'suspended' ? 'Contact admin to resolve your account status.' : 'We are reviewing your application. You will be able to accept deliveries once approved.'}</p>
       <a class="btn mt-2" href="#/rider">Back to Rider hub</a>
     </div></div></section>`;
   }
-  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>🕒</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>💸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>🛡️</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Full name</label><input class="input" name="full_name" required maxlength="120" value="${esc(state.user && state.user.name || '')}" autocomplete="name"></div><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div><div class="field"><label>College</label><input class="input" name="college" required maxlength="120" placeholder="e.g. College of Sciences"></div><div class="field"><label>Department</label><input class="input" name="department" required maxlength="120" placeholder="e.g. Computer Science"></div><div class="field"><label>Email</label><input class="input" name="email" type="email" required maxlength="120" value="${esc(state.user && state.user.email || '')}" autocomplete="email"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
+  return `<section class="container"><div class="auth-wrap" style="max-width:640px"><div class="card"><h1>Earn by delivering</h1><p class="muted">Use your free time to help fellow students and earn per delivery.</p><div class="grid grid--3 mt-2"><div class="stat"><span>ðŸ•’</span><b>Flexible hours</b><small class="muted">Go online when it works for you.</small></div><div class="stat"><span>ðŸ’¸</span><b>Weekly payouts</b><small class="muted">Keep track of every delivery.</small></div><div class="stat"><span>ðŸ›¡ï¸</span><b>Campus-only</b><small class="muted">A verified student community.</small></div></div><form id="riderForm" class="stack mt-3"><div class="form-grid"><div class="field"><label>Full name</label><input class="input" name="full_name" required maxlength="120" value="${esc(state.user && state.user.name || '')}" autocomplete="name"></div><div class="field"><label>Student ID / Matric number</label><input class="input" name="studentId" required maxlength="40" placeholder="e.g. 23/1234" autocomplete="off"></div><div class="field"><label>College</label><input class="input" name="college" required maxlength="120" placeholder="e.g. College of Sciences"></div><div class="field"><label>Department</label><input class="input" name="department" required maxlength="120" placeholder="e.g. Computer Science"></div><div class="field"><label>Email</label><input class="input" name="email" type="email" required maxlength="120" value="${esc(state.user && state.user.email || '')}" autocomplete="email"></div><div class="field"><label>Phone number</label><input class="input" name="phone" required maxlength="20" placeholder="080... " autocomplete="tel"></div></div><button class="btn btn--block" type="submit">Submit rider application</button></form></div></div></section>`;
 }
-function notFound() { return `<section class="section container">${empty('🧭','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
+function notFound() { return `<section class="section container">${empty('ðŸ§­','Page not found','This campus path does not exist.','<a class="btn mt-1" href="#/">Go home</a>')}</section>`; }
 
-// Small inline SVG icon set for the account dropdown — dependency-free
+// Small inline SVG icon set for the account dropdown â€” dependency-free
 // (no icon library) and theme-aware via currentColor, matching the
 // Dropzyy light + green design system.
 const ACCT_ICONS = {
@@ -3029,15 +3033,15 @@ function acctIcon(name, cls = 'ico') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ACCT_ICONS[name] || ''}</svg>`;
 }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${location.hash.startsWith(h) && h!=='#/' || location.hash==='#/'&&h==='#/'?'is-active':''}">${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','âŒ‚','Home'],['#/browse','âŒ•','Browse'],['#/cart','ðŸ›’','Cart'],['#/orders','â—·','Orders'],['#/rider','â‚¦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'?'is-active':''}"><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
   // Show/hide Admin link based on user role (profiles.role === 'admin')
-  // (footer Admin link removed — role-gated entry is via the account dropdown)
+  // (footer Admin link removed â€” role-gated entry is via the account dropdown)
 }
 
 
 async function supabaseEdgeFunctionRequest(functionName, body) {
   // Call a Supabase Edge Function with the user's JWT.
-  // Used for Paystack initialization — secret never leaves the server.
+  // Used for Paystack initialization â€” secret never leaves the server.
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) {
@@ -3062,6 +3066,15 @@ async function supabaseEdgeFunctionRequest(functionName, body) {
   return result;
 }
 
+function customerOrderStatusBadge(o) {
+  // Payment-state aware customer badge: an unpaid (pending) or failed
+  // Paystack payment always outranks the internal workflow status.
+  if (o.payment_status === 'failed') return '<span class="badge badge--danger">Payment Failed</span>';
+  if (o.payment_status === 'pending' && o.status === 'Order confirmed') return '<span class="badge badge--warn">Payment Pending</span>';
+  const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
+  return '<span class="badge badge--'+badge+'">'+esc(o.status)+'</span>';
+}
+
 function moneyStatusBadge(p) {
   const m = { pending:['Awaiting payment','badge--info'], success:['Payment successful','badge--success'], failed:['Payment failed','badge--danger'] };
   const [l,cls] = m[p]||['Pending','badge--info'];
@@ -3076,7 +3089,7 @@ async function pay(orderId) {
   const ps = order.payment_status;
   const tid = order.dbId || order.id;
   if (ps === 'success') {
-    return '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(ps)+'</span><span class="muted small">Ref: '+esc(order.payment_reference||'—')+'</span></div><div class="divider"></div><p><span class="muted small">Paid at</span> '+esc(order.paid_at?formatDate(order.paid_at):'—')+'</p></div></section>';
+    return '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(ps)+'</span><span class="muted small">Ref: '+esc(order.payment_reference||'â€”')+'</span></div><div class="divider"></div><p><span class="muted small">Paid at</span> '+esc(order.paid_at?formatDate(order.paid_at):'â€”')+'</p></div></section>';
   }
   if (ps === 'pending') {
     let html = '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><h3>Complete your payment</h3><p class="muted">Your order total: <b>'+money(order.total)+'</b></p><p class="muted small">Click below to pay securely with Paystack.</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay '+money(order.total)+' with Paystack</button><p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
@@ -3100,14 +3113,14 @@ async function pay(orderId) {
 // ============================================
 // Post-payment flow: Paystack return handling
 // ============================================
-// Paystack redirects back to the site with ?reference=…&trxref=… appended to
-// the callback URL. The redirect alone is NOT proof of payment — the
-// server-side webhook (paystack-webhook → handle_paystack_payment_success) is
+// Paystack redirects back to the site with ?reference=â€¦&trxref=â€¦ appended to
+// the callback URL. The redirect alone is NOT proof of payment â€” the
+// server-side webhook (paystack-webhook â†’ handle_paystack_payment_success) is
 // the only thing that marks payment as successful. The reference is used
 // purely as a routing hint: refresh the customer's orders from Supabase
 // (source of truth) and only announce success once the order row itself is
 // confirmed as paid. If the webhook has not confirmed yet (or the
-// refresh fails), the order is never deleted or hidden — the user lands on
+// refresh fails), the order is never deleted or hidden â€” the user lands on
 // My Orders where it remains visible with its current status.
 async function handlePaystackReturn() {
   let ref = '';
@@ -3124,17 +3137,17 @@ async function handlePaystackReturn() {
     }
   } catch (e) { ref = ''; }
   if (!ref || !state.user) return;
-  toast('Payment received — confirming your order…', 'info');
+  toast('Payment received â€” confirming your orderâ€¦', 'info');
   for (let attempt = 0; attempt < 5; attempt++) {
     // Existing source-of-truth loader (RLS-scoped to the authenticated user)
     await loadOrdersFromSupabase();
     const order = (state.orders || []).find(o => o.payment_reference === ref);
     if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your orders…');
+      toast('Payment successful â€” opening your ordersâ€¦');
       if (location.hash !== '#/orders') location.hash = '#/orders'; else render();
       return;
     }
-    // Webhook may lag a moment behind the redirect — brief retry.
+    // Webhook may lag a moment behind the redirect â€” brief retry.
     await new Promise(r => setTimeout(r, 2000));
   }
   // Not confirmed yet: keep the order visible in My Orders (never hidden).
@@ -3154,7 +3167,7 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
     try { await loadOrdersFromSupabase(); } catch (e) { /* retry next tick; order stays visible */ }
     const order = (state.orders || []).find(x => x.dbId === dbId || x.id === routeOrderId);
     if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your orders…');
+      toast('Payment successful â€” opening your ordersâ€¦');
       location.hash = '#/orders';
       return;
     }
@@ -3166,7 +3179,7 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
 /* ---- Presentation-only: hero waybill route animation ----------------------
    Fills the route line and moves the truck marker along it once on page
    load. Respects prefers-reduced-motion and pauses while the stub is
-   scrolled out of view. Visual only — no app logic. */
+   scrolled out of view. Visual only â€” no app logic. */
 let waybillAnim = null;
 function playWaybill() {
   if (waybillAnim) { waybillAnim.stopped = true; if (waybillAnim.raf) cancelAnimationFrame(waybillAnim.raf); waybillAnim = null; }
@@ -3185,7 +3198,7 @@ function playWaybill() {
   };
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
 
-  const DUR = 3200; // one deliberate moment — runs once, does not loop
+  const DUR = 3200; // one deliberate moment â€” runs once, does not loop
   const anim = { stopped: false, raf: 0 };
   waybillAnim = anim;
   let visible = true;
@@ -3244,7 +3257,7 @@ async function render() {
     // returned belongs to this vendor only.
     if (!state.user || !state.user.vendor_id) {
       view = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
-        <span style="font-size:3rem">🏪</span>
+        <span style="font-size:3rem">ðŸª</span>
         <h1 class="mt-1">Vendor dashboard</h1>
         <p class="muted">Only accounts with a linked vendor can access this page.</p>
         <a class="btn mt-2" href="#/">Back to home</a>
@@ -3252,7 +3265,7 @@ async function render() {
     } else {
       await ensureVendorLoaded();
       if (!state.vendorLoaded) {
-        view = `<section class="section container"><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
+        view = `<section class="section container"><div class="card"><div class="muted center" style="padding:24px">Loadingâ€¦</div></div></section>`;
       } else {
         view = vendorDashboard();
       }
@@ -3280,7 +3293,7 @@ async function render() {
 document.addEventListener('click', e=>{
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
-  // Rider rating: star selection (visual only — submit is the only mutation)
+  // Rider rating: star selection (visual only â€” submit is the only mutation)
   const star=e.target.closest('[data-star-order]'); if(star){ const orderId=star.dataset.starOrder; document.querySelectorAll(`[data-star-order="${orderId}"]`).forEach(b=>{ b.classList.toggle('is-on', Number(b.dataset.rating)<=Number(star.dataset.rating)); }); }
   // Vendor product management (own products only, enforced by RLS + vendor_id filter)
   const vpEdit=e.target.closest('[data-vp-edit]'); if(vpEdit){ editVendorProduct(vpEdit.dataset.vpEdit); }
@@ -3299,7 +3312,7 @@ document.addEventListener('click', e=>{
           if(error){ console.error('Rider claim sync failed:', error); o.status=prevStatus; save(); }
           else {
             // Refresh the Rider Hub from Supabase so the persisted assignment (rider_id =
-            // currentRider.id, status = 'Rider assigned')is the source of truth —
+            // currentRider.id, status = 'Rider assigned')is the source of truth â€”
             // the order moves from Available to Active deliveries without relying
             // on the optimistic local mutation..
             await loadOrdersFromSupabase();
@@ -3331,7 +3344,7 @@ document.addEventListener('click', e=>{
     toast('Order marked as on the way'); render();
   }}
   // Customer cancellation: only while the order is still cancellable
-  // ('Order confirmed' / 'Preparing'). The order is never deleted — its status
+  // ('Order confirmed' / 'Preparing'). The order is never deleted â€” its status
   // becomes 'Cancelled' locally and in Supabase (orders_update_own_cancel RLS).
   const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && ['Order confirmed','Preparing'].includes(o.status)){
     const prevStatus=o.status;
@@ -3345,7 +3358,7 @@ document.addEventListener('click', e=>{
     toast('Order cancelled','info'); render();
   }}
   // Refund request: navigate to the dedicated Refund Request page (shared by
-  // the My Orders and Order Details entry points — no popup modal).
+  // the My Orders and Order Details entry points â€” no popup modal).
   const refundReq=e.target.closest('[data-refund-request]'); if(refundReq){ location.hash = '#/refund/' + encodeURIComponent(refundReq.dataset.refundRequest); }
   const delivered=e.target.closest('[data-delivered]'); if(delivered){const o=state.riderPool.find(x=>x.id===delivered.dataset.delivered); if(o){
     o.status='Delivered'; save();
@@ -3355,7 +3368,7 @@ document.addEventListener('click', e=>{
         .then(({ error })=>{ if(error) console.error('Rider delivery sync failed:', error); })
         .catch(err=>console.error('Rider delivery sync error:', err));
     }
-    toast('Delivery completed — earnings added!'); render();
+    toast('Delivery completed â€” earnings added!'); render();
   }}
   // Vendor order status transitions (accept 'Preparing' / reject 'Cancelled' /
   // mark 'Ready for pickup' / vendor-self 'Delivered'). Every change is
@@ -3414,7 +3427,7 @@ document.addEventListener('click', e=>{
   }
   if(e.target.id==='logoutBtn'){
     // Clear ONLY this account's in-memory/session UI state. Supabase orders are
-    // never deleted/overwritten — they are reloaded fresh for the next sign-in..
+    // never deleted/overwritten â€” they are reloaded fresh for the next sign-in..
     state.user=null; state.rider=null; state.orders=[]; state.riderPool=[]; resetVendorSessionState(); save();
     // Tear down any realtime channel bound to the previous user's session (recreated
     // for the next sign-in by subscribeNotificationsRealtime()).
@@ -3473,11 +3486,11 @@ document.addEventListener('submit', e=>{
               // signup metadata (full_name/phone/hostel) was already persisted by
               // Supabase in auth.users.user_metadata via signUp's options.data,
               // and the profile row is created safely on the next sign-in (login
-              // handler below) once a session — and therefore auth.uid() — exists.
+              // handler below) once a session â€” and therefore auth.uid() â€” exists.
             }
           }
           if(data.session){
-            // Email confirmation is disabled — sign the user in immediately.
+            // Email confirmation is disabled â€” sign the user in immediately.
             state.user={name:full_name||email.split('@')[0],email,role:'user'};
             save();
             resetVendorSessionState();
@@ -3487,7 +3500,7 @@ document.addEventListener('submit', e=>{
             location.hash='#/';
             toast('Welcome to Dropzyy!');
           } else {
-            // Email confirmation is required — the account is created but not
+            // Email confirmation is required â€” the account is created but not
             // yet active, so ask the user to confirm before signing in.
             toast('Account created! Check your email to confirm your account.','info');
             location.hash='#/login';
@@ -3540,7 +3553,7 @@ document.addEventListener('submit', e=>{
           // THIS user (never reuse a prior vendor's vendorLoaded === true).
           resetVendorSessionState();
           // Reload the rider record for THIS session, then the Rider Hub order pool
-          // (assigned orders included) from Supabase — never reuse a prior user's
+          // (assigned orders included) from Supabase â€” never reuse a prior user's
           // stale cached pool..
           await loadRiderFromSupabase();
           await loadOrdersFromSupabase();
@@ -3556,7 +3569,7 @@ document.addEventListener('submit', e=>{
   }
   if(e.target.id==='checkoutForm'){
     e.preventDefault();
-    if(state.checkoutSubmitting){ toast('Order is being placed — please wait…', 'info'); return; }
+    if(state.checkoutSubmitting){ toast('Order is being placed â€” please waitâ€¦', 'info'); return; }
     // Require the user to be logged in before placing an order
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
     const f=new FormData(e.target);
@@ -3591,15 +3604,15 @@ document.addEventListener('submit', e=>{
           // Only clear the cart after the Supabase order and all order_items are successfully saved
           state.orders.unshift(order);
           state.cart=[];
-          addNotification('Order confirmed',`Your order #${order.id} is being matched with a rider.`);
+          addNotification('Payment Pending',`Your order #${order.id} is saved. Complete your payment to confirm it.`);
           save();
           // Redirect to the payment page for this order
           location.hash=`#/pay/${order.id}`;
-          toast('Order placed — redirecting to payment...');
+          toast('Order placed â€” redirecting to payment...');
           return;
         }
         
-        toast('Order failed: Could not save to Supabase' + (state.lastOrderError ? ` — ${state.lastOrderError}` : ''), 'error');
+        toast('Order failed: Could not save to Supabase' + (state.lastOrderError ? ` â€” ${state.lastOrderError}` : ''), 'error');
       } finally {
         state.checkoutSubmitting = false;
       }
@@ -3615,7 +3628,7 @@ document.addEventListener('submit', e=>{
   }
 });
 
-$('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'☀️':'🌙'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
+$('#themeBtn').addEventListener('click',()=>{const d=document.documentElement; d.dataset.theme=d.dataset.theme==='dark'?'light':'dark'; $('#themeBtn').textContent=d.dataset.theme==='dark'?'â˜€ï¸':'ðŸŒ™'; localStorage.setItem('campusrun_theme',d.dataset.theme);});
 $('#notifBtn').addEventListener('click',()=>{ $('#notifPanel').hidden=!$('#notifPanel').hidden; loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>$('#userPanel').hidden=!$('#userPanel').hidden); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
 document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))$('#notifPanel').hidden=true; if(!e.target.closest('#userWrap'))$('#userPanel').hidden=true;});
 // Escape closes open dropdown panels (account + notifications)
@@ -3637,7 +3650,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Refund Request page: form submit handling (delegated — the page is
+// Refund Request page: form submit handling (delegated â€” the page is
 // re-rendered on every route change, so listeners live at document level).
 document.addEventListener('submit', async (e) => {
   const form = e.target;
@@ -3656,7 +3669,7 @@ document.addEventListener('submit', async (e) => {
   // Double-click / double-submission guard.
   if (state.refundSubmitting) return;
   state.refundSubmitting = true;
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submittingâ€¦'; }
   let result = false;
   try {
     result = await requestRefund(dbId, reason);
@@ -3687,8 +3700,8 @@ document.addEventListener('input', (e) => {
   }
 });
 
-document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'☀️':'🌙'; $('#year').textContent=new Date().getFullYear();
-// Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL
+document.documentElement.dataset.theme=localStorage.getItem('campusrun_theme')||'light'; $('#themeBtn').textContent=document.documentElement.dataset.theme==='dark'?'â˜€ï¸':'ðŸŒ™'; $('#year').textContent=new Date().getFullYear();
+// Footer support email â€” kept in sync with the single DROPZYY_SUPPORT_EMAIL
 // constant so the address is pasted/changed in one place only.
 const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DROPZYY_SUPPORT_EMAIL||'').trim(); if(em){ footerEmailLink.textContent=em; footerEmailLink.href='mailto:'+em; } }
 window.addEventListener('hashchange',render); if(!location.hash) location.hash='#/'; else render();
@@ -3726,7 +3739,7 @@ supabase.auth.getSession().then(({ data: { session } }) => {
       .then(async ({ data: profile }) => {
         const userRole = (profile && profile.role) || 'user';
         if(!profile){
-          // No profiles row exists for this authenticated session — create a
+          // No profiles row exists for this authenticated session â€” create a
           // default customer profile from the signup metadata stored in
           // user_metadata. A session exists (getSession) so auth.uid() is set
           // and the profiles_insert_own RLS policy permits the INSERT. role is
