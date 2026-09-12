@@ -43,3 +43,27 @@
   from = "/*"
   to = "/assets/html/index.html"
   status = 200
+
+# ============================================================
+# Content Security Policy delivered as an HTTP response header.
+#
+# WHY A HEADER (not a <meta> tag): the `frame-ancestors` directive
+# is silently ignored when delivered via <meta http-equiv> (per the
+# CSP spec), so only an HTTP header actually enforces framing /
+# clickjacking protection.
+#
+# This is the SINGLE authoritative CSP (the <meta> tags in
+# assets/html/index.html and admin.html were removed to avoid a
+# duplicate/secondary policy). It is the exact policy that lived in
+# those <meta> tags, with ONE narrow, intentional addition:
+# `img-src` now also permits images hosted on Dropzyy's OWN Supabase
+# Storage origin (already trusted in connect-src) so legitimate
+# product/vendor photos render.
+#   * No new 'unsafe-inline' is added anywhere.
+#   * https://www.google.com is NOT added to img-src — the broken
+#     Google imgres images remain blocked by the browser.
+# ============================================================
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cmfohldnmytmwjynqfpz.supabase.co; connect-src 'self' https://cmfohldnmytmwjynqfpz.supabase.co wss://cmfohldnmytmwjynqfpz.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"

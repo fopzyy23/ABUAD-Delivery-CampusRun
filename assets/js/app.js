@@ -1637,7 +1637,7 @@ function productCard(p) {
     <a class="pcard__link" href="#/product/${p.id}">
       <div class="pcard__thumb">
         <span class="pcard__thumb-fallback">${esc(p.icon)}</span>
-        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" onerror="this.remove()">` : ''}
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy">` : ''}
       </div>
       <div class="pcard__name">${esc(p.name)}</div>
     </a>
@@ -1655,7 +1655,7 @@ function vendorCard(v) {
   return `<a class="vcard" href="#/vendor/${esc(v.id)}">
     <div class="vcard__cover" style="background:${esc(v.cover)}">
       <span class="vcard__cover-fallback">${esc(v.icon)}</span>
-      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy" onerror="this.remove()">` : ''}
+      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy">` : ''}
       <span class="badge badge--brand">${esc(v.type)}</span>
       ${status.open ? '' : '<span class="vcard__closed">Closed</span>'}
     </div>
@@ -1684,7 +1684,7 @@ function homeVendorCard(v, i) {
   return `<article class="showcase-card">
     <a class="showcase-card__media" href="#/vendor/${esc(v.id)}" aria-label="View menu of ${esc(v.name)}">
       <span class="showcase-card__fallback">${esc(v.icon)}</span>
-      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)} restaurant" loading="lazy" onerror="this.remove()">` : ''}
+      ${img ? `<img src="${esc(img)}" alt="${esc(v.name)} restaurant" loading="lazy">` : ''}
       <span class="badge badge--brand">${esc(v.type)}</span>
       ${status.open ? '' : '<span class="showcase-card__closed">Closed</span>'}
     </a>
@@ -2086,7 +2086,7 @@ function vendorView(id) {
       <div class="row">
         <div class="vcard__cover" style="width:74px;height:74px;background:var(--surface);border-radius:16px;flex:none;position:relative;overflow:hidden">
           <span class="vcard__cover-fallback">${esc(v.icon)}</span>
-          ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;position:relative;z-index:1">` : ''}
+          ${img ? `<img src="${esc(img)}" alt="${esc(v.name)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;position:relative;z-index:1">` : ''}
         </div>
         <div>
           <h1>${esc(v.name)}</h1>
@@ -2117,7 +2117,7 @@ function productView(id) {
     <div class="card product-detail mt-1">
       <div class="product-detail__media">
         <span class="product-detail__fallback">${esc(p.icon)}</span>
-        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" onerror="this.remove()">` : ''}
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy">` : ''}
       </div>
       <div class="product-detail__body">
         <div class="row row--between row--wrap">
@@ -4242,9 +4242,19 @@ document.addEventListener('input', (e) => {
     const counter = $('#reportDescCount');
     const errorEl = $('#reportDescError');
     if (counter) counter.textContent = `${e.target.value.length} / ${REPORT_DESC_MAX}`;
-    if (errorEl && e.target.value.length >= REPORT_DESC_MIN) errorEl.textContent = '';
+        if (errorEl && e.target.value.length >= REPORT_DESC_MIN) errorEl.textContent = '';
   }
 });
+
+// Broken-image guard. When a product/vendor photo fails to load (stale or
+// unreachable URL), remove the <img> so the card's emoji/icon fallback shows
+// through. <img> error events do not bubble, but they DO fire in the capture
+// phase, so this listener is attached at the document level — matching the
+// app's existing delegated-listener pattern for pages re-rendered into $app
+// on every route change (see the refund/submit listeners above).
+document.addEventListener('error', (e) => {
+  if (e.target && e.target.nodeName === 'IMG') e.target.remove();
+}, true);
 
 applyTheme(localStorage.getItem('campusrun_theme')||'light'); $('#year').textContent=new Date().getFullYear();
 // Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL

@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dropzyy · Redirecting</title>
-  <script>
-    // Redirect to the actual app entry point under assets/html.
-    // This file exists so Netlify's root serves the app correctly.
-    location.replace('assets/html/index.html');
-  </script>
+    <title>Dropzyy · Redirecting</title>
+  <!-- A 0s meta-refresh redirect is CSP-safe (it is not gated by script-src),
+       so the root redirect still works now that the site-wide Content-Security-Policy
+       is delivered as a Netlify HTTP response header (which blocks inline scripts
+       such as the <script> element that previously lived here). -->
+  <meta http-equiv="refresh" content="0;url=assets/html/index.html" />
 </head>
 <body>
   <p>Redirecting to Dropzyy… <a href="assets/html/index.html">Click here if you are not redirected.</a></p>
