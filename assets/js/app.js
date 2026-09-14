@@ -3606,15 +3606,10 @@ async function pay(orderId) {
       return '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>'+moneyStatusBadge(deliveryPaymentStatus)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(deliveryPaymentStatus)+'</span><span class="muted small">Delivery fee: ₦1,500 paid</span></div><div class="divider"></div><p><span class="muted small">Rider: ₦1,000 · Dropzyy: ₦500</span></p></div></section>';
     }
     if (deliveryPaymentStatus === 'pending') {
-      let html = '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>Your vendor has requested a Dropzyy Rider.</p></div></div><div class="card"><h3>Complete delivery payment</h3><p class="muted">Delivery fee: <b>₦1,500</b></p><p class="muted small">Breakdown: Rider ₦1,000 · Dropzyy ₦500</p><p class="muted small">This is separate from the product payment (arranged directly with vendor).</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay ₦1,500 Delivery Fee</button>'+PAY_ERROR_BANNER_HTML+'<p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
-      setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting to Paystack...','vendor_delivery')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); },50);
-      schedulePayConfirmationPoll(orderId, tid);
-      return html;
+      return '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>Your vendor has requested a Dropzyy Rider.</p></div></div><div class="card"><h3>Awaiting vendor delivery payment</h3><p class="muted">The vendor is responsible for the ₦1,500 Dropzyy delivery fee.</p><p class="muted small">Breakdown: Rider ₦1,000 · Dropzyy ₦500</p><p class="muted small">Rider delivery will become available after the vendor payment succeeds.</p></div></section>';
     }
     if (deliveryPaymentStatus === 'failed') {
-      let html = '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>'+moneyStatusBadge(deliveryPaymentStatus)+'</p></div></div><div class="card"><h3>Delivery payment failed</h3><p class="muted">Your payment attempt was not completed. You can retry below.</p><button class="btn btn--block btn--lg mt-2" id="paystackRetry">Retry payment</button>'+PAY_ERROR_BANNER_HTML+'</div></section>';
-      setTimeout(()=>{ const b=document.getElementById('paystackRetry'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); },50);
-      return html;
+      return '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>'+moneyStatusBadge(deliveryPaymentStatus)+'</p></div></div><div class="card"><h3>Vendor delivery payment failed</h3><p class="muted">The vendor must retry the ₦1,500 Dropzyy delivery payment.</p><p class="muted small">Rider delivery will remain unavailable until that payment succeeds.</p></div></section>';
     }
   }
 
@@ -4158,7 +4153,7 @@ document.addEventListener('click', async e=>{
     if (!(await DropzyyModal.confirm({
       title: method === 'rider' ? 'Request Dropzyy Rider?' : 'Self Deliver?',
       message: method === 'rider'
-        ? '₦1,500 delivery fee applies (Rider: ₦1,000, Dropzyy: ₦500). Pickup from your saved location. The customer will pay the delivery fee separately.'
+        ? '₦1,500 delivery fee applies (Rider: ₦1,000, Dropzyy: ₦500). Pickup from your saved location. You will pay this delivery fee.'
         : 'You will deliver this order yourself. No delivery fee applies.',
       confirmText: method === 'rider' ? 'Request Rider' : 'Self Deliver',
       danger: false
@@ -4175,6 +4170,16 @@ document.addEventListener('click', async e=>{
       order.fee = data.fee;
       order.rider_delivery_share = data.rider_delivery_share;
       order.company_delivery_share = data.company_delivery_share;
+      if (method === 'rider') {
+        const payment = await supabaseEdgeFunctionRequest('paystack-initialize-delivery', {
+          order_id: order.dbId
+        });
+        if (!payment || !payment.authorization_url) throw new Error('Vendor delivery payment could not be initialized');
+        order.delivery_payment_status = 'pending';
+        save();
+        window.location.href = payment.authorization_url;
+        return;
+      }
       save();
       toast(data.delivery_method === 'rider' ? 'Rider requested — awaiting rider' : 'Self delivery confirmed');
       render();

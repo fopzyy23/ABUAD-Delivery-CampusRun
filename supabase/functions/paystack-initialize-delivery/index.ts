@@ -12,7 +12,7 @@
 //
 // Deploy:  supabase functions deploy paystack-initialize-delivery
 // Invoke:  POST {SUPABASE_URL}/functions/v1/paystack-initialize-delivery
-// Body:    { "order_id": "<uuid>", "email": "user@example.com" }
+// Body:    { "order_id": "<uuid>" }
 // Header:  Authorization: Bearer <user-jwt>
 // ============================================================
 
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // ---- Parse + validate request body ----
-    let body: { order_id?: unknown; email?: unknown };
+    let body: { order_id?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -104,11 +104,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const orderId = typeof body.order_id === "string" ? body.order_id.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim() : "";
 
-    if (!orderId || !email) {
+    if (!orderId) {
       return new Response(
-        JSON.stringify({ error: "order_id and email are required" }),
+        JSON.stringify({ error: "order_id is required" }),
         {
           status: 400,
           headers: { ...corsHeaders(req), "Content-Type": "application/json" },
@@ -119,21 +118,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Fetch the order SERVER-SIDE ----
     const { data: order, error: orderErr } = await supabase
       .from("orders")
-      .select("id, order_number, user_id, request_type, delivery_method, vendor_delivery_requested, delivery_payment_status, spot")
+      .select("id, order_number, request_type, delivery_method, vendor_delivery_requested, delivery_payment_status, status")
       .eq("id", orderId)
       .single();
 
     if (orderErr || !order) {
       return new Response(JSON.stringify({ error: "Order not found" }), {
         status: 404,
-        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
-
-    // ---- Verify ownership ----
-    if (order.user_id !== user.id) {
-      return new Response(JSON.stringify({ error: "Order does not belong to you" }), {
-        status: 403,
         headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
@@ -179,36 +170,43 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // ---- Check for existing pending delivery payment (idempotency) ----
+    // Create/reuse the authoritative pending payment while forwarding the
+    // caller JWT, so auth.uid() in the SECURITY DEFINER RPC is the vendor.
+    const userScoped = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
+    const { data: payment, error: paymentErr } = await userScoped.rpc(
+      "create_vendor_delivery_payment",
+      { p_order_id: order.id },
+    );
+    if (paymentErr || !payment) {
+      return new Response(JSON.stringify({ error: paymentErr?.message || "Failed to create payment record" }), {
+        status: 400,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    const vendorEmail = typeof payment.email === "string" ? payment.email.trim() : user.email;
+    if (!vendorEmail) {
+      return new Response(JSON.stringify({ error: "Vendor profile email is required for payment" }), {
+        status: 400,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
     const { data: existingPayment } = await supabase
       .from("payments")
       .select("reference, authorization_url, access_code, status")
-      .eq("order_id", orderId)
-      .eq("payment_type", "vendor_delivery")
-      .eq("status", "pending")
-      .not("authorization_url", "is", null)
-      .maybeSingle();
-
-    if (existingPayment && existingPayment.authorization_url) {
-      return new Response(
-        JSON.stringify({
-          authorization_url: existingPayment.authorization_url,
-          access_code: existingPayment.access_code,
-          reference: existingPayment.reference,
-          reused: true,
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-        },
-      );
+      .eq("id", payment.payment_id)
+      .single();
+    if (existingPayment?.authorization_url) {
+      return new Response(JSON.stringify({ ...existingPayment, reused: true }), {
+        status: 200,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
     }
 
-    // ---- Generate unique Paystack reference ----
-    const reference = `dropzyy_delivery_${order.order_number}_${Date.now()}`;
-
-    // ---- Call Paystack transaction/initialize ----
-    // Fixed ₦1,500 delivery fee = 150000 kobo
+    const reference = payment.reference;
     const amountKobo = 150000;
 
     const paystackRes = await fetch(
@@ -220,13 +218,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
+          email: vendorEmail,
           amount: amountKobo,
           reference,
           metadata: {
             order_id: order.id,
             order_number: order.order_number,
-            user_id: user.id,
+            vendor_user_id: user.id,
             payment_type: "vendor_delivery",
           },
         }),
@@ -258,63 +256,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // ---- Create the pending delivery payment record via RPC ----
-    const { error: paymentErr } = await supabase.rpc(
-      "create_vendor_delivery_payment",
-      {
-        p_order_id: order.id,
-        p_email: email,
-      },
-    );
-
-    // ---- Race resolution (UNIQUE index on order_id + payment_type where pending) ----
-    if (paymentErr && paymentErr.code === "23505") {
-      const { data: raceWinner } = await supabase
-        .from("payments")
-        .select("reference, authorization_url, access_code, status")
-        .eq("order_id", order.id)
-        .eq("payment_type", "vendor_delivery")
-        .eq("status", "pending")
-        .not("authorization_url", "is", null)
-        .maybeSingle();
-
-      if (raceWinner && raceWinner.authorization_url) {
-        return new Response(
-          JSON.stringify({
-            authorization_url: raceWinner.authorization_url,
-            access_code: raceWinner.access_code,
-            reference: raceWinner.reference,
-            reused: true,
-          }),
-          {
-            status: 200,
-            headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-          },
-        );
-      }
-      console.error(
-        "paystack-initialize-delivery: pending-payment race lost with no reusable row:",
-        paymentErr,
-      );
-    }
-
-    if (paymentErr) {
-      console.error(
-        "paystack-initialize-delivery: create_vendor_delivery_payment failed:",
-        paymentErr,
-      );
-      return new Response(
-        JSON.stringify({
-          error: "Failed to create payment record",
-          details: paymentErr.message,
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-        },
-      );
-    }
-
     // Store authorization_url + access_code for safe retry/reuse
     await supabase
       .from("payments")
@@ -322,7 +263,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         authorization_url: paystackBody.data.authorization_url,
         access_code: paystackBody.data.access_code,
       })
-      .eq("reference", reference);
+      .eq("id", payment.payment_id);
 
     // ---- Return safe checkout fields ----
     return new Response(
