@@ -2484,6 +2484,7 @@ async function approveVendorApplication(appId) {
         cover: '#d9f5e9',
         open: true,
         delivery_method: 'rider',
+        is_restaurant: false,
         description: (app.what_they_want_to_sell || '').slice(0, 200)
       }, { onConflict: 'id' });
     if (vErr) throw vErr;

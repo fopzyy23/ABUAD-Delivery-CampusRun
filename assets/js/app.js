@@ -172,6 +172,7 @@ async function loadCatalogFromSupabase() {
     const vendors = vendorsRes.data.map(v => ({
       id: v.id, name: v.name, icon: v.icon, type: v.type, rating: v.rating,
       time: v.time, cover: v.cover, open: v.open,
+      is_restaurant: v.is_restaurant === true,
       image: v.image || '', description: v.description || '',
       opening_hours: v.opening_hours || ''
     }));
@@ -293,6 +294,10 @@ function toast(message, kind = 'success') {
 function addCart(id) { const p = product(id); if (!p || p.active === false) { toast('That item is currently unavailable — please choose another.', 'error'); return; } const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
+function isVendorProduct(item) {
+  const v = vendor(item.vendor);
+  return Boolean(v && v.is_restaurant === false);
+}
 
 // ============================================
 // Order number generation (ACTION 9)
@@ -1883,15 +1888,17 @@ function initVendorCarousel() {
 // values come from DROPZYY_SUPPORT_EMAIL / DROPZYY_WHATSAPP_CHANNEL.
 // ============================================================
 const REACH_FAQ_ITEMS = [
-  ['How do I place an order?', 'Browse the catalogue, add items to your cart, then check out. Payment is handled securely through Paystack, and you can follow every step from confirmation to delivery.'],
+  ['How do I place an order?', 'Restaurant and Bookshop items use normal Dropzyy checkout and secure Paystack payment. Vendor products are requests only: the vendor contacts you directly to arrange product payment.'],
+  ['How do vendor requests work?', 'Vendor products are request-only: no product payment is made through Dropzyy. The vendor contacts you directly to arrange product payment. The vendor can self-deliver with no Dropzyy delivery fee, or request a Dropzyy rider and pay the ₦1,500 delivery fee themselves.'],
   ['How long does delivery take?', 'Most campus deliveries arrive in about 15–35 minutes depending on the vendor and how far away you are. Your order page shows the live status as it moves from the vendor to a rider.'],
   ['Can I track my rider?', 'Yes — open any active order to see the status timeline (Order confirmed → Preparing → Ready → Picked up → On the way → Delivered) updated in real time.'],
-  ['How do vendors get paid and how do riders earn?', 'Vendors receive orders as soon as they are placed, along with the full value of their products on delivered orders. Riders earn ₦1,000 of the ₦1,500 delivery fee for every completed delivery — you can track your estimated earnings and withdrawal requests in the Rider hub.'],
+  ['How do vendors get paid and how do riders earn?', 'Restaurant and Bookshop orders are paid through Dropzyy. Vendor-request product payments are arranged directly between the customer and vendor. If a vendor requests a Dropzyy rider, the vendor pays ₦1,500 and the rider earns ₦1,000 for the completed delivery.'],
   ['What if something goes wrong with my order?', 'Use the Report an Issue card — pick a subject, describe what happened, and our team will review it from the Admin Panel. For paid orders, the Refund option on My Orders covers payment-specific problems.'],
   ['How do I become a rider or vendor?', 'Riders can apply straight from the Rider hub or the Work With Dropzyy section below. Vendors can complete the vendor interest form — the Dropzyy team reviews every application.'],
 ];
 function homeReachUs() {
   const waUrl = String(DROPZYY_WHATSAPP_CHANNEL || '').trim();
+  const hasWhatsAppChannel = /^https:\/\/whatsapp\.com\/channel\/(?!PASTE_)/i.test(waUrl);
   const emailHref = `mailto:${encodeURIComponent(String(DROPZYY_SUPPORT_EMAIL || '').trim()).replace(/%40/i, '@')}`;
   return `
 <section class="dropzyy-reach" aria-labelledby="reachUsTitle">
@@ -1903,12 +1910,12 @@ function homeReachUs() {
     </div>
 
     <div class="dropzyy-reach__grid">
-      <article class="dropzyy-reach__card dropzyy-reach__card--wa">
+      ${hasWhatsAppChannel ? `<article class="dropzyy-reach__card dropzyy-reach__card--wa">
         <span class="dropzyy-reach__icon" aria-hidden="true">💬</span>
         <h3>Join Our WhatsApp Channel</h3>
         <p>Get updates, coupons, and offers on WhatsApp. Not for support.</p>
         <a class="btn dropzyy-reach__btn" href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">Join WhatsApp Channel</a>
-      </article>
+      </article>` : ''}
 
       <article class="dropzyy-reach__card">
         <span class="dropzyy-reach__icon" aria-hidden="true">✉️</span>
@@ -2146,6 +2153,7 @@ function vendorView(id) {
   const items = data().products.filter(p => p.vendor === id);
   const status = vendorOpenStatus(v);
   const img = safeImageUrl(v.image);
+  const vendorRequestStore = v.is_restaurant === false;
   return `<section class="section container">
     <a href="#/vendors" class="muted small">← All vendors</a>
     <div class="card mt-1" style="background:linear-gradient(135deg,${esc(v.cover)},var(--surface));">
@@ -2163,8 +2171,8 @@ function vendorView(id) {
       </div>
       ${v.description ? `<p class="mt-2 mb-0">${esc(v.description)}</p>` : ''}
     </div>
-    <div class="page-head mt-3"><div><h2>Menu</h2><p>Tap a product for details, or add it straight to your order.</p></div></div>
-    <div class="grid grid--4">${items.length ? items.map(productCard).join('') : empty('🍽️','No menu items yet','This vendor has not added any products.')}</div>
+    <div class="page-head mt-3"><div><h2>${vendorRequestStore ? 'Products' : 'Menu'}</h2><p>${vendorRequestStore ? 'Select products you are interested in, then send the vendor a request. No product payment is made on Dropzyy.' : 'Tap a product for details, or add it straight to your order.'}</p></div></div>
+    <div class="grid grid--4">${items.length ? items.map(productCard).join('') : empty('🍽️',vendorRequestStore ? 'No products yet' : 'No menu items yet','This vendor has not added any products.')}</div>
   </section>`;
 }
 
@@ -2205,6 +2213,15 @@ function productView(id) {
 function cart() {
   const items = cartItems();
   const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
+  const vendorOnly = items.length > 0 && items.every(isVendorProduct);
+  const vendorUnavailable = items.filter(x => x.active === false);
+  const vendorLines = items.map(x => `<div class="line"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} Â· ${money(x.price)}</div></div><span>${x.qty}</span><b>${money(x.qty*x.price)}</b></div>`).join('');
+  if (vendorOnly) {
+    const vendorCheckoutBtn = vendorUnavailable.length
+      ? `<button class="btn btn--block mt-2" disabled>Remove unavailable items to continue</button>`
+      : `<a class="btn btn--block mt-2" href="#/checkout">Send Request</a>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Your request</h1><p>Review the products you want to request from the vendor.</p></div></div><div class="split"><div class="card">${vendorLines}</div><aside class="card sticky-side"><div class="card__head"><h3>Request summary</h3></div><div class="totals"><div><span>Product interest</span><span>${money(subtotal)}</span></div><div><span>Dropzyy payment</span><span>₦0</span></div><div><span>Delivery</span><span>Arranged with vendor</span></div></div><p class="muted small">No payment is made on Dropzyy. The vendor will contact you directly about the product transaction and delivery.</p>${vendorCheckoutBtn}</aside></div></section>`;
+  }
   const unavailable = items.filter(x => x.active === false);
   const lines = items.map(x => {
     const avail = x.active !== false;
@@ -2952,6 +2969,20 @@ function checkout() {
     toast('Please sign in to place an order', 'info');
     location.hash = '#/login';
     return '';
+  }
+  const checkoutItems = cartItems();
+  const vendorOnly = checkoutItems.length > 0 && checkoutItems.every(isVendorProduct);
+  if (vendorOnly) {
+    return `<section class="section container"><div class="page-head"><div><h1>Send vendor request</h1><p>No payment is made on Dropzyy. The vendor will contact you directly.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Message to vendor (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Add a note for the vendor."></textarea></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Send Request</button><p class="muted xs center mb-0">The vendor will contact you to arrange product payment directly.</p></form><aside class="card sticky-side"><h3>Your request</h3>${checkoutItems.map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Dropzyy payment</span><span>₦0</span></div><div><span>Delivery</span><span>Arranged with vendor</span></div></div></aside></div></section>`;
+  }
+  const mixedCart = checkoutItems.some(isVendorProduct) && checkoutItems.some(item => !isVendorProduct(item));
+  if (mixedCart) {
+    const restaurantItems = checkoutItems.filter(item => !isVendorProduct(item));
+    const vendorItems = checkoutItems.filter(isVendorProduct);
+    const restaurantSubtotal = restaurantItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+    const restaurantTotal = restaurantSubtotal + DELIVERY_FEE;
+    const renderCheckoutItem = x => `<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant / Bookshop</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant/Bookshop total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Delivery note (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Help your rider or vendor find you quickly."></textarea></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant/Bookshop items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
