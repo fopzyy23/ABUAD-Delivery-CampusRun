@@ -21,6 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 // ---- CORS: env-driven origin allowlist (NO wildcard) ----
 const ALLOWED_ORIGINS: string[] = (
@@ -56,6 +57,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "Request body too large" }), {
+      status: 413,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
+      status: 415,
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
@@ -172,12 +188,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Create/reuse the authoritative pending payment while forwarding the
     // caller JWT, so auth.uid() in the SECURITY DEFINER RPC is the vendor.
+    // Pass the authenticated user's email as p_email (required by RPC).
     const userScoped = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
+    const userEmail = typeof user.email === "string" ? user.email.trim() : "";
+    if (!userEmail) {
+      return new Response(JSON.stringify({ error: "Authenticated user email is required for delivery payment" }), {
+        status: 400,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
     const { data: payment, error: paymentErr } = await userScoped.rpc(
       "create_vendor_delivery_payment",
-      { p_order_id: order.id },
+      { p_order_id: order.id, p_email: userEmail },
     );
     if (paymentErr || !payment) {
       return new Response(JSON.stringify({ error: paymentErr?.message || "Failed to create payment record" }), {
@@ -186,13 +210,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    const vendorEmail = typeof payment.email === "string" ? payment.email.trim() : user.email;
-    if (!vendorEmail) {
-      return new Response(JSON.stringify({ error: "Vendor profile email is required for payment" }), {
-        status: 400,
-        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
+    const vendorEmail = userEmail;
 
     const { data: existingPayment } = await supabase
       .from("payments")

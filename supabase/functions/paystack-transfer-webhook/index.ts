@@ -23,6 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 // Constant-time string comparison to avoid timing attacks.
 function safeEqual(a: string, b: string): boolean {
@@ -69,6 +70,21 @@ function transferEventStatus(event: string): string | null {
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_WEBHOOK_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "Webhook body too large" }), {
+      status: 413,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
+      status: 415,
+      headers: { "Content-Type": "application/json" },
+    });
   }
   if (!PAYSTACK_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("paystack-transfer-webhook: missing required environment variable(s).");

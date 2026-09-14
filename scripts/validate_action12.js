@@ -11,6 +11,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const mig = fs.readFileSync(path.join(root, 'supabase/migrations/20260906_secure_order_pricing.sql'), 'utf8');
 const migNC = mig.replace(/--[^\n]*/g, '');
+const admissionMig = fs.readFileSync(path.join(root, 'supabase/migrations/20261018_order_creation_admissions.sql'), 'utf8');
+const admissionNC = admissionMig.replace(/--[^\n]*/g, '');
+const gateway = fs.readFileSync(path.join(root, 'supabase/functions/order-admission/index.ts'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'assets/js/app.js'), 'utf8');
 const admin = fs.readFileSync(path.join(root, 'assets/js/admin.js'), 'utf8');
 
@@ -29,7 +32,7 @@ function policyBlock(name) {
 }
 
 console.log('== PRICING RPC (place_order) ==');
-check('place_order RPC exists', /CREATE OR REPLACE FUNCTION public\.place_order\(\s*p_items jsonb,\s*p_spot\s*text\s*\)/.test(migNC));
+check('authoritative place_order RPC exists with admission parameters', /CREATE OR REPLACE FUNCTION public\.place_order\(\s*p_items jsonb,\s*p_spot text,\s*p_attempt_id uuid,\s*p_request_fingerprint text\s*\)/.test(admissionNC));
 check('RPC is SECURITY DEFINER with fixed search_path', /SECURITY DEFINER\s+SET search_path = public/.test(migNC));
 check('RPC requires an authenticated caller', /v_user IS NULL THEN\s+RAISE EXCEPTION 'authentication required'/.test(migNC));
 check('delivery fee fixed at 1500 in RPC', /v_fee\s+numeric\(12,2\) := 1500/.test(migNC));
@@ -42,8 +45,8 @@ check('qty validated 1..99 server-side', /v_qty < 1 OR v_qty > 99/.test(migNC));
 check('order number generated server-side', /v_order_number := 'CR-' \|\|/.test(migNC));
 check('status + payment_status fixed server-side', /'Order confirmed', 'pending', p_spot, 'rider'/.test(migNC));
 check('user_id taken from auth.uid(), not the client', /v_user\s+uuid := auth\.uid\(\)/.test(migNC));
-check('EXECUTE granted to authenticated only', /GRANT EXECUTE ON FUNCTION public\.place_order\(jsonb, text\) TO authenticated/.test(migNC));
-check('EXECUTE revoked from anon + PUBLIC', /REVOKE EXECUTE ON FUNCTION public\.place_order\(jsonb, text\) FROM anon;\s+REVOKE EXECUTE ON FUNCTION public\.place_order\(jsonb, text\) FROM PUBLIC;/.test(migNC));
+check('admission-qualified place_order EXECUTE granted to authenticated', /GRANT EXECUTE ON FUNCTION public\.place_order\(jsonb,text,uuid,text\) TO authenticated/.test(admissionNC));
+check('obsolete two-argument place_order EXECUTE revoked', /REVOKE ALL ON FUNCTION public\.place_order\(jsonb,text\) FROM PUBLIC, anon, authenticated/.test(admissionNC));
 
 console.log('\n== DIRECT-WRITE LOCKDOWN ==');
 check('orders INSERT revoked from authenticated', /REVOKE INSERT ON public\.orders FROM authenticated;/.test(migNC));
@@ -90,13 +93,26 @@ check('rider linear progression preserved', /OLD\.status = 'Rider assigned' AND 
 check('illegal transitions still raise', /Illegal order status transition/.test(migNC));
 
 console.log('\n== CLIENT (app.js) ==');
-check('checkout calls the place_order RPC', /\.rpc\('place_order'/.test(app));
-check('client sends only ids + quantities', /p_items: lines/.test(app));
+check('frontend invokes order-admission gateway', /functions\/v1\/order-admission/.test(app));
+check('restaurant flow selects place_order operation', /requestOrderAdmission\(order, lines, 'place_order'\)/.test(app));
+check('vendor flow selects create_vendor_order_request operation', /requestOrderAdmission\(order, lines, 'create_vendor_order_request'\)/.test(app));
+check('idempotency key uses crypto.randomUUID', /crypto\.randomUUID\(\)/.test(app));
+check('idempotency attempts are persisted and reused', /ORDER_ATTEMPT_STORAGE_KEY/.test(app) && /getOrCreateOrderAttempt/.test(app) && /existing = attempts\.find/.test(app));
+check('409 preserves the existing attempt', /response\.status === 409/.test(app) && !/response\.status === 409[\s\S]{0,500}crypto\.randomUUID/.test(app));
+check('429 preserves the existing attempt', /response\.status === 429/.test(app) && !/response\.status === 429[\s\S]{0,500}crypto\.randomUUID/.test(app));
+check('gateway payload contains no financial authority fields', /items: lines/.test(app) && /spot: order\.spot/.test(app) && /idempotency_key: key/.test(app) && !/vendor_request[\s\S]{0,300}\b(price|total|subtotal|fee|vendor_id)\s*:/.test(app));
+check('obsolete executable two-argument RPC calls are absent', !/\.rpc\(['"](?:place_order|create_vendor_order_request)['"]/.test(app));
+check('server-authoritative order result is adopted', /order\.subtotal = Number\(data\.order\.subtotal\)/.test(app) && /order\.total = Number\(data\.order\.total\)/.test(app));
 check('client no longer inserts into orders', !/from\('orders'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('client no longer inserts into order_items', !/from\('order_items'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('client adopts server subtotal/fee/total', /order\.subtotal = Number\(data\.order\.subtotal\)/.test(app) && /order\.fee = Number\(data\.order\.fee\)/.test(app) && /order\.total = Number\(data\.order\.total\)/.test(app));
 check('vendor UI: Mark delivered only for vendor_self', /o\.delivery_method === 'vendor_self'/.test(app) && !/o\.delivery_method === 'rider'\s*\?\s*`<button class="btn btn--sm" data-vendor-status[\s\S]{0,120}Ready for pickup[\s\S]{0,160}Delivered/.test(app));
 check('DELIVERY_FEE = 1500 client-side (display only)', /const DELIVERY_FEE = 1500/.test(app));
+
+console.log('\n== ORDER-ADMISSION ARCHITECTURE ==');
+check('gateway selects operation from vendor_request', /body\.vendor_request === true/.test(gateway));
+check('gateway forwards the authenticated JWT to the order RPC', /Authorization: `Bearer \$\{jwt\}`/.test(gateway));
+check('admission-qualified vendor RPC exists', /CREATE OR REPLACE FUNCTION public\.create_vendor_order_request\(\s*p_items jsonb,\s*p_spot text,\s*p_attempt_id uuid,\s*p_request_fingerprint text\s*\)/.test(admissionNC));
 
 console.log('\n== SECURITY INVARIANTS ==');
 check('no service_role anywhere in the migration', !/service_role/i.test(mig));

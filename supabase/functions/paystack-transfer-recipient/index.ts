@@ -27,6 +27,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 const ALLOWED_ORIGINS: string[] = (
   Deno.env.get("ALLOWED_ORIGIN") ??
     "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
@@ -77,6 +78,21 @@ serve(async (req: Request): Promise<Response> => {
   }
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405, origin);
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "Request body too large" }), {
+      status: 413,
+      headers: { ...corsFor(origin), "Content-Type": "application/json" },
+    });
+  }
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
+      status: 415,
+      headers: { ...corsFor(origin), "Content-Type": "application/json" },
+    });
   }
 
   if (!PAYSTACK_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {

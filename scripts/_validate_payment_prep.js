@@ -6,6 +6,8 @@ const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'assets/js/app.js'), 'utf8');
 const admin = fs.readFileSync(path.join(root, 'assets/js/admin.js'), 'utf8');
 const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20260902_add_order_payment_fields.sql'), 'utf8');
+const gateway = fs.readFileSync(path.join(root, 'supabase/functions/order-admission/index.ts'), 'utf8');
+const admissionMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20261018_order_creation_admissions.sql'), 'utf8');
 
 let fail = 0;
 function check(name, cond, extra = '') {
@@ -37,7 +39,7 @@ check('restaurant order does NOT include transaction_id', !/const order = \{[\s\
 console.log('\n== ORDER CREATION: VENDOR FLOW (new) ==');
 
 // Vendor flow: separate function for vendor requests
-check('vendor request uses dedicated RPC', /saveVendorOrderRequestToSupabase/.test(app));
+check('vendor request uses dedicated order-admission flow', /saveVendorOrderRequestToSupabase/.test(app) && /requestOrderAdmission\(order, lines, 'create_vendor_order_request'\)/.test(app));
 
 // Vendor flow: payment_status = 'pending_vendor'
 check('vendor request payment_status = pending_vendor', /payment_status: 'pending_vendor'/.test(app));
@@ -53,9 +55,13 @@ check('vendor request request_type = vendor_request', /request_type: 'vendor_req
 check('vendor request does NOT include payment_reference', !/const order = \{[\s\S]{0,200}?payment_reference/.test(app));
 
 console.log('\n== SAVE TO SUPABASE (ACTION 12: server-side pricing) ==');
-check('restaurant checkout uses place_order RPC', /\.rpc\('place_order'/.test(app));
-check('vendor checkout uses create_vendor_order_request RPC', /\.rpc\('create_vendor_order_request'/.test(app));
-check('client sends only product ids + quantities (no prices)', /p_items:\s*lines/.test(app));
+check('restaurant checkout uses order-admission gateway', /requestOrderAdmission\(order, lines, 'place_order'\)/.test(app) && /functions\/v1\/order-admission/.test(app));
+check('vendor checkout uses order-admission gateway', /requestOrderAdmission\(order, lines, 'create_vendor_order_request'\)/.test(app));
+check('gateway receives normalized order intent only', /items: lines/.test(app) && /spot: order\.spot/.test(app) && /idempotency_key: key/.test(app));
+check('client sends no financial authority fields to gateway', !/body: JSON\.stringify\([\s\S]{0,500}\b(price|subtotal|total|fee|vendor_id)\s*:/.test(app));
+check('obsolete direct two-argument order RPC calls are absent', !/\.rpc\(['"](?:place_order|create_vendor_order_request)['"]/.test(app));
+check('authoritative admission-qualified order RPCs remain server-side', /CREATE OR REPLACE FUNCTION public\.place_order\([\s\S]*p_attempt_id uuid[\s\S]*p_request_fingerprint text/.test(admissionMigration) && /CREATE OR REPLACE FUNCTION public\.create_vendor_order_request\([\s\S]*p_attempt_id uuid[\s\S]*p_request_fingerprint text/.test(admissionMigration));
+check('gateway owns admission/rate-limit handoff', /create_order_admission/.test(gateway) && /consume_order_admission/.test(gateway) && /get_order_creation_attempt/.test(gateway));
 check('client never inserts into orders directly', !/from\('orders'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('client never inserts into order_items directly', !/from\('order_items'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('order number adopted from server (restaurant)', /order\.id = data\.order\.order_number/.test(app));
@@ -63,12 +69,18 @@ check('subtotal adopted from server (restaurant)', /order\.subtotal = Number\(da
 check('fee adopted from server (restaurant)', /order\.fee = Number\(data\.order\.fee\)/.test(app));
 check('total adopted from server (restaurant)', /order\.total = Number\(data\.order\.total\)/.test(app));
 check('vendor request adopts server values', /order\.id = data\.order\.order_number/.test(app));
+check('server-authoritative order result precedes payment navigation', /order\.dbId = data\.order\.id/.test(app) && /location\.hash = `#\/pay\/\$\{firstOrderId\}`/.test(app));
 
 console.log('\n== LOAD (mapOrder) ==');
 check('subtotal loaded with fallback', /subtotal: o\.subtotal != null/.test(app));
 check('payment_status loaded with default', /payment_status: o\.payment_status \|\| 'pending'/.test(app));
 check('payment_reference loaded', /payment_reference: o\.payment_reference/.test(app));
 check('transaction_id loaded', /transaction_id: o\.transaction_id/.test(app));
+
+console.log('\n== PAYMENT AUTHORITY ==');
+check('payment flow uses persisted server order identity', /const tid = order\.dbId \|\| order\.id/.test(app));
+check('payment initialization is server-side', /paystack-initialize/.test(app) && /paymentType === 'vendor_delivery'/.test(app));
+check('frontend does not provide payment amount or reference authority', /order_id: tid/.test(app) && !/supabaseEdgeFunctionRequest\([\s\S]{0,500}amount\s*:/.test(app) && !/supabaseEdgeFunctionRequest\([\s\S]{0,500}payment_reference\s*:/.test(app));
 
 console.log('\n== CUSTOMER UI ==');
 check('subtotal shown in orders', /money\(o\.subtotal\)/.test(app));

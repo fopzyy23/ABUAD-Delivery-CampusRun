@@ -199,6 +199,55 @@ function product(id) { return data().products.find(p => p.id === Number(id)); }
 // changes — that was the root cause of the admin-to-main-site sync bug.
 function save() { store('cart', state.cart); store('user', state.user); store('notifications', state.notifications); updateChrome(); }
 
+// Active order-admission attempts are deliberately small, local-only retry
+// records. They contain no payment secrets or authority fields.
+const ORDER_ATTEMPT_STORAGE_KEY = 'order_admission_attempts';
+const ORDER_ATTEMPT_TTL_MS = 24 * 60 * 60 * 1000;
+let orderAttemptMemory = [];
+function safeLoadOrderAttempts() {
+  try { return load(ORDER_ATTEMPT_STORAGE_KEY, null); } catch (_) { return null; }
+}
+function safeStoreOrderAttempts(attempts) {
+  try { store(ORDER_ATTEMPT_STORAGE_KEY, attempts); return true; } catch (_) { return false; }
+}
+function orderAttemptIntent(operation, lines, spot) {
+  const items = (lines || []).map(line => ({
+    id: String(line.id).trim(),
+    qty: Number(line.qty)
+  })).sort((a, b) => a.id.localeCompare(b.id) || a.qty - b.qty);
+  return JSON.stringify({ operation, items, spot: String(spot ?? '').trim() });
+}
+function loadOrderAttempts() {
+  const now = Date.now();
+  const stored = safeLoadOrderAttempts();
+  const attempts = Array.isArray(stored) ? stored : orderAttemptMemory;
+  const active = Array.isArray(attempts)
+    ? attempts.filter(a => a && typeof a.key === 'string' && typeof a.intent === 'string'
+      && Number.isFinite(a.createdAt) && now - a.createdAt < ORDER_ATTEMPT_TTL_MS)
+    : [];
+  orderAttemptMemory = active;
+  if (active.length !== attempts.length) safeStoreOrderAttempts(active);
+  return active;
+}
+function getOrCreateOrderAttempt(operation, lines, spot, userId) {
+  const intent = orderAttemptIntent(operation, lines, spot);
+  const attempts = loadOrderAttempts();
+  const namespace = String(userId || 'anonymous');
+  const existing = attempts.find(a => a.user === namespace && a.operation === operation && a.intent === intent);
+  if (existing) return existing;
+  const attempt = { key: crypto.randomUUID(), user: namespace, operation, intent, createdAt: Date.now() };
+  orderAttemptMemory = [...attempts, attempt];
+  safeStoreOrderAttempts(orderAttemptMemory);
+  return attempt;
+}
+function clearOrderAttempt(operation, lines, spot, key, userId) {
+  const intent = orderAttemptIntent(operation, lines, spot);
+  const namespace = String(userId || 'anonymous');
+  const remaining = loadOrderAttempts().filter(a => !(a.user === namespace && a.operation === operation && a.intent === intent && (!key || a.key === key)));
+  orderAttemptMemory = remaining;
+  safeStoreOrderAttempts(remaining);
+}
+
 // Add a notification for the CURRENT user only. Persisted to Supabase when a
 // session exists (RLS notifications_insert_own restricts user_id to
 // auth.uid(), so a client can never create one for another user); the
@@ -2210,10 +2259,8 @@ async function saveOrderToSupabase(order) {
     return null;
   }
 
-  const { data, error } = await supabase.rpc('place_order', {
-    p_items: lines,
-    p_spot: order.spot
-  });
+  const data = await requestOrderAdmission(order, lines, 'place_order');
+  const error = data && data.__error ? data.__error : null;
 
   if (error) {
     console.error('place_order RPC failed:', error);
@@ -2253,12 +2300,68 @@ async function saveOrderToSupabase(order) {
     });
   }
 
+  clearOrderAttempt('place_order', lines, order.spot, order.idempotency_key, order.user_id);
+
   return data.order;
 }
 
 // ============================================
 // Vendor Order Request: save to Supabase
 // ============================================
+async function requestOrderAdmission(order, lines, operation) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session || !session.access_token) {
+    state.lastOrderError = 'Please sign in again before placing this order';
+    return { __error: { message: state.lastOrderError } };
+  }
+  const key = order.idempotency_key;
+  if (!key) {
+    state.lastOrderError = 'Order attempt is missing its idempotency key';
+    return { __error: { message: state.lastOrderError } };
+  }
+  const edgeUrl = window.SUPABASE_EDGE_URL + '/functions/v1/order-admission';
+  let response;
+  try {
+    response = await fetch(edgeUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        items: lines,
+        spot: order.spot,
+        vendor_request: operation === 'create_vendor_order_request',
+        idempotency_key: key
+      })
+    });
+  } catch (err) {
+    state.lastOrderError = 'Order service unavailable — please try again';
+    return { __error: { message: state.lastOrderError } };
+  }
+  let result = null;
+  try { result = await response.json(); } catch (_) { result = null; }
+  if (!response.ok) {
+    if (response.status === 409) {
+      state.lastOrderError = 'This order attempt conflicts with an existing request. Please start a new order.';
+    } else if (response.status === 429) {
+      const retry = response.headers.get('retry-after');
+      state.lastOrderError = retry
+        ? `Too many order attempts. Please try again in ${retry} seconds.`
+        : 'Too many order attempts. Please try again later.';
+    } else if (response.status === 401) {
+      state.lastOrderError = 'Your session has expired. Please sign in again.';
+    } else {
+      state.lastOrderError = (result && result.error) || `Order service failed (${response.status})`;
+    }
+    return { __error: { message: state.lastOrderError, status: response.status } };
+  }
+  if (result && result.order && result.order.order) {
+    return { order: result.order.order, items: result.order.items || [] };
+  }
+  return { __error: { message: 'Order service returned no order' } };
+}
+
 // Dedicated function for vendor order requests.
 // Calls create_vendor_order_request RPC (not place_order).
 // No payment, no fee, no Paystack redirect.
@@ -2274,10 +2377,8 @@ async function saveVendorOrderRequestToSupabase(order) {
     return null;
   }
 
-  const { data, error } = await supabase.rpc('create_vendor_order_request', {
-    p_items: lines,
-    p_spot: order.spot
-  });
+  const data = await requestOrderAdmission(order, lines, 'create_vendor_order_request');
+  const error = data && data.__error ? data.__error : null;
 
   if (error) {
     console.error('create_vendor_order_request RPC failed:', error);
@@ -2315,6 +2416,8 @@ async function saveVendorOrderRequestToSupabase(order) {
       return s ? { ...it, price: Number(s.price), name: s.name, icon: s.icon, vendor: s.vendor_id } : it;
     });
   }
+
+  clearOrderAttempt('create_vendor_order_request', lines, order.spot, order.idempotency_key, order.user_id);
 
   return data.order;
 }
@@ -4441,7 +4544,8 @@ document.addEventListener('submit', e=>{
           const order = {
             id: null, items: restaurantItems, subtotal, fee, total,
             status: 'Order confirmed', payment_status: 'pending',
-            spot, created: 'Just now', delivery_method: 'rider'
+            spot, created: 'Just now', delivery_method: 'rider',
+            idempotency_key: getOrCreateOrderAttempt('place_order', restaurantItems.map(item => ({ id: String(item.id), qty: Number(item.qty) })), spot, userId).key
           };
           order.user_id = userId;
           const saved = await saveOrderToSupabase(order);
@@ -4460,7 +4564,8 @@ document.addEventListener('submit', e=>{
             id: null, items: vItems, subtotal: 0, fee: 0, total: 0,
             status: 'Order confirmed', payment_status: 'pending_vendor',
             spot, created: 'Just now', delivery_method: 'both',
-            request_type: 'vendor_request', vendor_delivery_requested: false
+            request_type: 'vendor_request', vendor_delivery_requested: false,
+            idempotency_key: getOrCreateOrderAttempt('create_vendor_order_request', vItems.map(item => ({ id: String(item.id), qty: Number(item.qty) })), spot, userId).key
           };
           order.user_id = userId;
           const saved = await saveVendorOrderRequestToSupabase(order);

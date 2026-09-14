@@ -33,6 +33,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 // ---- CORS: env-driven origin allowlist (NO wildcard) ----
 // Same model as paystack-initialize: the request Origin is echoed back
@@ -71,6 +72,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return json(req, 405, { error: "Method not allowed" });
   }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "Request body too large" }), {
+      status: 413,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
+      status: 415,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
   if (!PAYSTACK_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("paystack-transfer: missing required environment variable(s).");
     return json(req, 500, { error: "Server configuration error" });
@@ -99,6 +115,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .single();
     if (profErr || !profile || profile.role !== "admin") {
       return json(req, 403, { error: "Admin authorization required" });
+    }
+    const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
+    const { data: isAdmin, error: adminErr } = await userClient.rpc("is_admin");
+    if (adminErr || !isAdmin) {
+      return json(req, 403, { error: "Admin authorization required" });
+    }
+    const { error: aalErr } = await userClient.rpc("require_admin_aal2");
+    if (aalErr) {
+      return json(req, 403, { error: aalErr.message || "AAL2/MFA is required" });
     }
 
     // ---- Input: ONLY the transfer identifier ----

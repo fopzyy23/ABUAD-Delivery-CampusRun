@@ -24,6 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 // ---- CORS: env-driven origin allowlist (NO wildcard) ----
 // ALLOWED_ORIGIN is a comma-separated list of browser origins allowed to
 // call this function, read from Edge Function environment/secrets, e.g.:
@@ -69,6 +70,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_JSON_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: "Request body too large" }), {
+      status: 413,
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+    });
+  }
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("application/json")) {
+    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
+      status: 415,
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }

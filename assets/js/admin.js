@@ -60,6 +60,13 @@ const CANCELLED_STATUS = 'Cancelled';
 // Supabase authentication tracking
 let supabaseAdminUser = null;
 
+function adminMfaMessage(message) {
+  const text = String(message || '');
+  return /aal2|mfa|multi-factor|assurance/i.test(text)
+    ? 'Complete or enroll Supabase MFA, then retry this admin action.'
+    : text;
+}
+
 // ============================================
 // Utility Functions
 // ============================================
@@ -1690,7 +1697,7 @@ function attachAdminEventListeners() {
       const res = await fetch(window.SUPABASE_EDGE_URL + '/functions/v1/paystack-transfer', { method: 'POST', headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ transfer_id: btn.dataset.executeTransfer }) });
       const body = await res.json().catch(() => ({})); if (!res.ok) throw new Error(body.error || 'Transfer execution failed');
       toast('Transfer submitted securely'); await loadSettlementsFromSupabase(); renderAdminWorkspace();
-    } catch (err) { toast(err.message || 'Transfer execution failed', 'error'); }
+    } catch (err) { toast(adminMfaMessage(err.message || 'Transfer execution failed'), 'error'); }
   }));
 
   // Vendor form submission
@@ -2196,7 +2203,7 @@ async function executeRefund(refundId) {
       if (res.status === 404 || res.status === 500) {
         toast('Refund Edge Function not deployed. Deploy with: supabase functions deploy paystack-refund', 'error');
       } else {
-        toast(result.error || ('Refund execution failed (' + res.status + ')'), 'error');
+      toast(adminMfaMessage(result.error || ('Refund execution failed (' + res.status + ')')), 'error');
       }
       await loadRefundsFromSupabase();
       renderAdminWorkspace();
