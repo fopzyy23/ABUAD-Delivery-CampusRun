@@ -483,9 +483,12 @@ async function requestWithdrawal(amount) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Please sign in', 'info'); state.withdrawalSubmitting = false; render(); return false; }
-    const { error } = await supabase
-      .from('withdrawal_requests')
-      .insert({ rider_id: state.rider.id, amount: value, status: 'pending' });
+    // H-1: the security boundary for withdrawal requests is the server-side
+    // request_withdrawal RPC (SECURITY DEFINER). It re-validates rider
+    // ownership, eligibility, amount and the authoritative available balance
+    // (delivery settlements minus outstanding requests). The client pre-check
+    // above is a UX hint only — direct table INSERT is revoked client-side.
+    const { error } = await supabase.rpc('request_withdrawal', { p_amount: value });
     if (error) throw error;
     state.withdrawalSubmitting = false;
     await loadWithdrawalsFromSupabase();
@@ -697,10 +700,16 @@ async function loadOrdersFromSupabase() {
       dbId: o.id,
       items: (itemsMap && itemsMap[o.id]) || [],
       total: o.total,
-      subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee || DELIVERY_FEE)),
-      fee: o.fee || DELIVERY_FEE,
+      subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee != null ? o.fee : DELIVERY_FEE)),
+      fee: o.fee != null ? o.fee : DELIVERY_FEE,
       status: o.status || 'Order confirmed',
       payment_status: o.payment_status || 'pending',
+      request_type: o.request_type || 'restaurant',
+      vendor_delivery_requested: o.vendor_delivery_requested === true,
+      delivery_payment_status: o.delivery_payment_status || 'pending',
+      delivery_payment_id: o.delivery_payment_id || null,
+      rider_delivery_share: o.rider_delivery_share != null ? o.rider_delivery_share : 0,
+      company_delivery_share: o.company_delivery_share != null ? o.company_delivery_share : 0,
       payment_reference: o.payment_reference || null,
       transaction_id: o.transaction_id || null,
       spot: o.spot || '',
@@ -885,7 +894,7 @@ function refundStatusLabel(status) {
 // payment reference. Returns true on a newly created request, 'existing' when
 // a refund already exists for the order, false on failure. Does not re-render;
 // the caller decides (the dedicated Refund Request page owns navigation).
-async function requestRefund(orderDbId, reason) {
+async function requestRefund(orderDbId, reason, paymentType) {
   if (!state.user) {
     toast('Please sign in to request a refund', 'info');
     location.hash = '#/login';
@@ -896,15 +905,15 @@ async function requestRefund(orderDbId, reason) {
     return false;
   }
   try {
-    const { data, error } = await supabase.rpc('request_refund', {
-      p_order_id: orderDbId,
-      p_reason: (reason || '').trim() || null
-    });
+    const rpcParams = paymentType
+      ? { p_order_id: orderDbId, p_payment_type: paymentType, p_reason: (reason || '').trim() || null }
+      : { p_order_id: orderDbId, p_reason: (reason || '').trim() || null };
+    const { data, error } = await supabase.rpc('request_refund', rpcParams);
     if (error) {
       // Handle specific RPC errors
       if (error.message && error.message.includes('does not belong to you')) {
         toast('This order does not belong to you', 'error');
-      } else if (error.message && error.message.includes('no successful payment')) {
+      } else if (error.message && (error.message.includes('no successful payment') || error.message.includes('not refundable'))) {
         toast('This order is not eligible for a refund', 'error');
       } else if (error.message && error.message.includes('not found')) {
         toast('Order not found', 'error');
@@ -968,14 +977,22 @@ async function refundRequestView(orderDbId) {
   if (existingRefund) {
     return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div>${successNotice}<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">A refund request already exists for this order, so another request can't be submitted.</p><p class="muted small mt-1 mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
   }
+  const refundablePaymentTypes = [
+    o.payment_status === 'success' ? 'product' : null,
+    o.delivery_payment_status === 'success' ? 'vendor_delivery' : null
+  ].filter(Boolean);
   // Backend remains authoritative: without a successful payment the
   // request_refund RPC would reject the request, so don't offer the form.
-  if (o.payment_status !== 'success') {
+  if (!refundablePaymentTypes.length) {
     return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div><div class="card mt-2"><h3 class="mb-0">This order isn't eligible for a refund</h3><p class="muted small mb-0">Refunds can only be requested for orders whose payment was successful. The payment for this order is currently <b>${esc(o.payment_status || 'pending')}</b>.</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
   }
+  const paymentTypeField = refundablePaymentTypes.length > 1
+    ? `<div class="field"><label for="refundPaymentType">Which payment would you like refunded?</label><select class="input" id="refundPaymentType" name="paymentType"><option value="product">Product payment</option><option value="vendor_delivery">Delivery payment</option></select></div>`
+    : (refundablePaymentTypes[0] === 'vendor_delivery' ? '<input type="hidden" name="paymentType" value="vendor_delivery">' : '');
   return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1><p class="muted">Tell us what went wrong with this order and our team will review your request. Refunds are issued to your original payment method and the amount is determined by our system — you'll get a notification when the status changes.</p></div></div>${successNotice}<div class="split mt-2"><div class="card stack">
     <form id="refundRequestForm" class="stack" novalidate>
       <input type="hidden" name="orderDbId" value="${esc(orderDbId)}">
+      ${paymentTypeField}
       <div class="field"><label for="refundReasonInput">What went wrong with this order?</label><textarea class="textarea" id="refundReasonInput" name="reason" rows="6" maxlength="${REFUND_REASON_MAX}" placeholder="Please explain the issue with your order..."></textarea><div class="row row--between mt-1"><span class="muted xs" id="refundReasonError"></span><span class="muted xs" id="refundReasonCount">0 / ${REFUND_REASON_MAX}</span></div></div>
       <p class="muted xs mb-0">By submitting, you request a full refund for this order. The refund amount is determined by our system from the order's payment.</p>
       <button type="submit" class="btn btn--block" id="refundSubmitBtn">Submit Refund Request</button>
@@ -2240,6 +2257,69 @@ async function saveOrderToSupabase(order) {
 }
 
 // ============================================
+// Vendor Order Request: save to Supabase
+// ============================================
+// Dedicated function for vendor order requests.
+// Calls create_vendor_order_request RPC (not place_order).
+// No payment, no fee, no Paystack redirect.
+async function saveVendorOrderRequestToSupabase(order) {
+  if (typeof supabase === 'undefined' || !supabase) {
+    console.error('Supabase client missing — cannot create vendor order request.');
+    return null;
+  }
+
+  const lines = (order.items || []).map(it => ({ id: String(it.id), qty: Number(it.qty) }));
+  if (!lines.length || lines.some(l => !l.id || !Number.isInteger(l.qty) || l.qty < 1)) {
+    console.error('Vendor request rejected client-side: invalid cart lines.');
+    return null;
+  }
+
+  const { data, error } = await supabase.rpc('create_vendor_order_request', {
+    p_items: lines,
+    p_spot: order.spot
+  });
+
+  if (error) {
+    console.error('create_vendor_order_request RPC failed:', error);
+    state.lastOrderError = [
+      error.message,
+      error.details,
+      error.hint,
+      error.code ? `(code ${error.code})` : ''
+    ].filter(Boolean).join(' — ') || 'unknown Supabase error';
+    return null;
+  }
+  if (!data || !data.order) {
+    console.error('create_vendor_order_request returned no order row.');
+    state.lastOrderError = 'create_vendor_order_request returned no order row';
+    return null;
+  }
+
+  // Adopt server-authoritative values
+  order.id = data.order.order_number;
+  order.dbId = data.order.id;
+  order.subtotal = Number(data.order.subtotal);
+  order.fee = Number(data.order.fee);
+  order.total = Number(data.order.total);
+  order.status = data.order.status || order.status;
+  order.payment_status = data.order.payment_status || 'pending_vendor';
+  order.request_type = data.order.request_type;
+  order.delivery_method = data.order.delivery_method;
+  order.vendor_delivery_requested = data.order.vendor_delivery_requested;
+  order.createdAt = data.order.created_at || order.createdAt || null;
+
+  const serverItems = Array.isArray(data.items) ? data.items : [];
+  if (serverItems.length) {
+    order.items = order.items.map(it => {
+      const s = serverItems.find(x => String(x.product_id) === String(it.id));
+      return s ? { ...it, price: Number(s.price), name: s.name, icon: s.icon, vendor: s.vendor_id } : it;
+    });
+  }
+
+  return data.order;
+}
+
+// ============================================
 // Vendor Dashboard: load vendor data from Supabase
 // ============================================
 // Loads the authenticated vendor's own orders and products. The RLS policies
@@ -2318,12 +2398,18 @@ async function loadVendorDataFromSupabase() {
       dbId: o.id,
       items: itemsByOrder[o.id] || [],
       total: o.total,
-      fee: o.fee || DELIVERY_FEE,
+      fee: o.fee != null ? o.fee : DELIVERY_FEE,
       status: o.status || 'Order confirmed',
       spot: o.spot || '',
       delivery_method: o.delivery_method || 'rider',
       rider_id: o.rider_id || null,
       payment_status: o.payment_status || 'pending',
+      request_type: o.request_type || 'restaurant',
+      vendor_delivery_requested: o.vendor_delivery_requested === true,
+      delivery_payment_status: o.delivery_payment_status || 'pending',
+      delivery_payment_id: o.delivery_payment_id || null,
+      rider_delivery_share: o.rider_delivery_share != null ? o.rider_delivery_share : 0,
+      company_delivery_share: o.company_delivery_share != null ? o.company_delivery_share : 0,
       created: formatOrderCreated(o.created_at),
       createdAt: o.created_at || null
     }));
@@ -2577,9 +2663,55 @@ function vendorOrderCard(o, activeTab) {
   const statusBadge = `<span class="badge badge--${o.status==='Delivered'||o.status==='Cancelled'?'info':'warn'}">${o.status}</span>`;
   const deliveryBadge = `<span class="badge badge--brand">${o.delivery_method||'rider'}</span>`;
 
+  // Check if this is a vendor request awaiting response
+  const isVendorRequest = o.request_type === 'vendor_request' && o.status === 'Order confirmed';
+
+  // Check if this is an accepted vendor request awaiting delivery choice
+  const isAwaitingDeliveryChoice = o.request_type === 'vendor_request'
+    && o.status === 'Preparing'
+    && o.delivery_method === 'both';
+
   // Actions depend on current status + delivery method.
   let actions = '';
-  if (o.status === 'Order confirmed') {
+  if (isVendorRequest) {
+    // Vendor request awaiting acceptance/decline
+    actions = `
+      <div class="row mt-1">
+        <button class="btn btn--sm" data-vendor-respond="${o.id}" data-action="accept">Accept</button>
+        <button class="btn btn--ghost btn--sm" data-vendor-respond="${o.id}" data-action="decline">Decline</button>
+      </div>`;
+  } else if (isAwaitingDeliveryChoice) {
+    // Vendor accepted request, now must choose delivery method
+    const vendorObj = vendor(o.items[0]?.vendor);
+    const pickupLocation = vendorObj?.pickup_location || 'Not set';
+
+    actions = `
+      <div class="card mb-2" style="background:#f8fafc; border-left:4px solid #2563eb;">
+        <div class="p-3">
+          <h4 class="mb-2">Choose Delivery Method</h4>
+          <p class="muted small mb-2">Pickup: <b>${esc(pickupLocation)}</b> | Drop-off: <b>${esc(o.spot || 'Not set')}</b></p>
+
+          <div class="grid grid--2 mb-2">
+            <button class="btn btn--sm" data-vendor-delivery-choice="${o.id}" data-method="vendor_self">
+              <div class="text-center">
+                <div class="text-lg">🚶</div>
+                <div class="font-medium">Self Delivery</div>
+                <div class="muted xs">₦0</div>
+                <div class="muted xs">I will deliver myself</div>
+              </div>
+            </button>
+            <button class="btn btn--sm" data-vendor-delivery-choice="${o.id}" data-method="rider">
+              <div class="text-center">
+                <div class="text-lg">🛵</div>
+                <div class="font-medium">Dropzyy Rider</div>
+                <div class="muted xs">₦1,500</div>
+                <div class="muted xs">Rider: ₦1,000 · Dropzyy: ₦500</div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>`;
+  } else if (o.status === 'Order confirmed') {
     if (o.delivery_method === 'both') {
       // Vendor must pick rider vs vendor_self before progressing.
       actions = `
@@ -2639,24 +2771,31 @@ function vendorDashboard() {
   const vobj = vendor(vid || '');
   const name = vobj ? vobj.name : 'Your vendor storefront';
   const orders = state.vendorOrders || [];
-  const pending = orders.filter(o => o.status === 'Order confirmed');
+
+  // Separate vendor requests (new vendor_request orders in 'Order confirmed') from regular orders
+  const vendorRequests = orders.filter(o =>
+    o.request_type === 'vendor_request' && o.status === 'Order confirmed'
+  );
+
+  // Regular pending orders (non-vendor_request or vendor_request that have been accepted)
+  const regularPending = orders.filter(o =>
+    o.status === 'Order confirmed' && !(o.request_type === 'vendor_request' && o.status === 'Order confirmed')
+  );
+
   const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
   const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
-  // Vendor revenue = ONLY this vendor's own order_items (price × qty) on
-  // Delivered orders. `orders.total` is deliberately NEVER used here: it
-  // includes the flat ₦1,500 delivery fee (which belongs to the
-  // deliverer/platform, not the vendor) and, on multi-vendor orders, other
-  // vendors' items. `o.items` contains ONLY this vendor's own lines — they
-  // are grouped in loadVendorDataFromSupabase() from the RLS-scoped
-  // order_items query (order_items_select_vendor) — so this sum can never
-  // include the delivery fee or another vendor's products.
+
   const revenue = orders
     .filter(o => o.status === 'Delivered')
     .reduce((n, o) => n + (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0), 0);
   const products = state.vendorProducts || [];
 
-  const pendingHtml = pending.length
-    ? pending.map(o => vendorOrderCard(o)).join('')
+  const vendorRequestsHtml = vendorRequests.length
+    ? vendorRequests.map(o => vendorOrderCard(o)).join('')
+    : empty('📥','No new vendor requests','Customer requests will appear here.');
+
+  const pendingHtml = regularPending.length
+    ? regularPending.map(o => vendorOrderCard(o)).join('')
     : empty('📦','No pending orders','New orders will appear here when customers place them.');
   const activeHtml = active.length
     ? active.map(o => vendorOrderCard(o)).join('')
@@ -2672,14 +2811,16 @@ function vendorDashboard() {
   return `<section class="section container">
     <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
     <div class="grid grid--stats">
-      <div class="stat stat--brand"><span class="stat__label">Pending</span><span class="stat__value">${pending.length}</span><span class="stat__hint">Awaiting action</span></div>
+      <div class="stat stat--brand"><span class="stat__label">New Requests</span><span class="stat__value">${vendorRequests.length}</span><span class="stat__hint">Awaiting your response</span></div>
+      <div class="stat"><span class="stat__label">Pending</span><span class="stat__value">${regularPending.length}</span><span class="stat__hint">Awaiting action</span></div>
       <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
       <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
       <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,500 delivery fee</span></div>
     </div>
-    <div class="page-head mt-3"><div><h2>Pending orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
-    <div class="page-head mt-3"><div><h2>Active orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
-    <div class="page-head mt-3"><div><h2>Completed orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
+    <div class="page-head mt-3"><div><h2>New Vendor Requests</h2><p>Accept or decline customer requests.</p></div></div>${vendorRequestsHtml}
+    <div class="page-head mt-3"><div><h2>Pending Orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
+    <div class="page-head mt-3"><div><h2>Active Orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
+    <div class="page-head mt-3"><div><h2>Completed Orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
     <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or toggle the availability of your menu items.</p></div></div>
     ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${state.vendorLoadError}</span></div>` : ''}
     <div class="split mt-1">
@@ -2762,8 +2903,71 @@ async function orders() {
           ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
           : '');
     return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+}).join('');
+  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you've ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
+}
+
+// ============================================
+// Vendor Requests View (Customer)
+// ============================================
+async function vendorRequestsView() {
+  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.ordersLoadedFromSupabase) {
+    return `<section class="section container"><div class="page-head"><div><h1>My Vendor Requests</h1><p>Loading your requests...</p></div></div>${skeletonCard()}</section>`;
+  }
+  await ensureOrdersLoaded();
+  await loadRefundsFromSupabase();
+
+  // Filter for vendor_request orders only
+  const vendorRequests = state.orders.filter(o => o.request_type === 'vendor_request');
+  if (!vendorRequests.length) {
+    return `<section class="section container"><div class="page-head"><div><h1>My Vendor Requests</h1><p>Order requests you've sent to vendors.</p></div></div>${empty('📦','No vendor requests yet','When you request products from a vendor, they will appear here.','<a class="btn mt-1" href="#/browse">Browse campus finds</a>')}</section>`;
+  }
+
+  const sortedRequests = sortOrdersNewestFirst(vendorRequests);
+  const cards = sortedRequests.map(o => {
+    const vnames = orderVendorNames(o);
+    const items = (o.items || []).map(item =>
+      `<div class="line"><span class="line__thumb">${esc(item.icon)}</span><span class="line__main"><b>${esc(item.name)}</b><small class="line__sub">× ${item.qty}</small></span><b>${money(item.price*item.qty)}</b></div>`
+    ).join('');
+
+    let statusBadge = customerOrderStatusBadge(o);
+    let statusInfo = '';
+    const isVendorSelf = o.delivery_method === 'vendor_self';
+    const isVendorRider = o.delivery_method === 'rider' && o.request_type === 'vendor_request';
+    if (o.status === 'Order confirmed') {
+      statusInfo = '<p class="muted small">Vendor has not yet responded.</p>';
+    } else if (o.status === 'Preparing') {
+      if (o.delivery_method === 'both') {
+        statusInfo = '<p class="muted small">Vendor accepted — choosing delivery method.</p>';
+      } else if (isVendorSelf) {
+        statusInfo = '<p class="muted small">Vendor accepted and is preparing your order for self-delivery.</p>';
+      } else if (isVendorRider) {
+        statusInfo = '<p class="muted small">Vendor accepted and is preparing your order. A rider will be requested.</p>';
+      } else {
+        statusInfo = '<p class="muted small">Vendor accepted and is preparing your order.</p>';
+      }
+    } else if (o.status === 'Cancelled') {
+      statusInfo = '<p class="muted small">Vendor declined this request.</p>';
+    } else if (o.status === 'Delivered') {
+      statusInfo = '<p class="muted small">Order completed.</p>';
+    } else if (o.status === 'Ready for pickup') {
+      if (isVendorSelf) {
+        statusInfo = '<p class="muted small">Vendor is on the way to deliver your order.</p>';
+      } else {
+        statusInfo = '<p class="muted small">Ready for rider pickup.</p>';
+      }
+    } else if (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') {
+      statusInfo = '<p class="muted small">Your order is with a rider.</p>';
+    }
+
+    const cancelBtn = ['Order confirmed','Preparing'].includes(o.status)
+      ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel request</button>` : '';
+
+    return `<article class="card"><div class="row row--between row--wrap"><div>${statusBadge}<h3 class="mt-1">Request #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a>${cancelBtn}</div></div><div class="divider"></div>${items}<div class="mt-2">${statusInfo}</div></article>`;
   }).join('');
-  return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you’ve ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
+
+  return `<section class="section container"><div class="page-head"><div><h1>My Vendor Requests</h1><p>Order requests you've sent to vendors. Payment is arranged directly with each vendor.</p></div></div><div class="stack">${cards}</div></section>`;
 }
 // ---- Track page: live status update for the single tracked order --------------
 // Two complementary mechanisms, both scoped to ONE order (the one being tracked):
@@ -3130,7 +3334,14 @@ function rider() {
   }
   const isApprovedRider = riderStatus === 'approved';
   const isOnline = !!(state.rider && state.rider.available === true);
-  const pending = state.riderPool.filter(o => (o.status === 'Order confirmed' || o.status === 'Ready for pickup') && !o.rider_id && (o.delivery_method ?? 'rider') !== 'vendor_self' && o.payment_status === 'success');
+  const pending = state.riderPool.filter(o => {
+    if (!['Order confirmed', 'Ready for pickup'].includes(o.status)
+        || o.rider_id
+        || (o.delivery_method ?? 'rider') === 'vendor_self') return false;
+    return o.request_type === 'vendor_request'
+      ? o.vendor_delivery_requested === true && o.delivery_payment_status === 'success'
+      : o.payment_status === 'success';
+  });
   const active = state.riderPool.filter(o => (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') && (o.delivery_method ?? 'rider') !== 'vendor_self');
   const done = riderCompletedDeliveries();
   const isBusy = active.length > 0;
@@ -3261,7 +3472,7 @@ function acctIcon(name, cls = 'ico') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ACCT_ICONS[name] || ''}</svg>`;
 }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const isActiveNav=(h)=>location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}>${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList(); 
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const isActiveNav=(h)=>location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}>${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList();
   // Show/hide Admin link based on user role (profiles.role === 'admin')
   // (footer Admin link removed — role-gated entry is via the account dropdown)
 }
@@ -3333,25 +3544,26 @@ const PAY_ERROR_BANNER_HTML =
 // redirected to Paystack (the button stays disabled during the handoff). Any
 // failure → the pay button is re-enabled with its original label, the inline
 // error banner is revealed, and both the pay button and the banner's Try
-// Again control can restart the attempt.
-async function startPaystackCheckout(tid, payBtn, busyLabel) {
+// ============================================
+// Unified Paystack Checkout Handler
+// Handles BOTH product payments (restaurant/vendor products) AND
+// vendor delivery payments (₦1,500 rider delivery fee)
+// ============================================
+async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'product') {
   const banner = document.getElementById('payErrorBanner');
   const tryAgainBtn = document.getElementById('payTryAgain');
-  // Remember the resting label so it can be restored after a failed attempt
-  // (the same button element is reused across retries).
   const originalLabel = payBtn.dataset.payLabel || payBtn.textContent;
   payBtn.dataset.payLabel = originalLabel;
 
   const fail = (err) => {
     console.error('Paystack initialization failed:', err);
-    payBtn.disabled = false;                 // re-enable button
-    payBtn.textContent = originalLabel;      // restore "Pay ... with Paystack"
+    payBtn.disabled = false;
+    payBtn.textContent = originalLabel;
     if (tryAgainBtn) tryAgainBtn.disabled = false;
-    if (banner) banner.hidden = false;       // show error + Try Again option
+    if (banner) banner.hidden = false;
     toast(PAY_INIT_ERROR_TEXT, 'error');
   };
 
-  // Busy state: block double submits while the request is in flight.
   payBtn.disabled = true;
   payBtn.textContent = busyLabel;
   if (tryAgainBtn) tryAgainBtn.disabled = true;
@@ -3359,20 +3571,17 @@ async function startPaystackCheckout(tid, payBtn, busyLabel) {
 
   let response = null;
   try {
-    response = await supabaseEdgeFunctionRequest('paystack-initialize', {
+    const edgeFunction = paymentType === 'vendor_delivery' ? 'paystack-initialize-delivery' : 'paystack-initialize';
+    response = await supabaseEdgeFunctionRequest(edgeFunction, {
       order_id: tid,
       email: state.user.email
     });
     if (response && response.authorization_url) {
-      // Handing off to Paystack — the redirect is the success path.
       window.location.href = response.authorization_url;
       return;
     }
-    // supabaseEdgeFunctionRequest returns null on a non-OK response (it also
-    // toasts the server's own error message). Treat it like a thrown failure.
     fail(new Error((response && (response.error || response.message)) || 'No authorization_url in Paystack initialization response'));
   } catch (err) {
-    // Network failure, non-JSON response, or any other throw.
     fail(err);
   }
 }
@@ -3382,8 +3591,34 @@ async function pay(orderId) {
   await ensureOrdersLoaded();
   const order = state.orders.find(x => x.dbId === orderId) || state.orders.find(x => x.id === orderId);
   if (!order) return notFound();
+
+  // Check if this is a vendor delivery payment
+  const isVendorDelivery = order.request_type === 'vendor_request' && order.delivery_method === 'rider';
+  const deliveryPaymentStatus = order.delivery_payment_status;
+
+  // Product payment status
   const ps = order.payment_status;
   const tid = order.dbId || order.id;
+
+  // ---- VENDOR DELIVERY PAYMENT ----
+  if (isVendorDelivery) {
+    if (deliveryPaymentStatus === 'success') {
+      return '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>'+moneyStatusBadge(deliveryPaymentStatus)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(deliveryPaymentStatus)+'</span><span class="muted small">Delivery fee: ₦1,500 paid</span></div><div class="divider"></div><p><span class="muted small">Rider: ₦1,000 · Dropzyy: ₦500</span></p></div></section>';
+    }
+    if (deliveryPaymentStatus === 'pending') {
+      let html = '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>Your vendor has requested a Dropzyy Rider.</p></div></div><div class="card"><h3>Complete delivery payment</h3><p class="muted">Delivery fee: <b>₦1,500</b></p><p class="muted small">Breakdown: Rider ₦1,000 · Dropzyy ₦500</p><p class="muted small">This is separate from the product payment (arranged directly with vendor).</p><button class="btn btn--block btn--lg mt-2" id="paystackBtn">Pay ₦1,500 Delivery Fee</button>'+PAY_ERROR_BANNER_HTML+'<p class="muted xs center mt-1 mb-0">You will be redirected to Paystack. You will NOT be charged until you confirm on Paystack.</p></div></section>';
+      setTimeout(()=>{ const b=document.getElementById('paystackBtn'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting to Paystack...','vendor_delivery')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); },50);
+      schedulePayConfirmationPoll(orderId, tid);
+      return html;
+    }
+    if (deliveryPaymentStatus === 'failed') {
+      let html = '<section class="section container"><div class="page-head"><div><h1>Delivery Payment</h1><p>'+moneyStatusBadge(deliveryPaymentStatus)+'</p></div></div><div class="card"><h3>Delivery payment failed</h3><p class="muted">Your payment attempt was not completed. You can retry below.</p><button class="btn btn--block btn--lg mt-2" id="paystackRetry">Retry payment</button>'+PAY_ERROR_BANNER_HTML+'</div></section>';
+      setTimeout(()=>{ const b=document.getElementById('paystackRetry'); if(!b) return; b.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); const t=document.getElementById('payTryAgain'); if(t) t.addEventListener('click', ()=>startPaystackCheckout(tid,b,'Redirecting...','vendor_delivery')); },50);
+      return html;
+    }
+  }
+
+  // ---- PRODUCT PAYMENT (Restaurant / Vendor Products) ----
   if (ps === 'success') {
     return '<section class="section container"><div class="page-head"><div><h1>Payment</h1><p>'+moneyStatusBadge(ps)+'</p></div></div><div class="card"><div class="row"><span>'+moneyStatusBadge(ps)+'</span><span class="muted small">Ref: '+esc(order.payment_reference||'—')+'</span></div><div class="divider"></div><p><span class="muted small">Paid at</span> '+esc(order.paid_at?formatDate(order.paid_at):'—')+'</p></div></section>';
   }
@@ -3580,6 +3815,7 @@ async function render() {
   else if (parts[0]==='order' && parts[1]) view = await orderView(parts[1]);
   else if (parts[0]==='refund' && parts[1]) view = await refundRequestView(decodeURIComponent(parts[1]));
   else if (parts[0]==='pay' && parts[1]) view = await pay(parts[1]);
+  else if (parts[0]==='vendor-requests') view = await vendorRequestsView();
   else if (parts[0]==='profile') view = profile();
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
@@ -3835,7 +4071,8 @@ document.addEventListener('click', async e=>{
   // For PAID orders, warn the customer that cancellation may require a separate
   // refund process instead of promising an immediate refund.
   const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && ['Order confirmed','Preparing'].includes(o.status)){
-    if (o.payment_status === 'success' && !(await DropzyyModal.confirm({ title:'Cancel this order?', message:'Your order will be cancelled, but your payment may require a separate refund process.', confirmText:'Cancel order', danger:true }))) return;
+    const hasSuccessfulPayment = o.payment_status === 'success' || o.delivery_payment_status === 'success';
+    if (hasSuccessfulPayment && !(await DropzyyModal.confirm({ title:'Cancel this order?', message:'Your order will be cancelled, but your payment may require a separate refund process.', confirmText:'Cancel order', danger:true }))) return;
     const prevStatus=o.status;
     o.status='Cancelled'; save();
     addNotification('Order cancelled',`Your order #${o.id} has been cancelled.`);
@@ -3912,6 +4149,68 @@ document.addEventListener('click', async e=>{
     }
     toast(`Order #${order.id}: ${method==='rider'?'Rider will deliver':'You will deliver this order'}`);
     render();
+  }
+  // Vendor chooses delivery method after accepting a request (vendor_self vs rider)
+  const vdelChoice = e.target.closest('[data-vendor-delivery-choice]'); if (vdelChoice) {
+    const order = state.vendorOrders.find(x => x.id === vdelChoice.dataset.vendorDeliveryChoice);
+    const method = vdelChoice.dataset.method; // 'vendor_self' or 'rider'
+    if (!order || !method) return;
+    if (!(await DropzyyModal.confirm({
+      title: method === 'rider' ? 'Request Dropzyy Rider?' : 'Self Deliver?',
+      message: method === 'rider'
+        ? '₦1,500 delivery fee applies (Rider: ₦1,000, Dropzyy: ₦500). Pickup from your saved location. The customer will pay the delivery fee separately.'
+        : 'You will deliver this order yourself. No delivery fee applies.',
+      confirmText: method === 'rider' ? 'Request Rider' : 'Self Deliver',
+      danger: false
+    }))) return;
+    const prevMethod = order.delivery_method;
+    try {
+      const { data, error } = await supabase.rpc('set_vendor_delivery_method', {
+        p_order_id: order.dbId,
+        p_delivery_method: method
+      });
+      if (error) throw error;
+      order.delivery_method = method;
+      order.vendor_delivery_requested = method === 'rider';
+      order.fee = data.fee;
+      order.rider_delivery_share = data.rider_delivery_share;
+      order.company_delivery_share = data.company_delivery_share;
+      save();
+      toast(data.delivery_method === 'rider' ? 'Rider requested — awaiting rider' : 'Self delivery confirmed');
+      render();
+    } catch (err) {
+      console.error('Vendor delivery choice failed:', err);
+      order.delivery_method = prevMethod;
+      save();
+      toast('Failed: ' + (err.message || 'unknown error'), 'error');
+      render();
+    }
+  }
+  // Vendor responds to vendor request (accept/decline)
+  const vrespond = e.target.closest('[data-vendor-respond]'); if (vrespond) {
+    const order = state.vendorOrders.find(x => x.id === vrespond.dataset.vendorRespond);
+    const action = vrespond.dataset.action; // 'accept' or 'decline'
+    if (!order || !action) return;
+    if (!(await DropzyyModal.confirm({ title: action === 'accept' ? 'Accept this request?' : 'Decline this request?', message: action === 'accept' ? 'The customer will be notified and you can arrange payment directly.' : 'The customer will be notified that you cannot fulfill this request.', confirmText: action === 'accept' ? 'Accept' : 'Decline', danger: action === 'decline' }))) return;
+    const prev = order.status;
+    try {
+      const { data, error } = await supabase.rpc('vendor_respond_to_request', {
+        p_order_id: order.dbId,
+        p_action: action
+      });
+      if (error) throw error;
+      order.status = data.status;
+      order.vendor_decision_at = data.vendor_decision_at || new Date().toISOString();
+      save();
+      toast(`Request ${action}ed`);
+      render();
+    } catch (err) {
+      console.error('Vendor respond failed:', err);
+      order.status = prev;
+      save();
+      toast('Failed to ' + action + ': ' + (err.message || 'unknown error'), 'error');
+      render();
+    }
   }
   if(e.target.id==='riderToggle' && state.rider){
     // Safety guard: never toggle availability while carrying an active
@@ -4089,49 +4388,106 @@ document.addEventListener('submit', e=>{
     // Require the user to be logged in before placing an order
     if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
     const f=new FormData(e.target);
-    const subtotal=cartTotal();
-    const fee=DELIVERY_FEE;
-    const total=subtotal+fee;
     const items=cartItems();
     const unavailableItem=items.find(x => x.active === false);
     if (unavailableItem){ toast(`Order failed: "${unavailableItem.name}" is no longer available — remove it from your cart and try again.`, 'error'); return; }
-    // C5 cleanup: the client no longer generates a temporary order number.
-    // The place_order RPC generates the authoritative order number server-side;
-    // saveOrderToSupabase() overwrites order.id with it before persistence.
+
+    // Split cart by vendor type: restaurant vs vendor
+    const restaurantItems = [];
+    const vendorItemsByVendor = {}; // vendor_id -> items[]
+
+    items.forEach(item => {
+      const v = vendor(item.vendor);
+      if (v && v.is_restaurant === false) {
+        // Vendor product
+        if (!vendorItemsByVendor[item.vendor]) vendorItemsByVendor[item.vendor] = [];
+        vendorItemsByVendor[item.vendor].push(item);
+      } else {
+        // Restaurant product (or unknown vendor defaults to restaurant flow)
+        restaurantItems.push(item);
+      }
+    });
+
     const note=(f.get('note')||'').trim();
-    const order={id:null,items,subtotal,fee,total,status:'Order confirmed',payment_status:'pending',spot:`${f.get('location')}: ${f.get('spot')}${note?' — Note: '+note:''}`,created:'Just now',delivery_method:'rider'};
-    
-    
+    const spot = `${f.get('location')}: ${f.get('spot')}${note?' — Note: '+note:''}`;
+
     if (typeof supabase === 'undefined' || !supabase) {
       toast('Order failed: Supabase client not available', 'error');
       return;
     }
-    // Single-flight guard: disable the submit button and block duplicate
-    // requests while this checkout is in flight.
     state.checkoutSubmitting = true;
-    
+
     getSupabaseUserId().then(async userId => {
+      if(!userId){
+        toast('Order failed: Not authenticated with Supabase', 'error');
+        state.checkoutSubmitting = false;
+        return;
+      }
+
+      let anySuccess = false;
+      let firstOrderId = null;
+
       try {
-        if(!userId){
-          toast('Order failed: Not authenticated with Supabase', 'error');
-          return;
+        // 1. Handle restaurant items (existing flow)
+        if (restaurantItems.length > 0) {
+          const subtotal = restaurantItems.reduce((n, x) => n + x.price * x.qty, 0);
+          const fee = DELIVERY_FEE;
+          const total = subtotal + fee;
+          const order = {
+            id: null, items: restaurantItems, subtotal, fee, total,
+            status: 'Order confirmed', payment_status: 'pending',
+            spot, created: 'Just now', delivery_method: 'rider'
+          };
+          order.user_id = userId;
+          const saved = await saveOrderToSupabase(order);
+          if (saved) {
+            anySuccess = true;
+            if (!firstOrderId) firstOrderId = order.id;
+            state.orders.unshift(order);
+          } else {
+            toast('Restaurant order failed: ' + (state.lastOrderError || 'unknown error'), 'error');
+          }
         }
-        
-        order.user_id=userId;
-        const saved=await saveOrderToSupabase(order);
-        if(saved){
-          // Only clear the cart after the Supabase order and all order_items are successfully saved
-          state.orders.unshift(order);
-          state.cart=[];
-          addNotification('Payment Pending',`Your order #${order.id} is saved. Complete your payment to confirm it.`);
+
+        // 2. Handle vendor items - one request per vendor
+        for (const [vendorId, vItems] of Object.entries(vendorItemsByVendor)) {
+          const order = {
+            id: null, items: vItems, subtotal: 0, fee: 0, total: 0,
+            status: 'Order confirmed', payment_status: 'pending_vendor',
+            spot, created: 'Just now', delivery_method: 'both',
+            request_type: 'vendor_request', vendor_delivery_requested: false
+          };
+          order.user_id = userId;
+          const saved = await saveVendorOrderRequestToSupabase(order);
+          if (saved) {
+            anySuccess = true;
+            if (!firstOrderId) firstOrderId = order.id;
+            state.orders.unshift(order);
+          } else {
+            const vname = vendor(vendorId)?.name || vendorId;
+            toast(`Vendor request failed for ${vname}: ` + (state.lastOrderError || 'unknown error'), 'error');
+          }
+        }
+
+        if (anySuccess) {
+          state.cart = [];
           save();
-          // Redirect to the payment page for this order
-          location.hash=`#/pay/${order.id}`;
-          toast('Order placed — redirecting to payment...');
-          return;
+          if (firstOrderId) {
+            // If there's a restaurant order, redirect to payment
+            // If only vendor requests, show confirmation
+            const hasRestaurantOrder = restaurantItems.length > 0;
+            if (hasRestaurantOrder) {
+              location.hash = `#/pay/${firstOrderId}`;
+              toast('Order placed — redirecting to payment...');
+            } else {
+              // All vendor requests - show confirmation page
+              location.hash = `#/vendor-requests`;
+              toast('Order request(s) sent! Vendors will contact you to arrange payment.');
+            }
+          }
+        } else {
+          toast('Order failed: Could not save to Supabase', 'error');
         }
-        
-        toast('Order failed: Could not save to Supabase' + (state.lastOrderError ? ` — ${state.lastOrderError}` : ''), 'error');
       } finally {
         state.checkoutSubmitting = false;
       }
@@ -4203,6 +4559,8 @@ document.addEventListener('submit', async (e) => {
   if (!form || form.id !== 'refundRequestForm') return;
   e.preventDefault();
   const dbId = form.querySelector('input[name="orderDbId"]').value;
+  const paymentTypeField = form.querySelector('[name="paymentType"]');
+  const paymentType = paymentTypeField ? paymentTypeField.value : null;
   const textarea = form.querySelector('textarea[name="reason"]');
   const reason = (textarea ? textarea.value : '').trim();
   const errEl = $('#refundReasonError');
@@ -4218,7 +4576,7 @@ document.addEventListener('submit', async (e) => {
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
   let result = false;
   try {
-    result = await requestRefund(dbId, reason);
+    result = await requestRefund(dbId, reason, paymentType);
   } finally {
     state.refundSubmitting = false;
     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Refund Request'; }

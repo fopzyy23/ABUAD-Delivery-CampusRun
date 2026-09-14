@@ -24,6 +24,10 @@ let state = {
   refunds: [],
   refundsLoading: false,
   refundsError: null,
+  settlements: [],
+  transfers: [],
+  settlementsLoading: false,
+  settlementsError: null,
   reports: [],
   reportsLoading: false,
   reportsError: null,
@@ -722,6 +726,7 @@ async function init() {
   await loadWithdrawalsFromSupabase();
   // Refund requests are always refreshed on admin entry.
   await loadRefundsFromSupabase();
+  await loadSettlementsFromSupabase();
   // Issue reports are always refreshed on admin entry so new reports from
   // customers (homepage "Report an Issue") appear.
   await loadReportsFromSupabase();
@@ -1506,8 +1511,13 @@ function renderPaymentsSection() {
       <div>
         <span class="badge badge--brand">Finance</span>
         <h1 class="mt-1">Payments &amp; Settlements</h1>
-        <p class="muted">Refund and rider-withdrawal reviews.</p>
+        <p class="muted">Refunds, settlements, and secure payout execution.</p>
       </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card__head"><h3>Settlements &amp; transfers</h3><span class="muted small">Amounts and recipients are read-only from server ledgers.</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Payee</th><th>Order</th><th>Amount</th><th>Settlement</th><th>Transfer</th><th>Action</th></tr></thead><tbody>${renderSettlementRows()}</tbody></table></div>
     </div>
 
     <!-- Refund Management Section -->
@@ -1562,6 +1572,33 @@ function renderPaymentsSection() {
       </div>
     </div>
   `;
+}
+
+async function loadSettlementsFromSupabase() {
+  if (!supabaseAvailable()) return null;
+  state.settlementsLoading = true; state.settlementsError = null;
+  try {
+    const [v, d, t] = await Promise.all([
+      supabase.from('vendor_settlements').select('id,order_id,vendor_id,amount,status,created_at').order('created_at', { ascending: false }),
+      supabase.from('delivery_settlements').select('id,order_id,rider_id,delivery_fee,rider_amount,platform_amount,status,created_at').order('created_at', { ascending: false }),
+      supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false })
+    ]);
+    if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error;
+    state.settlements = [...(v.data || []).map(x => ({ ...x, kind: 'vendor', authoritative_amount: Number(x.amount) })), ...(d.data || []).map(x => ({ ...x, kind: 'rider', authoritative_amount: Number(x.rider_amount) }))];
+    state.transfers = t.data || []; state.settlementsLoading = false; return state.settlements;
+  } catch (err) { state.settlementsLoading = false; state.settlementsError = err.message || 'Load failed'; state.settlements = []; state.transfers = []; return null; }
+}
+
+function renderSettlementRows() {
+  if (state.settlementsLoading) return '<tr><td colspan="6" class="muted center">Loading settlements…</td></tr>';
+  if (state.settlementsError) return `<tr><td colspan="6" class="muted center">Could not load settlements</td></tr>`;
+  if (!state.settlements.length) return '<tr><td colspan="6" class="muted center">No settlements generated yet.</td></tr>';
+  return state.settlements.map(s => {
+    const tr = state.transfers.find(x => (s.kind === 'vendor' ? x.vendor_settlement_id : x.delivery_settlement_id) === s.id);
+    const order = state.orders.find(o => o.dbId === s.order_id || o.id === s.order_id);
+    const eligible = s.status === 'pending' && order && order.status === 'Delivered';
+    return `<tr><td>${s.kind === 'vendor' ? `Vendor ${escHtml(s.vendor_id)}` : `Rider ${escHtml(s.rider_id || '—')}`}</td><td>${escHtml(order?.order_number || s.order_id)}</td><td>${money(s.authoritative_amount)}</td><td>${escHtml(s.status)}</td><td>${tr ? escHtml(tr.status) : 'Not prepared'}</td><td>${tr && tr.status === 'pending' ? `<button class="link-btn" data-execute-transfer="${tr.id}">Execute</button>` : eligible && s.kind === 'vendor' ? `<button class="link-btn" data-generate-settlement="${s.order_id}">Prepare</button>` : '—'}</td></tr>`;
+  }).join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -1640,6 +1677,21 @@ function renderSettingsSection({ vendors, orders }) {
 }
 
 function attachAdminEventListeners() {
+
+  document.querySelectorAll('[data-generate-settlement]').forEach(btn => btn.addEventListener('click', async () => {
+    try { const { error } = await supabase.rpc('admin_generate_settlement', { p_order_id: btn.dataset.generateSettlement }); if (error) throw error; toast('Settlement prepared'); await loadSettlementsFromSupabase(); renderAdminWorkspace(); }
+    catch (err) { toast(err.message || 'Settlement preparation failed', 'error'); }
+  }));
+  document.querySelectorAll('[data-execute-transfer]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!supabaseAvailable()) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Sign in required');
+      const res = await fetch(window.SUPABASE_EDGE_URL + '/functions/v1/paystack-transfer', { method: 'POST', headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ transfer_id: btn.dataset.executeTransfer }) });
+      const body = await res.json().catch(() => ({})); if (!res.ok) throw new Error(body.error || 'Transfer execution failed');
+      toast('Transfer submitted securely'); await loadSettlementsFromSupabase(); renderAdminWorkspace();
+    } catch (err) { toast(err.message || 'Transfer execution failed', 'error'); }
+  }));
 
   // Vendor form submission
   $('#vendorForm')?.addEventListener('submit', (e) => {

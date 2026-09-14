@@ -163,8 +163,38 @@ check('place_order still creates status=Order confirmed, payment_status=pending,
 console.log('\n== CLIENT (app.js, defense-in-depth only) ==');
 check('pool query filters payment_status = success',
   /\.in\('status',\s*\['Order confirmed','Ready for pickup'\]\)[\s\S]{0,200}\.eq\('payment_status', 'success'\)/.test(app));
-check('rider() pending filter requires payment_status === success',
-  /const pending = state\.riderPool\.filter\(o =>[\s\S]{0,300}o\.payment_status === 'success'/.test(app));
+const riderPendingFilter = app.match(/const pending = state\.riderPool\.filter\(o => \{[\s\S]*?\n  \}\);/) || [''];
+check('rider() pending filter keeps restaurant payment gate',
+  /o\.request_type === 'vendor_request'[\s\S]*: o\.payment_status === 'success'/.test(riderPendingFilter[0]));
+check('rider() pending filter requires successful vendor delivery payment',
+  /o\.vendor_delivery_requested === true && o\.delivery_payment_status === 'success'/.test(riderPendingFilter[0]));
+check('rider() pending filter excludes vendor_self',
+  /\(o\.delivery_method \?\? 'rider'\) === 'vendor_self'/.test(riderPendingFilter[0]));
+
+function evalFrontendPending(row) {
+  if (!['Order confirmed', 'Ready for pickup'].includes(row.status)
+      || row.rider_id !== null
+      || (row.delivery_method ?? 'rider') === 'vendor_self') return false;
+  return row.request_type === 'vendor_request'
+    ? row.vendor_delivery_requested === true && row.delivery_payment_status === 'success'
+    : row.payment_status === 'success';
+}
+
+console.log('\n== FRONTEND RIDER-POOL TRUTH TABLE ==');
+const frontendRows = [
+  { label: 'restaurant + product payment pending', row: { request_type: 'restaurant', status: 'Ready for pickup', rider_id: null, delivery_method: 'rider', payment_status: 'pending' }, expect: false },
+  { label: 'restaurant + product payment success', row: { request_type: 'restaurant', status: 'Ready for pickup', rider_id: null, delivery_method: 'rider', payment_status: 'success' }, expect: true },
+  { label: 'vendor rider + delivery payment pending', row: { request_type: 'vendor_request', vendor_delivery_requested: true, delivery_payment_status: 'pending', status: 'Ready for pickup', rider_id: null, delivery_method: 'rider', payment_status: 'pending_vendor' }, expect: false },
+  { label: 'vendor rider + delivery payment success', row: { request_type: 'vendor_request', vendor_delivery_requested: true, delivery_payment_status: 'success', status: 'Ready for pickup', rider_id: null, delivery_method: 'rider', payment_status: 'pending_vendor' }, expect: true },
+  { label: 'vendor self delivery', row: { request_type: 'vendor_request', vendor_delivery_requested: false, delivery_payment_status: 'pending', status: 'Ready for pickup', rider_id: null, delivery_method: 'vendor_self', payment_status: 'pending_vendor' }, expect: false }
+];
+for (const { label, row, expect } of frontendRows) {
+  const actual = evalFrontendPending(row);
+  const ok = actual === expect;
+  console.log((ok ? 'PASS' : 'FAIL') + ' — [' + label + '] visible=' + actual
+    + (ok ? '' : ' expected ' + expect));
+  if (!ok) fail++;
+}
 
 console.log('\n== REGRESSION TRUTH TABLE (predicates parsed from the shipped SQL) ==');
 const parsedSelect = parsePoolUsing(selUsing, 'is_approved_rider');

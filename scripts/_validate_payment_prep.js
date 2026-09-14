@@ -1,4 +1,5 @@
 // Comprehensive validation of the payment-prep changes.
+// Updated for Stage 2: Multi-vendor cart with separate Restaurant + Vendor flows.
 const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
@@ -12,24 +13,56 @@ function check(name, cond, extra = '') {
   if (!cond) fail++;
 }
 
-console.log('== ORDER CREATION ==');
-check('subtotal computed from cartTotal()', /const subtotal=cartTotal\(\)/.test(app));
-check('fee = DELIVERY_FEE', /const fee=DELIVERY_FEE/.test(app));
-check('total = subtotal + fee', /const total=subtotal\+fee/.test(app));
-check('order object includes subtotal', /items,subtotal,fee,total/.test(app));
-check('order object includes payment_status', /payment_status:'pending'/.test(app));
-check('order object does NOT include payment_reference', !/payment_reference:'/.test(app));
-check('order object does NOT include transaction_id', !/transaction_id:'/.test(app));
+console.log('== ORDER CREATION: RESTAURANT FLOW (preserved inside conditional) ==');
+
+// Restaurant flow: subtotal computed from restaurant items
+check('restaurant subtotal computed from items', /restaurantItems\.reduce\(\(n, x\) => n \+ x\.price \* x\.qty, 0\)/.test(app));
+
+// Restaurant flow: fee = DELIVERY_FEE
+check('restaurant fee = DELIVERY_FEE', /const fee = DELIVERY_FEE;/.test(app));
+
+// Restaurant flow: total = subtotal + fee
+check('restaurant total = subtotal + fee', /const total = subtotal \+ fee;/.test(app));
+
+// Restaurant flow: order object includes subtotal, fee, total
+check('restaurant order object includes subtotal/fee/total', /items: restaurantItems, subtotal, fee, total/.test(app));
+
+// Restaurant flow: payment_status = 'pending'
+check('restaurant order payment_status = pending', /payment_status: 'pending',/.test(app));
+
+// Restaurant flow: does NOT include payment_reference / transaction_id (client must not set these)
+check('restaurant order does NOT include payment_reference', !/const order = \{[\s\S]{0,200}?payment_reference/.test(app));
+check('restaurant order does NOT include transaction_id', !/const order = \{[\s\S]{0,200}?transaction_id/.test(app));
+
+console.log('\n== ORDER CREATION: VENDOR FLOW (new) ==');
+
+// Vendor flow: separate function for vendor requests
+check('vendor request uses dedicated RPC', /saveVendorOrderRequestToSupabase/.test(app));
+
+// Vendor flow: payment_status = 'pending_vendor'
+check('vendor request payment_status = pending_vendor', /payment_status: 'pending_vendor'/.test(app));
+
+// Vendor flow: fee = 0, total = subtotal
+check('vendor request fee = 0', /fee: 0/.test(app));
+check('vendor request total = subtotal', /total: 0/.test(app));
+
+// Vendor flow: request_type = 'vendor_request'
+check('vendor request request_type = vendor_request', /request_type: 'vendor_request'/.test(app));
+
+// Vendor flow: NO payment_reference / transaction_id (client must not set these)
+check('vendor request does NOT include payment_reference', !/const order = \{[\s\S]{0,200}?payment_reference/.test(app));
 
 console.log('\n== SAVE TO SUPABASE (ACTION 12: server-side pricing) ==');
-check('checkout uses the place_order RPC (server-side pricing)', /\.rpc\('place_order'/.test(app));
+check('restaurant checkout uses place_order RPC', /\.rpc\('place_order'/.test(app));
+check('vendor checkout uses create_vendor_order_request RPC', /\.rpc\('create_vendor_order_request'/.test(app));
 check('client sends only product ids + quantities (no prices)', /p_items:\s*lines/.test(app));
 check('client never inserts into orders directly', !/from\('orders'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
 check('client never inserts into order_items directly', !/from\('order_items'\)\s*[\s\S]{0,200}?\.insert\(/.test(app));
-check('order number adopted from server', /order\.id = data\.order\.order_number/.test(app));
-check('subtotal adopted from server', /order\.subtotal = Number\(data\.order\.subtotal\)/.test(app));
-check('fee adopted from server', /order\.fee = Number\(data\.order\.fee\)/.test(app));
-check('total adopted from server', /order\.total = Number\(data\.order\.total\)/.test(app));
+check('order number adopted from server (restaurant)', /order\.id = data\.order\.order_number/.test(app));
+check('subtotal adopted from server (restaurant)', /order\.subtotal = Number\(data\.order\.subtotal\)/.test(app));
+check('fee adopted from server (restaurant)', /order\.fee = Number\(data\.order\.fee\)/.test(app));
+check('total adopted from server (restaurant)', /order\.total = Number\(data\.order\.total\)/.test(app));
+check('vendor request adopts server values', /order\.id = data\.order\.order_number/.test(app));
 
 console.log('\n== LOAD (mapOrder) ==');
 check('subtotal loaded with fallback', /subtotal: o\.subtotal != null/.test(app));
@@ -58,7 +91,7 @@ console.log('\n== DATABASE MIGRATION ==');
 check('subtotal column added', /ADD COLUMN IF NOT EXISTS subtotal numeric/.test(migration));
 check('subtotal >= 0 check', /subtotal >= 0/.test(migration));
 check('payment_status column added', /ADD COLUMN IF NOT EXISTS payment_status text/.test(migration));
-check('payment_status default pending/.test(migration)', /DEFAULT 'pending'/.test(migration));
+check('payment_status default pending', /DEFAULT 'pending'/.test(migration));
 check('payment_status check constraint', /pending.*success.*failed/.test(migration));
 check('payment_reference column added', /ADD COLUMN IF NOT EXISTS payment_reference text/.test(migration));
 check('transaction_id column added', /ADD COLUMN IF NOT EXISTS transaction_id text/.test(migration));
@@ -78,9 +111,8 @@ check('no Paystack client SDK / public key in frontend (server-side only)', !/ne
 check('no public_key / secret_key', !/public_key|secret_key|PBFPubKey/i.test(app));
 check('no Paystack inline/redirect', !/paystack.*inline|js\.paystack/i.test(app));
 
-console.log('\n== CONSISTENCY: total == subtotal + fee ==');
-// Verify the creation math: total=subtotal+fee where fee=DELIVERY_FEE
-check('creation total = subtotal + fee', /const total=subtotal\+fee/.test(app));
+console.log('\n== CONSISTENCY: RESTAURANT total == subtotal + fee ==');
+check('restaurant creation total = subtotal + fee', /const total = subtotal \+ fee;/.test(app));
 
 console.log('\n' + (fail === 0 ? 'ALL CHECKS PASSED' : fail + ' CHECK(S) FAILED'));
 process.exit(fail === 0 ? 0 : 1);

@@ -27,7 +27,8 @@ check('available list only shown when approved AND online', /\(isApprovedRider &
 check('offline riders see a clear offline empty state', /You're offline/.test(app));
 
 console.log('\n== ELIGIBILITY / ASSIGNED ORDERS ==');
-check('available pool excludes already-assigned orders', /!\s*o\.rider_id/.test(app));
+check('available pool excludes already-assigned orders',
+  /const pending = state\.riderPool\.filter\([\s\S]{0,500}o\.rider_id/.test(app));
 check('active pool uses assigned statuses only', /'Rider assigned' \|\| o\.status === 'Picked up' \|\| o\.status === 'On the Way'/.test(app));
 
 console.log('\n== TRANSPARENT ETA (no fake hardcoded ETA) ==');
@@ -36,7 +37,8 @@ check('estimate is explicitly derived + labelled (est.)', /pickupEstimate/.test(
 check('estimate label text explains the estimate', /labelled as an ESTIMATE/.test(app));
 
 console.log('\n== EARNINGS / HISTORY FOUNDATION (derived from delivery fee) ==');
-check('earnings never client-supplied — derived from orders.fee', /riderPendingEarnings/.test(app) && /o\.fee \|\| DELIVERY_FEE/.test(app));
+check('earnings never client-supplied — derived from authoritative rider share',
+  /riderPendingEarnings/.test(app) && /riderShareAmount/.test(app));
 check('earnings figures clearly labelled estimated/pending', /Estimated earnings/.test(app) && /pending settlement/.test(app));
 check('fake "96% acceptance rate" removed', !/96%/.test(app));
 check('delivery history table present', /Delivery history & earnings/.test(app));

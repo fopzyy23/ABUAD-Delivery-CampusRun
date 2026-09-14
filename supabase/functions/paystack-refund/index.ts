@@ -5,6 +5,8 @@
 // request. Admin-only (JWT role check). Accepts ONLY the
 // refund_id — every refund value (amount, transaction_id,
 // reference) is loaded from the authoritative database.
+// Supports BOTH product payments and vendor delivery payments.
+// ============================================================
 //
 // Required environment variables:
 //   PAYSTACK_SECRET_KEY        Paystack secret key (sk_live_/sk_test_)
@@ -177,15 +179,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
         message: "Refund is already being processed",
       });
     }
-    // ---- Load the payment record ----
+    // ---- Load the payment record (includes payment_type) ----
     const { data: payment, error: paymentErr } = await supabase
       .from("payments")
-      .select("id, reference, transaction_id, amount, currency, status")
+      .select("id, reference, transaction_id, amount, currency, status, payment_type")
       .eq("id", refund.payment_id)
       .single();
     if (paymentErr || !payment) {
       console.error(`paystack-refund: payment ${refund.payment_id} not found`);
       return json(req, 409, { error: "Associated payment record not found" });
+    }
+    if (!payment.transaction_id) {
+      console.error(`paystack-refund: payment ${payment.id} has no transaction_id`);
+      return json(req, 409, { error: "Payment has no Paystack transaction_id — cannot refund" });
+    }
+    // ---- Validate payment type and amount ----
+    const isVendorDelivery = payment.payment_type === "vendor_delivery";
+    const expectedAmount = isVendorDelivery ? 150000 : payment.amount * 100; // vendor delivery is ₦1,500 = 150000 kobo
+
+    // Validate the payment is in a refundable state
+    if (payment.status !== "success") {
+      return json(req, 409, { error: "Payment is not in a refundable state" });
     }
     if (!payment.transaction_id) {
       console.error(`paystack-refund: payment ${payment.id} has no transaction_id`);
@@ -200,7 +214,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       },
       body: JSON.stringify({
         transaction: payment.transaction_id,
-        merchant_note: refund.reason ?? "Customer refund request",
+        amount: expectedAmount,
+        merchant_note: refund.reason ?? (isVendorDelivery ? "Vendor delivery fee refund" : "Customer refund request"),
       }),
     });
     const paystackBody = await paystackRes.json().catch(() => ({}));
@@ -235,7 +250,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { error: resultErr } = await supabase.rpc("apply_refund_result", {
       p_refund_id: refundId,
       p_success: true,
-      p_reason: refund.reason ?? "Refund processed successfully",
+      p_reason: refund.reason ?? (isVendorDelivery ? "Vendor delivery fee refund" : "Refund processed successfully"),
       p_gateway_refund_id: gatewayRefundId,
     });
     if (resultErr) {
@@ -253,7 +268,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       status: "processed",
       gateway_refund_id: gatewayRefundId,
       amount: refund.amount,
-      message: "Refund processed successfully",
+      message: isVendorDelivery ? "Vendor delivery fee refund processed" : "Refund processed successfully",
     });
   } catch (err) {
     console.error("paystack-refund: unexpected error", err);

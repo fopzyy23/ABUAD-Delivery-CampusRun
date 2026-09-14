@@ -72,7 +72,13 @@ const structural = [
   'scripts/validate_refund.js',
   'scripts/validate_rider_pool_payment_gate.js',
   'scripts/validate_seed_sync.js',
-  'scripts/validate_hardening.js'
+  'scripts/validate_hardening.js',
+  'scripts/validate_settlement_automation.js',
+  'scripts/validate_withdrawal_rpc.js',
+  'scripts/validate_vendor_foundation.js',
+  'scripts/validate_vendor_followup.js',
+  'scripts/validate_vendor_delivery_choice.js'
+  ,'scripts/validate_h2_h3.js'
 ];
 for (const rel of structural) {
   if (fs.existsSync(path.join(root, rel))) run(rel, process.execPath, [rel]);
