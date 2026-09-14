@@ -49,6 +49,14 @@ function nairaToKobo(naira: number): number {
   return Math.round(naira * 100);
 }
 
+async function rateLimitSubject(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders(req) });
@@ -134,7 +142,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Fetch the order SERVER-SIDE ----
     const { data: order, error: orderErr } = await supabase
       .from("orders")
-      .select("id, order_number, request_type, delivery_method, vendor_delivery_requested, delivery_payment_status, status")
+      .select("id, order_number, request_type, delivery_method, vendor_delivery_requested, delivery_payment_status, delivery_payment_id, status")
       .eq("id", orderId)
       .single();
 
@@ -184,6 +192,96 @@ Deno.serve(async (req: Request): Promise<Response> => {
           headers: { ...corsHeaders(req), "Content-Type": "application/json" },
         },
       );
+    }
+
+    // Delivery payment is vendor-owned. Resolve the vendor relationship from
+    // the authenticated JWT's user id and prove that this order contains one
+    // of that vendor's products. Never trust vendor_id from the request body.
+    const { data: profile, error: profileErr } = await supabase
+      .from("profiles")
+      .select("vendor_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profileErr) {
+      console.error("paystack-initialize-delivery: vendor profile lookup failed");
+      return new Response(JSON.stringify({ error: "Unable to verify vendor ownership" }), {
+        status: 500,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+    if (!profile?.vendor_id) {
+      return new Response(JSON.stringify({ error: "Authenticated user is not an order vendor" }), {
+        status: 403,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: ownedItem, error: itemErr } = await supabase
+      .from("order_items")
+      .select("id")
+      .eq("order_id", order.id)
+      .eq("vendor_id", profile.vendor_id)
+      .limit(1)
+      .maybeSingle();
+    if (itemErr) {
+      console.error("paystack-initialize-delivery: vendor order-item lookup failed");
+      return new Response(JSON.stringify({ error: "Unable to verify vendor ownership" }), {
+        status: 500,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+    if (!ownedItem) {
+      return new Response(JSON.stringify({ error: "Authenticated vendor does not own this order" }), {
+        status: 403,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    // Preserve safe retries of an already-created pending payment. New
+    // payment creation/initialization attempts must pass all durable buckets.
+    let existingPendingPayment = false;
+    if (order.delivery_payment_id) {
+      const { data: pendingPayment } = await supabase
+        .from("payments")
+        .select("status")
+        .eq("id", order.delivery_payment_id)
+        .eq("payment_type", "vendor_delivery")
+        .maybeSingle();
+      existingPendingPayment = pendingPayment?.status === "pending";
+    }
+
+    if (!existingPendingPayment) {
+      const action = "paystack_initialize_delivery";
+      const ip = req.headers.get("cf-connecting-ip")
+        || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+        || "unknown";
+      const subjects = [
+        ["user", await rateLimitSubject(user.id)],
+        ["ip", await rateLimitSubject(ip)],
+        ["resource", await rateLimitSubject(order.id)],
+      ] as const;
+      let retryAfter = 0;
+      for (const [subjectType, subjectHash] of subjects) {
+        const { data: limit, error: limitErr } = await supabase.rpc("consume_rate_limit", {
+          p_action: action,
+          p_subject_type: subjectType,
+          p_subject_hash: subjectHash,
+        });
+        if (limitErr) {
+          console.error("paystack-initialize-delivery: rate-limit check failed");
+          return new Response(JSON.stringify({ error: "Payment temporarily unavailable" }), {
+            status: 503,
+            headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+          });
+        }
+        if (!limit?.allowed) retryAfter = Math.max(retryAfter, Number(limit?.retry_after_seconds) || 1);
+      }
+      if (retryAfter > 0) {
+        return new Response(JSON.stringify({ error: "Too many delivery payment attempts" }), {
+          status: 429,
+          headers: { ...corsHeaders(req), "Content-Type": "application/json", "Retry-After": String(retryAfter) },
+        });
+      }
     }
 
     // Create/reuse the authoritative pending payment while forwarding the

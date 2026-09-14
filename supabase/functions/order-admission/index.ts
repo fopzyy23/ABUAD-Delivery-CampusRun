@@ -5,12 +5,25 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const MAX_BODY_BYTES = 16 * 1024;
-const ALLOWED_ORIGINS = new Set(["https://dropzyy.com", "https://www.dropzyy.com"]);
+const ALLOWED_ORIGINS: string[] = (
+  Deno.env.get("ALLOWED_ORIGIN") ??
+    "https://dropzyy.com,https://www.dropzyy.com,http://127.0.0.1:5500"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const corsHeaders = (req: Request): HeadersInit => {
-  const origin = req.headers.get("origin");
-  return origin && ALLOWED_ORIGINS.has(origin)
-    ? { "access-control-allow-origin": origin, "access-control-allow-methods": "POST, OPTIONS", "access-control-allow-headers": "authorization, apikey, content-type", "access-control-max-age": "600", vary: "Origin" }
-    : {};
+  const origin = req.headers.get("origin") ?? "";
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
+  const headers: HeadersInit = {
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "authorization, apikey, content-type",
+    "access-control-max-age": "600",
+    "vary": "Origin",
+  };
+  if (allowOrigin) headers["access-control-allow-origin"] = allowOrigin;
+  return headers;
 };
 const json = (req: Request, body: Record<string, unknown>, status = 200, headers: HeadersInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -33,6 +46,19 @@ async function fingerprint(operation: string, items: unknown[], spot: string): P
 }
 
 Deno.serve(async (req) => {
+  const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
+  const logStep = (stage: string, outcome: "success" | "failure", error?: unknown) => {
+    const details = error && typeof error === "object"
+      ? { error_code: typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "rpc_error" }
+      : {};
+    console.log(JSON.stringify({
+      event: "order_admission",
+      request_id: requestId,
+      stage,
+      outcome,
+      ...details,
+    }));
+  };
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
   if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
   const contentType = req.headers.get("content-type") ?? "";
@@ -81,7 +107,11 @@ Deno.serve(async (req) => {
     p_user_id: user.id, p_operation: operation, p_request_key: requestKey,
     p_request_fingerprint: requestFingerprint,
   });
-  if (existingError) return json(req, { error: "Order admission temporarily unavailable" }, 503);
+  if (existingError) {
+    logStep("get_order_creation_attempt", "failure", existingError);
+    return json(req, { error: "Order admission temporarily unavailable" }, 503);
+  }
+  logStep("get_order_creation_attempt", "success");
   if (existingAttempt?.status === "conflict") return json(req, { error: "idempotency key already used for a different order request" }, 409);
   attemptId = existingAttempt?.status === "match" ? existingAttempt.attempt_id : crypto.randomUUID();
   if (existingAttempt?.status !== "match") {
@@ -89,9 +119,10 @@ Deno.serve(async (req) => {
       p_user_id: user.id, p_operation: operation,
     });
     if (error) {
-      console.error("order-admission RPC failed", error.message);
+      logStep("create_order_admission", "failure", error);
       return json(req, { error: "Order admission temporarily unavailable" }, 503);
     }
+    logStep("create_order_admission", "success");
     if (!data?.allowed) {
       const retry = Math.max(1, Number(data?.retry_after_seconds) || 1);
       return json(req, { error: "Order creation rate limit exceeded" }, 429, { "retry-after": String(retry) });
@@ -102,14 +133,21 @@ Deno.serve(async (req) => {
       p_attempt_id: attemptId, p_request_key: requestKey, p_request_fingerprint: requestFingerprint,
     });
     if (consumeError || consumed !== true) {
+      logStep("consume_order_admission", "failure", consumeError || { code: "not_consumed" });
       const { data: racedAttempt, error: racedError } = await admin.rpc("get_order_creation_attempt", {
         p_user_id: user.id, p_operation: operation, p_request_key: requestKey,
         p_request_fingerprint: requestFingerprint,
       });
-      if (racedError) return json(req, { error: "Order admission temporarily unavailable" }, 503);
+      if (racedError) {
+        logStep("race_recheck", "failure", racedError);
+        return json(req, { error: "Order admission temporarily unavailable" }, 503);
+      }
+      logStep("race_recheck", "success");
       if (racedAttempt?.status === "conflict") return json(req, { error: "idempotency key already used for a different order request" }, 409);
       if (racedAttempt?.status !== "match") return json(req, { error: "Order admission temporarily unavailable" }, 503);
       attemptId = racedAttempt.attempt_id;
+    } else {
+      logStep("consume_order_admission", "success");
     }
   }
 
@@ -122,6 +160,10 @@ Deno.serve(async (req) => {
     p_attempt_id: attemptId,
     p_request_fingerprint: requestFingerprint,
   });
-  if (orderError) return json(req, { error: orderError.message }, 400);
+  if (orderError) {
+    logStep(rpcName, "failure", orderError);
+    return json(req, { error: orderError.message }, 400);
+  }
+  logStep(rpcName, "success");
   return json(req, { order });
 });

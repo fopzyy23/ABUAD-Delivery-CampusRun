@@ -2996,6 +2996,7 @@ async function orders() {
     ).join('');
     const cancelBtn = cancellable ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel order</button>` : '';
     const reorderBtn = reorderable ? `<br><button class="link-btn small" data-reorder="${o.id}">🔁 Reorder</button>` : '';
+    const vendorDelivery = o.request_type === 'vendor_request';
     // Refund action/status for this card. Mirrors orderView eligibility exactly:
     // a successful payment + no existing/terminal refund. Request amount is NEVER
     // sent from the client — the backend is authoritative.
@@ -3005,6 +3006,9 @@ async function orders() {
       : (o.payment_status === 'success'
           ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
           : '');
+    if (vendorDelivery) {
+      return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} product value</b><br>${vendorDeliveryStatusMessage(o)}<a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+    }
     return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
 }).join('');
   return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you've ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
@@ -3063,6 +3067,7 @@ async function vendorRequestsView() {
     } else if (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') {
       statusInfo = '<p class="muted small">Your order is with a rider.</p>';
     }
+    if (isVendorSelf || isVendorRider) statusInfo += vendorDeliveryStatusMessage(o, true);
 
     const cancelBtn = ['Order confirmed','Preparing'].includes(o.status)
       ? `<br><button class="link-btn small" data-cancel="${o.id}">Cancel request</button>` : '';
@@ -3284,8 +3289,9 @@ async function orderView(id) {
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card stack">
     <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div>${customerOrderStatusBadge(o)}</div>
     <p class="muted small mb-0">🏪 ${esc(vnames)} · ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} · 📍 ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : ''}</p>
+    ${o.request_type === 'vendor_request' ? vendorDeliveryStatusMessage(o, true) : ''}
     <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
+    <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>${o.request_type === 'vendor_request' ? (o.delivery_method === 'vendor_self' ? 'Delivery: Vendor self-delivery — no Dropzyy delivery fee' : 'Vendor delivery fee — ₦1,500 (paid by vendor)') : 'Delivery fee'}</span><span>${o.request_type === 'vendor_request' ? '' : money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
     <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
     ${refundUi}
   </div>
@@ -3295,7 +3301,8 @@ async function orderView(id) {
     ${canReorder ? `<button class="btn btn--block" data-reorder="${esc(o.id)}">🔁 Reorder</button><p class="muted xs center mb-0">Rebuilds your cart at today's prices — unavailable items are skipped.</p>` : `<p class="muted xs mb-0">Reordering is available for completed (delivered) orders.</p>`}
     <div class="divider"></div>
     <div><span class="muted small">Delivery location</span><div><b>${esc(o.spot || '—')}</b></div></div>
-    <div><span class="muted small">Payment status</span><div>${moneyStatusBadge(o.payment_status || 'pending')}</div></div>
+    <div><span class="muted small">Product payment status</span><div>${moneyStatusBadge(o.payment_status || 'pending')}</div></div>
+    ${o.request_type === 'vendor_request' && o.delivery_method === 'rider' ? `<div><span class="muted small">Vendor delivery payment</span>${vendorDeliveryStatusMessage(o, true)}</div>` : ''}
     <div><span class="muted small">Placed</span><div><b>${esc(placedAt)}</b></div></div>
   </aside></div></section>`;
 }
@@ -3615,6 +3622,20 @@ function customerOrderStatusBadge(o) {
   if (o.payment_status === 'pending' && o.status === 'Order confirmed') return '<span class="badge badge--warn">Payment Pending</span>';
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
   return '<span class="badge badge--'+badge+'">'+esc(o.status)+'</span>';
+}
+
+function vendorDeliveryStatusMessage(o, block = false) {
+  if (o.request_type !== 'vendor_request') return '';
+  let message = '';
+  if (o.delivery_method === 'vendor_self') {
+    message = 'Vendor self-delivery — no Dropzyy delivery fee.';
+  } else if (o.delivery_method === 'rider') {
+    const status = o.delivery_payment_status || 'pending';
+    if (status === 'success') message = 'Vendor delivery payment successful.';
+    else if (status === 'failed') message = 'Vendor delivery payment failed. The vendor must retry.';
+    else message = 'Awaiting vendor delivery payment. The vendor pays ₦1,500; you are not charged.';
+  }
+  return message ? `<p class="muted small${block ? ' mt-1' : ''}">${message}</p>` : '';
 }
 
 function moneyStatusBadge(p) {
@@ -4223,7 +4244,7 @@ document.addEventListener('click', async e=>{
     save();
     addNotification('Order updated',`Order #${order.id} is now ${to}.`);
     if(typeof supabase!=='undefined' && supabase && order.dbId){
-      supabase.from('orders').update({ status: to }).eq('id', order.dbId)
+      supabase.rpc('vendor_update_order_status', { p_order_id: order.dbId, p_status: to })
         .then(({ error })=>{ if(error){ console.error('Vendor status update failed:', error); order.status=prev; save(); } })
         .catch(err=>console.error('Vendor status update error:', err));
     }
@@ -4241,8 +4262,10 @@ document.addEventListener('click', async e=>{
     save();
     addNotification('Delivery method set',`Order #${order.id} will use ${method} delivery.`);
     if(typeof supabase!=='undefined' && supabase && order.dbId){
-      supabase.from('orders').update({ delivery_method: method, status: order.status }).eq('id', order.dbId)
-        .then(({ error })=>{ if(error){ console.error('Vendor delivery-method update failed:', error); order.delivery_method=prevMethod; save(); } })
+      supabase.rpc('set_vendor_delivery_method', {
+        p_order_id: order.dbId,
+        p_delivery_method: method
+      }).then(({ error })=>{ if(error){ console.error('Vendor delivery-method update failed:', error); order.delivery_method=prevMethod; save(); } })
         .catch(err=>console.error('Vendor delivery-method update error:', err));
     }
     toast(`Order #${order.id}: ${method==='rider'?'Rider will deliver':'You will deliver this order'}`);

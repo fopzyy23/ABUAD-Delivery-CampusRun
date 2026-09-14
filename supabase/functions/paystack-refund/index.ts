@@ -215,7 +215,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     // ---- Validate payment type and amount ----
     const isVendorDelivery = payment.payment_type === "vendor_delivery";
-    const expectedAmount = isVendorDelivery ? 150000 : payment.amount * 100; // vendor delivery is ₦1,500 = 150000 kobo
+    const expectedAmount = payment.amount * 100;
 
     // Validate the payment is in a refundable state
     if (payment.status !== "success") {

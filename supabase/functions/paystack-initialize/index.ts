@@ -137,7 +137,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const orderId = typeof body.order_id === "string" ? body.order_id.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim() : "";
+    // The authenticated account email is authoritative; any client-supplied
+    // email is intentionally ignored for Paystack initialization.
+    const email = typeof user.email === "string" ? user.email.trim() : "";
 
     if (!orderId || !email) {
       return new Response(
