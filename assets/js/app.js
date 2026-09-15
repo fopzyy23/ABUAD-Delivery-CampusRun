@@ -123,8 +123,8 @@ const SEED_DATA = {
 // TODO: Replace both placeholder values with the real Dropzyy
 // support email and WhatsApp Channel invite link. They are used by
 // homeReachUs() (WhatsApp / Email cards) — change them here only.
-const DROPZYY_SUPPORT_EMAIL = 'support@dropzyy.app'; // ← PASTE EMAIL HERE
-const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/PASTE_WHATSAPP_CHANNEL_LINK_HERE'; // ← PASTE WHATSAPP CHANNEL LINK HERE
+const DROPZYY_SUPPORT_EMAIL = 'zyy.work.zyy@gmail.com'; // ← PASTE EMAIL HERE
+const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/0029Vb95rgV4tRrjXoGl1I1E'; // ← PASTE WHATSAPP CHANNEL LINK HERE
 
 const $ = s => document.querySelector(s);
 const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
