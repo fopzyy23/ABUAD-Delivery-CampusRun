@@ -56,6 +56,27 @@ function corsHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
+// ---- Explicit Paystack callback (return) URL ----
+// Paystack redirects the payer back to this URL after checkout and appends
+// ?trxref=…&reference=… to it. We send it explicitly instead of relying on the
+// dashboard default so the return route is always a Dropzyy route and the
+// reference always lands somewhere the app can read it (the dashboard default
+// pointed at the site root, where the old 0s meta-refresh redirect discarded
+// the query string and the reference was lost).
+//
+// The origin is taken from the request's own Origin header ONLY when it is
+// already on the CORS allowlist, so a preview deploy or local dev returns to
+// itself and anything else falls back to the production return route. No new
+// secret is required, and an unlisted origin can never steer the callback.
+const DEFAULT_CALLBACK_URL =
+  Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "https://dropzyy.com/orders";
+
+function resolveCallbackUrl(req: Request): string {
+  const origin = req.headers.get("Origin") ?? "";
+  if (ALLOWED_ORIGINS.includes(origin)) return `${origin}/orders`;
+  return DEFAULT_CALLBACK_URL;
+}
+
 // Paystack amounts are in kobo (1 Naira = 100 kobo).
 function nairaToKobo(naira: number): number {
   return Math.round(naira * 100);
@@ -229,6 +250,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Generate a unique Paystack reference ----
     const reference = `dropzyy_${order.order_number}_${Date.now()}`;
 
+    // ---- Explicit return URL (see resolveCallbackUrl) ----
+    // ?trxref=/?reference= are appended by Paystack to this URL, so the return
+    // lands on /orders where app.js can resolve the reference. The Netlify rule
+    // for /orders is a 200 rewrite, which preserves the query string.
+    const callbackUrl = resolveCallbackUrl(req);
+
     // ---- Call Paystack transaction/initialize ----
     const amountKobo = nairaToKobo(Number(order.total));
 
@@ -244,6 +271,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
           email,
           amount: amountKobo,
           reference,
+          // Explicit return route so the Paystack redirect comes back to a
+          // Dropzyy route that can read the reference (never a dashboard
+          // default that may drop the query string).
+          callback_url: callbackUrl,
           metadata: {
             order_id: order.id,
             order_number: order.order_number,

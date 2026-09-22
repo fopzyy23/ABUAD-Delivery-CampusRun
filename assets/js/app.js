@@ -461,9 +461,12 @@ async function submitRiderApplication(formData) {
 // so the figure always matches what backs real payouts.
 // Because no settlement/payout has occurred, every figure is clearly
 // labelled as an ESTIMATE and PENDING.
+// A delivery is COMPLETE once it is Delivered OR Rated. Rating happens after
+// hand-off, so restricting this set to 'Delivered' alone made a rated delivery
+// disappear from the rider's Delivery history the moment the customer rated it.
 function riderCompletedDeliveries() {
   return (state.riderPool || []).filter(o =>
-    o.status === 'Delivered' && (o.delivery_method || 'rider') !== 'vendor_self'
+    (o.status === 'Delivered' || o.status === 'Rated') && (o.delivery_method || 'rider') !== 'vendor_self'
   );
 }
 // Estimated pending earnings = sum of the authoritative fixed rider delivery
@@ -2463,6 +2466,11 @@ function resetVendorSessionState() {
   state.withdrawalsLoaded = false;
   state.withdrawalsError = null;
   state.withdrawalSubmitting = false;
+  // Rider earnings belong to the account that was signed in. Clearing this on
+  // logout / new-session guarantees the next user never sees the previous
+  // rider's authoritative pending_earnings figure (loadRiderFromSupabase()
+  // repopulates it for the current account).
+  state.riderEarnings = null;
 }
 
 async function loadVendorDataFromSupabase() {
@@ -2973,7 +2981,7 @@ function checkout() {
   const checkoutItems = cartItems();
   const vendorOnly = checkoutItems.length > 0 && checkoutItems.every(isVendorProduct);
   if (vendorOnly) {
-    return `<section class="section container"><div class="page-head"><div><h1>Send vendor request</h1><p>No payment is made on Dropzyy. The vendor will contact you directly.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Message to vendor (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Add a note for the vendor."></textarea></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Send Request</button><p class="muted xs center mb-0">The vendor will contact you to arrange product payment directly.</p></form><aside class="card sticky-side"><h3>Your request</h3>${checkoutItems.map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Dropzyy payment</span><span>₦0</span></div><div><span>Delivery</span><span>Arranged with vendor</span></div></div></aside></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Send vendor request</h1><p>No payment is made on Dropzyy. The vendor will contact you directly.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Send Request</button><p class="muted xs center mb-0">The vendor will contact you to arrange product payment directly.</p></form><aside class="card sticky-side"><h3>Your request</h3>${checkoutItems.map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Dropzyy payment</span><span>₦0</span></div><div><span>Delivery</span><span>Arranged with vendor</span></div></div></aside></div></section>`;
   }
   const mixedCart = checkoutItems.some(isVendorProduct) && checkoutItems.some(item => !isVendorProduct(item));
   if (mixedCart) {
@@ -2982,11 +2990,11 @@ function checkout() {
     const restaurantSubtotal = restaurantItems.reduce((sum, item) => sum + item.price * item.qty, 0);
     const restaurantTotal = restaurantSubtotal + DELIVERY_FEE;
     const renderCheckoutItem = x => `<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`;
-    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant / Bookshop</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant/Bookshop total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Delivery note (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Help your rider or vendor find you quickly."></textarea></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant/Bookshop items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant / Bookshop</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant/Bookshop total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant/Bookshop items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div><div class="field col-2"><label for="checkoutNote">Delivery note (optional)</label><textarea class="textarea" name="note" id="checkoutNote" placeholder="Help your rider find you quickly."></textarea></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 // F18: lightweight skeleton card for async views. Uses the existing shimmer
@@ -3907,13 +3915,19 @@ function playWaybill() {
 // F12: admin.js is only fetched when a #/admin route is actually rendered.
 // The loader is cached so the module is injected once per page session; if
 // loading fails, the cached promise is reset so a later navigation can retry.
+//
+// The path is ROOT-ABSOLUTE on purpose. The SPA shell is served at whatever
+// path the visitor used (/, /orders, /admin/login, ...) via the Netlify
+// rewrite, so a relative '../js/admin.js' resolved against that path and
+// 404'd into the HTML fallback — the browser then refused the script on MIME
+// type and the in-app admin route reported "Admin panel unavailable".
 let adminJsPromise = null;
 function ensureAdminJs() {
   if (window.AdminHub) return Promise.resolve();
   if (adminJsPromise) return adminJsPromise;
   adminJsPromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = '../js/admin.js';
+    s.src = '/assets/js/admin.js';
     s.onload = () => resolve();
     s.onerror = () => {
       adminJsPromise = null; // allow a later retry
@@ -4570,8 +4584,11 @@ document.addEventListener('submit', e=>{
       }
     });
 
-    const note=(f.get('note')||'').trim();
-    const spot = `${f.get('location')}: ${f.get('spot')}${note?' — Note: '+note:''}`;
+    // The checkout form no longer collects a delivery note: there is no
+    // delivery_note column on orders and neither place_order nor
+    // create_vendor_order_request accepts one, so the old note field and
+    // its concatenation were dead code and have been removed.
+    const spot = `${f.get('location')}: ${f.get('spot')}`;
 
     if (typeof supabase === 'undefined' || !supabase) {
       toast('Order failed: Supabase client not available', 'error');
@@ -4782,6 +4799,47 @@ applyTheme(localStorage.getItem('campusrun_theme')||'light'); $('#year').textCon
 // Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL
 // constant so the address is pasted/changed in one place only.
 const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DROPZYY_SUPPORT_EMAIL||'').trim(); if(em){ footerEmailLink.textContent=em; footerEmailLink.href='mailto:'+em; } }
+
+// ============================================
+// Deep-link bootstrap: real URL path -> SPA hash route
+// ============================================
+// The router is hash-based (render() reads location.hash only). Netlify serves
+// this same shell for real paths such as /orders or /rider using a 200 rewrite
+// (so the address bar keeps the pretty path), and without this bootstrap those
+// requests arrived with an empty hash and silently rendered the home route.
+//
+// Deliberately narrow:
+//   * only route prefixes the router actually understands are mapped;
+//   * an existing "#/..." hash ALWAYS wins, so normal in-app navigation and
+//     every existing link are untouched;
+//   * unknown paths are left alone, so the pre-existing "no hash -> #/"
+//     fallback below still applies.
+// history.replaceState is used because it does NOT fire a hashchange event, so
+// boot still renders exactly once and no extra history entry is created.
+// location.search is preserved verbatim so the Paystack return parameters
+// (?reference= / ?trxref=) reach handlePaystackReturn().
+const PATH_ROUTE_PREFIXES = [
+  'browse', 'vendors', 'vendor', 'product', 'cart', 'checkout', 'orders',
+  'order', 'track', 'refund', 'pay', 'profile', 'login', 'register', 'faqs',
+  'report', 'report-issue', 'vendor-requests', 'rider'
+];
+function pathRouteFromLocation() {
+  const segments = location.pathname.split('/').filter(Boolean);
+  if (!segments.length) return '';                  // "/" -> home
+  if (segments[0].toLowerCase() === 'admin') {
+    return segments[1] === 'login' ? '#/admin/login' : '#/admin';
+  }
+  if (!PATH_ROUTE_PREFIXES.includes(segments[0].toLowerCase())) return '';
+  return '#/' + segments.join('/');
+}
+function applyPathRouteBootstrap() {
+  if (location.hash) return;                        // an existing hash wins
+  const route = pathRouteFromLocation();
+  if (!route) return;                               // leave "" for the fallback
+  history.replaceState(null, '', location.pathname + location.search + route);
+}
+applyPathRouteBootstrap();
+
 window.addEventListener('hashchange', () => {
   // If we're navigating away from a track page, tear down the live
   // channel + poll so neither leaks across route changes.
@@ -4820,9 +4878,12 @@ loadNotificationsFromSupabase();
 // and list update without a manual refresh. Falls back to the pull-based
 // loader above (panel open / login / boot) when Realtime is unavailable.
 subscribeNotificationsRealtime();
-// Paystack return: if the browser came back from Paystack with a payment
-// reference in the URL, refresh orders from Supabase and open My Orders.
-handlePaystackReturn();
+// NOTE: handlePaystackReturn() is deliberately NOT called here. It requires
+// state.user (it can only confirm a payment against the signed-in user's own
+// orders) and state.user is populated by the async session restore below, so
+// calling it at this point always returned immediately and the whole
+// payment-return flow was dead. It is invoked at the end of the session
+// restore instead.
 
 
 // Session persistence: restore the Supabase session on load so a page refresh
@@ -4861,6 +4922,10 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
         render();
+        // Paystack return: state.user and this user's orders are finally
+        // available, so a ?reference= / ?trxref= left in the URL can be
+        // resolved and confirmed. No-op when the URL has no reference.
+        await handlePaystackReturn();
       })
       .catch(async ()=>{
         state.user={name:session.user.email.split('@')[0],email:session.user.email,role:'user'};
@@ -4868,6 +4933,9 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
         render();
+        // Same as the branch above: only now is there an authenticated user to
+        // match the returned payment reference against.
+        await handlePaystackReturn();
       });
   }
 });

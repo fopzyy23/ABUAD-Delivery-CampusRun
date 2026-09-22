@@ -1,11 +1,15 @@
-# Serve the standalone admin panel directly — must come BEFORE all catch-alls
-/assets/html/admin.html    /assets/html/admin.html    200
-/assets/admin.html         /assets/html/admin.html    200
-/admin.html                /assets/html/admin.html    200
-/admin                     /assets/html/admin.html    200
-
-# Serve individual asset files (css/js/images) directly
-/assets/*                  /assets/:splat              200
-
-# SPA fallback: any unmatched path serves the app entry point
-/*                         /assets/html/index.html     200
+# ============================================================
+# INTENTIONALLY COMMENT-ONLY — DO NOT ADD RULES HERE.
+# ============================================================
+# Netlify processes rules from this file BEFORE the rules in netlify.toml,
+# so having the same rules in both places means one set silently shadows the
+# other and only one file can ever be edited safely.
+#
+# The effective routing rules now live in exactly ONE place:
+#
+#   netlify.toml  ->  [[redirects]]
+#
+# This file is kept (rather than deleted) as a signpost, so nobody re-adds a
+# second, conflicting rule set here. Comments are ignored by Netlify, so this
+# file contributes zero rules.
+# ============================================================

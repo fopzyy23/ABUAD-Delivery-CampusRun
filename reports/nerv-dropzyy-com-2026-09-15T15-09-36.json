@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "tool": "Nerv QA Agent",
+    "version": "2.0.1",
+    "timestamp": "2026-09-15T15:09:36.870Z",
+    "targetUrl": "https://dropzyy.com/",
+    "aiEnhanced": false,
+    "aiModel": null,
+    "aiModels": [],
+    "aiModelCount": 0
+  },
+  "executive": {
+    "totalGroupedIssues": 1,
+    "totalRawBugs": 1,
+    "issuesReduced": "No grouping needed",
+    "severity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 1,
+      "low": 0
+    },
+    "byCategory": {
+      "network_error": 1
+    },
+    "mostCriticalIssue": {
+      "title": "Network failure: csp on www.google.com/imgres...",
+      "severity": "medium"
+    },
+    "recommendedFixOrder": [
+      {
+        "id": "NERV-G001",
+        "title": "Network failure: csp on www.google.com/imgres...",
+        "severity": "medium",
+        "effort": "MEDIUM",
+        "reason": "Infrastructure/DNS configuration fix"
+      }
+    ],
+    "pagesScanned": 2,
+    "actionsPerformed": 54,
+    "scanDuration": 706,
+    "recommendation": "1 medium-severity issue(s) found. Schedule fixes for next release cycle. No production blockers detected."
+  },
+  "issues": [
+    {
+      "id": "NERV-G001",
+      "title": "Network failure: csp on www.google.com/imgres...",
+      "severity": "medium",
+      "confidence": 55,
+      "category": "network_error",
+      "rootCause": "Network request to /imgres?q=provisions%20cereal&imgurl=https%3A%2 failed: csp. Check server availability and network configuration.",
+      "summary": "Network request failed: csp — https://www.google.com/imgres?q=provisions%20cereal&imgurl=https%3A%2F%2Fknjwoaxtbiyxbdxntzwm.supabase.co%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fproducts%2Fhero-provisions.jpg&imgrefurl=https%3A%2F%2Fgoto",
+      "impact": "Network requests failing completely — affected resources will not load, causing broken UI or missing data. ",
+      "priorityContext": "Isolated to single page — limited blast radius. Present on majority of scanned pages — most visitors will encounter this.",
+      "reproductionSteps": [
+        "Click \"Skip to content\"",
+        "Click \"Skip to content\"",
+        "Click \"Skip to content\"",
+        "Click \"Skip to content\"",
+        "Observe network failure: csp on www.google.com/imgres..."
+      ],
+      "suggestedFix": "Check network path to www.google.com. Verify DNS, firewall rules, and server process status.",
+      "verificationSteps": [
+        "Fix DNS/server configuration",
+        "Reload page — confirm no network errors in DevTools",
+        "Verify the dependent feature loads correctly"
+      ],
+      "effort": {
+        "level": "MEDIUM",
+        "estimate": "10–30 min",
+        "reason": "Infrastructure/DNS configuration fix"
+      },
+      "evidence": {
+        "type": "network_error",
+        "url": "https://www.google.com/imgres?q=provisions%20cereal&imgurl=https%3A%2F%2Fknjwoaxtbiyxbdxntzwm.supabase.co%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fproducts%2Fhero-provisions.jpg&imgrefurl=https%3A%2F%2Fgotoprovs.app%2F&docid=9j38nzgP9w_EoM&tbnid=0_S9Ctg5PKuLbM&vet=12ahUKEwiauYWy1dSWAxXuT0EAHQ8kCAcQnPAOegQIShAA..i&w=1024&h=1280&hcb=2&ved=2ahUKEwiauYWy1dSWAxXuT0EAHQ8kCAcQnPAOegQIShAA",
+        "errorText": "csp",
+        "method": "GET",
+        "page": "https://dropzyy.com/assets/html/index.html#/"
+      },
+      "screenshot": null,
+      "occurrences": 1,
+      "affectedPages": [
+        "https://dropzyy.com/assets/html/index.html#/"
+      ],
+      "rawBugIds": [
+        "NERV-001"
+      ]
+    }
+  ],
+  "visitedUrls": [
+    "https://dropzyy.com/assets/html/index.html",
+    "https://dropzyy.com/assets/html/index.html#/"
+  ]
+}

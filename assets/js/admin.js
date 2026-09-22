@@ -2703,10 +2703,14 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Auto-initialize when loaded directly via admin.html (backward compatible).
+// Auto-initialize when the admin shell is loaded directly (backward
+// compatible). Matched on EITHER the pretty Netlify route (/admin — served
+// from assets/html/admin.html by rewrite) OR the literal file path, because
+// `includes('admin.html')` alone never fires on /admin and the standalone
+// panel would render an empty page.
 // When loaded inside index.html, app.js controls initialization via
 // window.AdminHub.init() when the user navigates to an admin route.
-if (window.location.pathname.includes('admin.html')) {
+if (window.location.pathname.includes('admin.html') || /(^|\/)admin\/?$/.test(window.location.pathname)) {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
@@ -2838,7 +2842,10 @@ async function loadOrdersFromSupabase() {
       dbId: order.id,
       items: itemsByOrder[order.id] || [],
       total: order.total,
-      fee: order.fee || 1000,
+      // Fallback only — the authoritative fee is orders.fee. `!= null` (not
+      // truthiness) so a legitimate vendor_self fee of 0 is not replaced, and
+      // the fallback matches the current flat ₦1,500 campus delivery fee.
+      fee: order.fee != null ? order.fee : 1500,
       status: order.status || 'Order confirmed',
       spot: order.spot || '',
       created: order.created_at

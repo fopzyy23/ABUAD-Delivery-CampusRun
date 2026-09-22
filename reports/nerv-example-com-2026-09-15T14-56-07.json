@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "tool": "Nerv QA Agent",
+    "version": "2.0.1",
+    "timestamp": "2026-09-15T14:56:07.615Z",
+    "targetUrl": "https://example.com/",
+    "aiEnhanced": false,
+    "aiModel": null,
+    "aiModels": [],
+    "aiModelCount": 0
+  },
+  "executive": {
+    "totalGroupedIssues": 0,
+    "totalRawBugs": 0,
+    "issuesReduced": "No grouping needed",
+    "severity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "byCategory": {},
+    "mostCriticalIssue": null,
+    "recommendedFixOrder": [],
+    "pagesScanned": 2,
+    "actionsPerformed": 79,
+    "scanDuration": 122,
+    "recommendation": "No issues detected. Application appears healthy within the scanned surface area."
+  },
+  "issues": [],
+  "visitedUrls": [
+    "https://example.com/",
+    "about:blank"
+  ]
+}
