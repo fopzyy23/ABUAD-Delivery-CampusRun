@@ -35,7 +35,7 @@
   /* Status / semantic (keep for existing logic that references these) */
   /* Brand: Dropzyy hot pink (primary accent, from the moto icon).
      --route-blue is kept ONLY as the semantic info/status color. */
-  --brand: var(--dropzyy-flame);
+  --brand: #D31157;
   --brand-600: #E61360;
   --brand-700: #C40E52;
   --brand-soft: #FFE7F0;
@@ -45,7 +45,7 @@
   --danger-soft: #FBEDE9;
   --info: var(--route-blue);
   --info-soft: #E6ECF5;
-  --success: #2F8F5B;
+  --success: #1F7A49;
   --success-soft: #E7F3EC;
 
   /* --- Typography --- */
@@ -654,12 +654,35 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 .vcarousel__btn svg { width: 16px; height: 16px; display: block; }
 .vcarousel__dots { display: flex; gap: 7px; align-items: center; }
 .vcarousel__dot {
-  width: 8px; height: 8px; padding: 0; border: 0; border-radius: 999px;
-  background: var(--ash); cursor: pointer;
+  width: 32px;
+  height: 32px;
+  padding: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.vcarousel__dot::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: auto;
+  border-radius: 999px;
+  background: var(--ash);
   transition: background .15s var(--ease), width .15s var(--ease);
 }
-.vcarousel__dot:hover { background: var(--ash-text); }
-.vcarousel__dot.is-active { background: var(--brand); width: 20px; }
+
+.vcarousel__dot:hover::before {
+  background: var(--ash-text);
+}
+
+.vcarousel__dot.is-active::before {
+  width: 20px;
+  background: var(--brand);
+}
 
 /* --- Featured Bookshop Materials --- */
 .dropzyy-bookshop { padding: 0 0 64px; }
