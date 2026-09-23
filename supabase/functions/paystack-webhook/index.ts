@@ -174,6 +174,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // Verify amount (Paystack sends kobo) and currency
     const paystackAmountKobo = data?.amount;
+    const paystackFeeKobo =
+      typeof data?.fees === "number" && Number.isFinite(data.fees)
+        ? data.fees
+        : null;
+    const paystackChannel = typeof data?.channel === "string" ? data.channel : null;
+    const paystackPaidAt = typeof data?.paid_at === "string" ? data.paid_at : null;
     const currency = data?.currency;
 
     // Determine expected amount based on payment type
@@ -230,6 +236,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
             p_reference: reference,
             p_transaction_id: String(data?.id ?? data?.transaction_id ?? ""),
             p_order_id: payment.order_id,
+            p_paystack_amount: paystackAmountKobo,
+            p_paystack_fee: paystackFeeKobo,
+            p_paystack_channel: paystackChannel,
+            p_paystack_paid_at: paystackPaidAt,
           },
         );
         if (rpcErr) {
@@ -267,6 +277,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
             p_reference: reference,
             p_transaction_id: txnId,
             p_order_id: payment.order_id,
+            p_paystack_amount: paystackAmountKobo,
+            p_paystack_fee: paystackFeeKobo,
+            p_paystack_channel: paystackChannel,
+            p_paystack_paid_at: paystackPaidAt,
           },
         );
         if (rpcErr) {
