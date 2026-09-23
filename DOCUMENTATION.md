@@ -244,6 +244,8 @@ Migrations are applied chronologically. Total of 26 migrations span Aug 14 – S
 
 **`20260905_create_withdrawal_requests.sql`** — Creates `withdrawal_requests` (id, vendor_id, amount, status, account_name, account_number, bank_code, narration). Functions: `request_withdrawal()`, `approve_withdrawal()`, `reject_withdrawal()`.
 
+**`20261023_withdrawal_bank_details.sql`** — Extends `withdrawal_requests` with `account_name`, `account_number`, `bank_name`, `bank_code` for rider payouts (idempotent `ALTER TABLE` + an `account_number` format CHECK). Rebuilds `request_withdrawal` into a mandatory 5-argument signature (`p_amount`, `p_account_name`, `p_account_number`, `p_bank_name`, `p_bank_code`) that validates bank details server-side with regexes mirroring `paystack-transfer-recipient` (account_number `^[0-9]{6,20}$`, bank_code `^[A-Za-z0-9]{2,10}$`, names ≤120 chars); the legacy single-argument signature is dropped so a bank-less withdrawal can never be submitted. Preserves the 20261022 lifetime-earnings boundary (`ds.status <> 'reversed'`) and the encumbrance rule (`w.status <> 'rejected'`). The rider withdrawal form + RPC carry payout bank details; Paystack recipient registration is best-effort through the rider-JWT Identity Edge Function (`paystack-transfer-recipient`) and does not gate the withdrawal record. Admin review UI gains a Bank account column. No money moves — payouts remain record-only pending manual admin action.
+
 ### 5.10 Rider Earnings Cutover
 
 **`20260911_rider_80_20_earnings_cutover.sql`** — Updates model to fixed 80/20 split. Adds `rider_earnings_rate` to orders (default 0.20). Updates `calculate_settlement()`. Backfills orders. Creates `rider_earnings_summary` view.

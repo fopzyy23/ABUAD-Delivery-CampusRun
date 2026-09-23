@@ -59,7 +59,7 @@ check("earnings RPC keeps ownership check", /get_rider_earnings\(p_rider_id uuid
 check("earnings RPC keeps authenticated grant", /GRANT EXECUTE ON FUNCTION public\.get_rider_earnings\(uuid\) TO authenticated/.test(mig));
 
 console.log("\n== FRONTEND USES THE RPC ==");
-check("app.js calls request_withdrawal RPC", /supabase\.rpc\('request_withdrawal', \{ p_amount: value \}\)/.test(app));
+  check("app.js calls request_withdrawal RPC", /supabase\.rpc\('request_withdrawal', \{[\s\S]{0,300}p_amount:\s*value/.test(app));
 check("app.js no longer directly inserts withdrawal_requests", !/from\('withdrawal_requests'\)[\s\S]{0,120}\.insert/.test(app));
 check("client pre-check kept as UX (value > available)", /value > available/.test(app));
 check("withdrawal_requests load via SELECT untouched", /\.from\('withdrawal_requests'\)[\s\S]{0,60}\.select/.test(app));

@@ -374,7 +374,15 @@ async function loadRiderFromSupabase() {
     // unavailable or the rider has no row yet.
     if (state.rider) {
       const { data: earnings, error: earningsError } = await supabase.rpc('get_rider_earnings', { p_rider_id: state.rider.id });
-      if (!earningsError && earnings && earnings.pending_earnings != null) {
+      // Lifetime balance (20261022): prefer lifetime_available_balance so
+      // completed earnings persist after their settlement leaves 'pending'.
+      // Fall back to the legacy pending-only keys on older databases.
+      const lifetime = earnings && earnings.lifetime_available_balance != null
+        ? Number(earnings.lifetime_available_balance)
+        : NaN;
+      if (!earningsError && earnings && Number.isFinite(lifetime)) {
+        state.riderEarnings = Math.max(0, lifetime);
+      } else if (!earningsError && earnings && earnings.pending_earnings != null) {
         state.riderEarnings = Math.max(0, Number(earnings.pending_earnings));
       }
     }
@@ -469,9 +477,9 @@ function riderCompletedDeliveries() {
     (o.status === 'Delivered' || o.status === 'Rated') && (o.delivery_method || 'rider') !== 'vendor_self'
   );
 }
-// Estimated pending earnings = sum of the authoritative fixed rider delivery
-// share on completed deliveries; when the settlement RPC has already
-// returned the authoritative pending_earnings (B5 cutover), that value wins.
+// Available balance = authoritative lifetime earnings from the settlement
+// RPC when present (persists after settlements leave 'pending'); otherwise
+// the per-delivery estimate from completed deliveries.
 function riderPendingEarnings() {
   if (state.riderEarnings != null) return state.riderEarnings;
   return riderCompletedDeliveries().reduce((n, o) => n + riderShareAmount(), 0);
@@ -501,13 +509,17 @@ async function loadWithdrawalsFromSupabase() {
       .order('requested_at', { ascending: false });
     if (error) throw error;
     state.withdrawals = (data || []).map(w => ({
-      id: w.id,
+            id: w.id,
       rider_id: w.rider_id,
       amount: Number(w.amount || 0),
       status: w.status || 'pending',
       requested_at: w.requested_at || null,
       reviewed_at: w.reviewed_at || null,
-      admin_note: w.admin_note || ''
+      admin_note: w.admin_note || '',
+      account_name: w.account_name || null,
+      account_number: w.account_number || null,
+      bank_name: w.bank_name || null,
+      bank_code: w.bank_code || null
     }));
     state.withdrawalsLoaded = true;
     state.withdrawalsError = null;
@@ -521,12 +533,37 @@ async function loadWithdrawalsFromSupabase() {
   }
 }
 
-// Request a withdrawal of `amount` from the rider's PENDING (estimated)
-// earnings. This only CREATES a pending/admin-reviewed record — no money
-// moves. The server-side INSERT policy requires the caller to be an approved
-// rider and the row to be born status = 'pending', so a rider can never forge
-// an approved/paid row or an arbitrary rider_id.
-async function requestWithdrawal(amount) {
+// Canonical Nigerian payout banks for the withdrawal form picker. The display
+// name (value fed back to the RPC as p_bank_name) is authoritative; the code
+// is the Paystack bank_code (value fed back as p_bank_code). Mirrors the list
+// used when registering a recipient via paystack-transfer-recipient.
+// Codes verified against Paystack / Monnified bank lists (Sept 2026).
+const RIDER_PAYOUT_BANKS = [
+  { code: '044', name: 'Access Bank' },
+  { code: '023', name: 'Citibank' },
+  { code: '050', name: 'Ecobank' },
+  { code: '070', name: 'Fidelity Bank' },
+  { code: '011', name: 'First Bank' },
+  { code: '214', name: 'FCMB' },
+  { code: '058', name: 'Guaranty Trust Bank' },
+  { code: '033', name: 'UBA' },
+  { code: '057', name: 'Zenith Bank' },
+  { code: '032', name: 'Union Bank' },
+  { code: '076', name: 'Polaris Bank' },
+  { code: '035', name: 'Wema Bank' },
+  { code: '221', name: 'Stanbic IBTC' },
+  { code: '030', name: 'Heritage Bank' }
+];
+
+// Request a withdrawal of `amount` from the rider's lifetime earnings,
+// attaching payout bank details. This only CREATES a pending/admin-reviewed
+// record — no money moves. The server-side security boundary is the
+// request_withdrawal RPC (SECURITY DEFINER): it re-validates rider
+// ownership, eligibility, amount, the authoritative available balance
+// (lifetime earnings minus non-rejected requests) and the bank details (regex
+// mirrored in paystack-transfer-recipient). The client pre-check above is a
+// UX hint only — direct table INSERT is revoked client-side.
+async function requestWithdrawal(amount, bankDetails) {
   if (!state.user) { toast('Please sign in to request a withdrawal', 'info'); return false; }
   if (!state.rider || state.rider.status !== 'approved') { toast('Only approved riders can request withdrawals', 'error'); return false; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — request could not be saved', 'error'); return false; }
@@ -535,21 +572,53 @@ async function requestWithdrawal(amount) {
   const available = Math.max(0, riderPendingEarnings() - riderPendingRequestsTotal());
   if (value > available) { toast(`Amount exceeds your available estimated earnings of ${money(available)}`, 'error'); return false; }
 
+  const bankCode = String(bankDetails?.bank_code || '').trim();
+  const bank = RIDER_PAYOUT_BANKS.find(b => b.code === bankCode);
+  if (!bank) { toast('Please select a valid bank', 'error'); return false; }
+  const accountName = String(bankDetails?.account_name || '').trim();
+  if (accountName.length < 1 || accountName.length > 120) { toast('Enter the account name as it appears on the bank', 'error'); return false; }
+  const accountNumber = String(bankDetails?.account_number || '').replace(/\s+/g, '');
+  if (!/^\d{6,20}$/.test(accountNumber)) { toast('Enter a valid account number (6-20 digits)', 'error'); return false; }
+
   state.withdrawalSubmitting = true;
   render();
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Please sign in', 'info'); state.withdrawalSubmitting = false; render(); return false; }
-    // H-1: the security boundary for withdrawal requests is the server-side
-    // request_withdrawal RPC (SECURITY DEFINER). It re-validates rider
-    // ownership, eligibility, amount and the authoritative available balance
-    // (delivery settlements minus outstanding requests). The client pre-check
-    // above is a UX hint only — direct table INSERT is revoked client-side.
-    const { error } = await supabase.rpc('request_withdrawal', { p_amount: value });
+    const { error } = await supabase.rpc('request_withdrawal', {
+      p_amount: value,
+      p_account_name: accountName,
+      p_account_number: accountNumber,
+      p_bank_name: bank.name,
+      p_bank_code: bank.code
+    });
     if (error) throw error;
     state.withdrawalSubmitting = false;
-    await loadWithdrawalsFromSupabase();
-    toast('Withdrawal request submitted for admin review', 'success');
+
+    // Best-effort Paystack recipient registration (B6 infrastructure). The
+    // function derives the payee identity from the JWT — never from input — so
+    // passing bank details here is safe and idempotent (a no-op if already
+    // registered). Registration failure does NOT cancel the withdrawal record:
+    // the admin can still action the request manually from the bank details
+    // captured on the row. We only surface a clearer result string.
+    try {
+      const reg = await supabaseEdgeFunctionRequest('paystack-transfer-recipient', {
+        payee_type: 'rider',
+        account_number: accountNumber,
+        bank_code: bank.code,
+        account_name: accountName
+      });
+      await loadWithdrawalsFromSupabase();
+      if (reg && reg.registered) {
+        toast('Withdrawal request submitted for admin review — bank account registered for payouts', 'success');
+      } else {
+        toast('Withdrawal request submitted — bank will be registered for payouts; review may be needed', 'success');
+      }
+    } catch (regErr) {
+      console.warn('Withdrawal recipient registration failed (withdrawal still recorded):', regErr);
+      await loadWithdrawalsFromSupabase();
+      toast('Withdrawal request submitted for admin review (bank registration pending)', 'success');
+    }
     render();
     return true;
   } catch (err) {
@@ -3483,6 +3552,11 @@ function rider() {
   }
   const isApprovedRider = riderStatus === 'approved';
   const isOnline = !!(state.rider && state.rider.available === true);
+  const active = state.riderPool.filter(o => (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') && (o.delivery_method ?? 'rider') !== 'vendor_self');
+  // Server-enforced 2-active-delivery cap (DB trigger is the final word);
+  // the hub mirrors it so a third Accept is blocked/disabled client-side too.
+  const RIDER_MAX_ACTIVE_DELIVERIES = 2;
+  const atActiveCap = active.length >= RIDER_MAX_ACTIVE_DELIVERIES;
   const pending = state.riderPool.filter(o => {
     if (!['Order confirmed', 'Ready for pickup'].includes(o.status)
         || o.rider_id
@@ -3491,8 +3565,10 @@ function rider() {
       ? o.vendor_delivery_requested === true && o.delivery_payment_status === 'success'
       : o.payment_status === 'success';
   });
-  const active = state.riderPool.filter(o => (o.status === 'Rider assigned' || o.status === 'Picked up' || o.status === 'On the Way') && (o.delivery_method ?? 'rider') !== 'vendor_self');
   const done = riderCompletedDeliveries();
+  // "Busy" keeps its original meaning (any active delivery blocks the offline
+  // toggle); the 2-active cap is tracked separately in atActiveCap and only
+  // gates new Accept attempts (server trigger is the final word).
   const isBusy = active.length > 0;
   const earnings = riderPendingEarnings();
   const pendingRequestsTotal = riderPendingRequestsTotal();
@@ -3510,15 +3586,17 @@ function rider() {
         ? '<span class="badge badge--danger">● Application rejected — you can reapply</span>'
         : riderStatus === 'suspended'
           ? '<span class="badge badge--danger">● Account suspended</span>'
-          : isBusy
-            ? '<span class="badge badge--info">● On a delivery — busy</span>'
-            : isOnline
-              ? '<span class="badge badge--success">● Online — available</span>'
-              : '<span class="badge badge--warn">● Offline — unavailable</span>';
+          : atActiveCap
+            ? '<span class="badge badge--info">● At delivery limit (2/2 active)</span>'
+            : isBusy
+              ? '<span class="badge badge--info">● On a delivery — busy</span>'
+              : isOnline
+                ? '<span class="badge badge--success">● Online — available</span>'
+                : '<span class="badge badge--warn">● Offline — unavailable</span>';
 
   const actionBtn = isApprovedRider
     ? (isBusy
-        ? '<button class="btn btn--soft" disabled title="Finish your active delivery first">On delivery…</button>'
+        ? '<button class="btn btn--soft" disabled title="Finish your active delivery first">On delivery?</button>'
         : `<button class="btn btn--soft" id="riderToggle">${isOnline ? 'Go offline' : 'Go online'}</button>`)
     : riderStatus === 'pending'
       ? '<button class="btn btn--ghost" disabled>Application pending</button>'
@@ -3546,10 +3624,15 @@ function rider() {
   // Available deliveries — only shown to an approved rider who is ONLINE.
   // Eligibility is enforced by RLS (orders_select_unassigned): the server only
   // returns unassigned rider-delivery orders to approved riders.
+  // The 2-active cap is enforced server-side by the status-transition trigger;
+  // the hub additionally disables Accept while at cap and shows why.
+  const capNoticeHtml = (isApprovedRider && isOnline && atActiveCap)
+    ? '<div class="card mt-2"><b>Delivery limit reached (2/2 active)</b><span class="muted small"> Deliver or complete one of your active deliveries before accepting another.</span></div>'
+    : '';
   const availableHtml = (isApprovedRider && isOnline)
-    ? (pending.length
-        ? `<div class="grid grid--2">${pending.map((o, i) => { const busy = state.riderSubmitting[o.id]; return `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}" ${busy ? 'disabled' : ''}>${busy ? 'Claiming…' : 'Accept delivery'}</button></article>`; }).join('')}</div>`
-        : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`)
+    ? `${capNoticeHtml}${pending.length
+        ? `<div class="grid grid--2">${pending.map((o, i) => { const busy = state.riderSubmitting[o.id]; const capBlocked = atActiveCap; return `<article class="card"><div class="row row--between"><span class="badge badge--warn">${money(riderShareAmount())} rider earnings</span><span class="small muted">${pickupEstimate(o, i)}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · Order #${o.id}</p>${riderOrderItemsHtml(o)}<a class="btn btn--ghost btn--block" href="#/track/${o.id}">View details</a><button class="btn btn--block" data-accept="${o.id}" ${(busy || capBlocked) ? 'disabled' : ''} ${capBlocked && !busy ? 'title="You already have 2 active deliveries"' : ''}>${busy ? 'Claiming…' : (capBlocked ? 'Limit reached (2 active)' : 'Accept delivery')}</button></article>`; }).join('')}</div>`
+        : `<div class="empty"><div class="empty__icon">🛵</div><b>No available deliveries</b><span>New orders will appear here as soon as they are placed.</span></div>`}`
     : isApprovedRider
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
@@ -3565,25 +3648,34 @@ function rider() {
   let withdrawalHtml = '';
   if (isApprovedRider) {
     const list = state.withdrawals || [];
-    const rowsHtml = !state.withdrawalsLoaded
+        const rowsHtml = !state.withdrawalsLoaded
       ? '<div class="muted center" style="padding:16px">Loading your requests…</div>'
       : state.withdrawalsError
         ? '<div class="muted center" style="padding:16px">Could not load your requests — please try again.</div>'
         : list.length
-          ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
+          ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Bank</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td class="muted small">${w.bank_name ? esc(w.bank_name) + ' ···• ' + (w.account_number ? esc(w.account_number.slice(-4)) : '') : esc('—')}</td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty"><div class="empty__icon">🏦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
-    const requestable = Math.max(0, earnings - pendingRequestsTotal);
+      const requestable = Math.max(0, earnings - pendingRequestsTotal);
+    const lastBank = list.find(w => w.account_number) || null;
     withdrawalHtml = `
       <div class="card mt-3">
         <div class="card__head"><h3>Withdrawals</h3><span class="muted small">Pending admin review — no money moves in-app</span></div>
         ${rowsHtml}
         <div class="divider"></div>
-        <form id="withdrawalForm" class="row row--wrap row--between" style="gap:8px">
+                <form id="withdrawalForm" class="row row--wrap row--between" style="gap:8px">
           <div class="muted small">Requestable now (estimated): <b>${money(requestable)}</b></div>
           <div class="row row--wrap" style="gap:8px">
             <input class="input" name="amount" type="number" min="1" step="any" placeholder="Amount (₦)" style="max-width:180px" required>
-            <button class="btn" type="submit" ${state.withdrawalSubmitting ? 'disabled' : ''}>${state.withdrawalSubmitting ? 'Submitting…' : 'Request withdrawal'}</button>
+            <input class="input" name="account_name" placeholder="Account name" maxlength="120" required style="max-width:180px" ${lastBank ? 'value="' + esc(lastBank.account_name) + '"' : ''}>
           </div>
+          <div class="row row--wrap" style="gap:8px">
+            <input class="input" name="account_number" inputmode="numeric" placeholder="Account number" maxlength="20" pattern="[0-9]{6,20}" required style="max-width:150px" ${lastBank ? 'value="' + esc(lastBank.account_number || '') + '"' : ''}>
+            <select class="select" name="bank" required style="max-width:200px">
+              <option value="">Select bank</option>
+              ${RIDER_PAYOUT_BANKS.map(b => `<option value="${b.code}" ${lastBank && lastBank.bank_code === b.code ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn" type="submit" style="align-self:flex-end" ${state.withdrawalSubmitting ? 'disabled' : ''}>${state.withdrawalSubmitting ? 'Submitting…' : 'Request withdrawal'}</button>
         </form>
         <p class="muted xs mb-0 mt-1">Requests are validated against your estimated earnings and stay pending until an admin reviews them.</p>
       </div>`;
@@ -4159,6 +4251,11 @@ document.addEventListener('click', async e=>{
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
   const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
+    // Client-side mirror of the server-enforced 2-active cap (DB trigger is
+    // final): block a third Accept attempt with a clear message instead of a
+    // wasted round trip. Count the same active states as the trigger.
+    const activeCount=(state.riderPool||[]).filter(x=>x.rider_id===state.rider.id && ['Rider assigned','Picked up','On the Way'].includes(x.status)).length;
+    if(activeCount>=2){ toast('Delivery limit reached — you already have 2 active deliveries.','error'); return; }
     // Duplicate-submission guard: ignore taps while this claim is in flight.
     if(state.riderSubmitting[o.id]) return;
     state.riderSubmitting[o.id]=true;
@@ -4209,6 +4306,11 @@ document.addEventListener('click', async e=>{
         await loadOrdersFromSupabase();
         addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
         toast('Delivery added to your rider queue');
+      } else if(/active deliver|max.*2|limit reached/i.test((claimErr && claimErr.message) || '')){
+        // Server-enforced 2-active cap rejected this claim: refresh so the hub
+        // shows the true active set, then explain the limit.
+        await loadOrdersFromSupabase();
+        toast('Delivery limit reached — you already have 2 active deliveries.','error');
       } else if(reconciled==='gone' || reconciled==='other'){
         toast('This delivery is no longer available. Another rider accepted it.','error');
       } else {
@@ -4678,9 +4780,14 @@ document.addEventListener('submit', e=>{
     e.preventDefault();
     submitRiderApplication(new FormData(e.target));
   }
-  if(e.target.id==='withdrawalForm'){
+    if(e.target.id==='withdrawalForm'){
     e.preventDefault();
-    requestWithdrawal(new FormData(e.target).get('amount'));
+    const fd = new FormData(e.target);
+    requestWithdrawal(fd.get('amount'), {
+      account_name: fd.get('account_name'),
+      account_number: fd.get('account_number'),
+      bank_code: fd.get('bank')
+    });
   }
 });
 

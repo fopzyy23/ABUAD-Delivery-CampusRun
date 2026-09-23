@@ -74,7 +74,8 @@ const structural = [
   'scripts/validate_seed_sync.js',
   'scripts/validate_hardening.js',
   'scripts/validate_settlement_automation.js',
-  'scripts/validate_withdrawal_rpc.js',
+    'scripts/validate_withdrawal_rpc.js',
+  'scripts/validate_withdrawal_bank.js',
   'scripts/validate_vendor_foundation.js',
   'scripts/validate_vendor_followup.js',
   'scripts/validate_vendor_delivery_choice.js'

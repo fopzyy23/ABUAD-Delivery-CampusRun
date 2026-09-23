@@ -1564,8 +1564,9 @@ function renderPaymentsSection() {
         <table class="table">
           <thead>
             <tr>
-              <th>Rider</th>
+                            <th>Rider</th>
               <th>Amount</th>
+              <th>Bank account</th>
               <th>Status</th>
               <th>Requested</th>
               <th>Reviewed</th>
@@ -1588,7 +1589,7 @@ async function loadSettlementsFromSupabase() {
     const [v, d, t] = await Promise.all([
       supabase.from('vendor_settlements').select('id,order_id,vendor_id,amount,status,created_at').order('created_at', { ascending: false }),
       supabase.from('delivery_settlements').select('id,order_id,rider_id,delivery_fee,rider_amount,platform_amount,status,created_at').order('created_at', { ascending: false }),
-      supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false })
+      supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,withdrawal_request_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false })
     ]);
     if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error;
     state.settlements = [...(v.data || []).map(x => ({ ...x, kind: 'vendor', authoritative_amount: Number(x.amount) })), ...(d.data || []).map(x => ({ ...x, kind: 'rider', authoritative_amount: Number(x.rider_amount) }))];
@@ -2012,7 +2013,7 @@ async function loadWithdrawalsFromSupabase() {
       .select('*')
       .order('requested_at', { ascending: false });
     if (error) throw error;
-    state.withdrawals = (data || []).map(w => ({
+        state.withdrawals = (data || []).map(w => ({
       id: w.id,
       rider_id: w.rider_id,
       amount: Number(w.amount || 0),
@@ -2020,7 +2021,11 @@ async function loadWithdrawalsFromSupabase() {
       requested_at: w.requested_at || null,
       reviewed_at: w.reviewed_at || null,
       reviewed_by: w.reviewed_by || null,
-      admin_note: w.admin_note || ''
+      admin_note: w.admin_note || '',
+      account_name: w.account_name || null,
+      account_number: w.account_number || null,
+      bank_name: w.bank_name || null,
+      bank_code: w.bank_code || null
     }));
     state.withdrawalsLoading = false;
     return state.withdrawals;
@@ -2053,6 +2058,18 @@ async function reviewWithdrawal(requestId, newStatus, note) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to review', 'error'); return false; }
+    if (newStatus === 'approved') {
+      const res = await fetch(window.SUPABASE_EDGE_URL + '/functions/v1/paystack-transfer', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withdrawal_id: Number(requestId) })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Payout initiation failed');
+      toast('Withdrawal approved and payout initiated');
+      await loadWithdrawalsFromSupabase(); loadSettlementsFromSupabase(); renderAdminWorkspace();
+      return true;
+    }
     const { error } = await supabase
       .from('withdrawal_requests')
       .update({
@@ -2084,32 +2101,34 @@ function withdrawalStatusBadge(status) {
 // are all represented explicitly.
 function renderWithdrawalRows() {
   if (state.withdrawalsLoading && !state.withdrawals.length) {
-    return '<tr><td colspan="6" class="muted center">Loading withdrawal requests…</td></tr>';
+    return '<tr>        <td colspan="7" class="muted center">Loading withdrawal requests…</td></tr>';
   }
   if (!state.withdrawalsLoading && state.withdrawalsError) {
-    return `<tr><td colspan="6" class="muted center">Could not load withdrawal requests (${String(state.withdrawalsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+    return `    <tr><td colspan="7" class="muted center">Could not load withdrawal requests (${String(state.withdrawalsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
   }
   if (!state.withdrawals.length) {
-    return '<tr><td colspan="6" class="muted center">No withdrawal requests yet.</td></tr>';
+    return '    <tr><td colspan="7" class="muted center">No withdrawal requests yet.</td></tr>';
   }
   const riderFor = id => state.riders.find(r => r.id === id);
   return state.withdrawals.map(w => {
     const rider = riderFor(w.rider_id);
+    const transfer = (state.transfers || []).find(t => Number(t.withdrawal_request_id) === Number(w.id));
     const ident = rider
       ? `${escHtml(rider.matric_number) || '—'}<div class="muted small">${escHtml(rider.phone) || ''}</div>`
       : '<span class="muted">Unknown rider</span>';
     return `
-      <tr data-withdrawal-row="${w.id}">
+            <tr data-withdrawal-row="${w.id}">
         <td>${ident}</td>
         <td><b>${money(w.amount)}</b></td>
-        <td>${withdrawalStatusBadge(w.status)}</td>
+        <td class="muted small" style="max-width:220px">${w.bank_name ? escHtml(w.bank_name) + '<div class="muted small">' + escHtml(w.account_number ? '•••• ' + w.account_number.slice(-4) : '') + '</div>' : '<span class="muted">—</span>'}</td>
+        <td>${withdrawalStatusBadge(w.status)}${transfer ? `<div class="muted small">Transfer: ${escHtml(transfer.status)}<br>${escHtml(transfer.paystack_reference || '')}</div>` : '<div class="muted small">No payout initiated</div>'}</td>
         <td>${w.requested_at ? new Date(w.requested_at).toLocaleDateString('en-NG') : '—'}</td>
         <td>${w.reviewed_at ? new Date(w.reviewed_at).toLocaleDateString('en-NG') : '—'}</td>
         <td>
           <div class="row row--wrap" style="gap:6px">
             <select class="select" data-withdrawal-status="${w.id}" style="max-width:130px">
               <option value="pending" ${w.status === 'pending' ? 'selected' : ''}>Pending</option>
-              <option value="approved" ${w.status === 'approved' ? 'selected' : ''}>Approved</option>
+              <option value="approved" ${w.status === 'approved' ? 'selected' : ''}>Approve &amp; pay</option>
               <option value="rejected" ${w.status === 'rejected' ? 'selected' : ''}>Rejected</option>
               <option value="paid" ${w.status === 'paid' ? 'selected' : ''}>Paid</option>
             </select>

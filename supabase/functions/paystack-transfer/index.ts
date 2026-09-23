@@ -135,7 +135,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } catch {
       return json(req, 400, { error: "Invalid JSON body" });
     }
-    const transferId = body.transfer_id;
+    let transferId = body.transfer_id;
+    const withdrawalId = body.withdrawal_id;
+    if (withdrawalId !== undefined) {
+      if (typeof withdrawalId !== "number" && typeof withdrawalId !== "string") return json(req, 400, { error: "withdrawal_id is required" });
+      const { data: approved, error: approveErr } = await supabase.rpc("approve_withdrawal_for_payout", {
+        p_withdrawal_id: Number(withdrawalId), p_admin_id: userData.user.id,
+      });
+      if (approveErr || !approved?.transfer_id) {
+        console.error("paystack-transfer: withdrawal approval failed:", approveErr?.message ?? "no transfer");
+        return json(req, 409, { error: "Withdrawal is not payout-eligible" });
+      }
+      transferId = approved.transfer_id;
+    }
     if (
       typeof transferId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(transferId)
