@@ -460,7 +460,7 @@ hr, .rule {
   font-size: .68rem; font-weight: 700; color: var(--muted);
 }
 .bottomnav a i { font-style: normal; font-size: 19px; line-height: 1; }
-.bottomnav a.is-active { color: var(--brand); background: var(--brand-soft); }
+.bottomnav a.is-active { color: var(--brand-700); background: var(--brand-soft); }
 .bottomnav .badge-count { top: 2px; right: 50%; margin-right: -22px; }
 
 /* ---------------------------------- 5. BUTTONS -------------------------- */
@@ -1032,7 +1032,7 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
   right: 10px;
   background: var(--paper);
   border: 2px solid var(--dropzyy-tang);
-  color: var(--dropzyy-tang);
+  color: #B83F00;
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.06em;

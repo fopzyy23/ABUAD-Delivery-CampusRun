@@ -33,7 +33,10 @@ let state = {
   reportsError: null,
   vendorApplications: [],
   vendorApplicationsLoading: false,
-  vendorApplicationsError: null
+  vendorApplicationsError: null,
+  siteSettings: null,
+  siteSettingsLoading: false,
+  siteSettingsError: null
 };
 
 // Order filtering state (presentational only — the full order set is always
@@ -740,9 +743,66 @@ async function init() {
   // Vendor applications are refreshed on entry so new "Become a Vendor"
   // submissions appear for review.
   await loadVendorApplicationsFromSupabase();
+  await loadSiteSettingsFromSupabase();
   // If orders failed to load, the error banner renders here.
   renderAdminWorkspace();
   return true;
+}
+
+// Load the global settings from Supabase. The database row is the source of
+// truth; this is intentionally not backed by localStorage.
+async function loadSiteSettingsFromSupabase() {
+  state.siteSettingsLoading = true;
+  state.siteSettingsError = null;
+  if (!supabaseAvailable()) {
+    state.siteSettingsLoading = false;
+    state.siteSettingsError = 'Supabase is not configured.';
+    return null;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('maintenance_mode')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error('Global site settings row was not found.');
+    state.siteSettings = data;
+    return data;
+  } catch (err) {
+    console.error('Site settings load failed:', err);
+    state.siteSettings = null;
+    state.siteSettingsError = err.message || 'Could not load site settings.';
+    return null;
+  } finally {
+    state.siteSettingsLoading = false;
+  }
+}
+
+async function updateMaintenanceMode(enabled) {
+  if (!supabaseAvailable()) {
+    toast('Maintenance mode unavailable: Supabase is not configured.', 'error');
+    return false;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('site_settings')
+      .update({ maintenance_mode: Boolean(enabled) })
+      .eq('id', 1)
+      .select('maintenance_mode')
+      .single();
+    if (error) throw error;
+    state.siteSettings = data;
+    window.dispatchEvent(new CustomEvent('dropzyy:maintenance-changed', {
+      detail: { enabled: Boolean(data.maintenance_mode) }
+    }));
+    toast(`Maintenance Mode turned ${data.maintenance_mode ? 'ON' : 'OFF'}`);
+    return true;
+  } catch (err) {
+    console.error('Maintenance mode update failed:', err);
+    toast('Could not update Maintenance Mode: ' + (err.message || 'unknown error'), 'error');
+    return false;
+  }
 }
 
 // Re-render just the catalog tables (alias for the full workspace).
@@ -1674,6 +1734,22 @@ function renderSettingsSection({ vendors, orders }) {
 
     <div class="card mt-2">
       <div class="card__head">
+        <h3>Maintenance Mode</h3>
+        <span class="muted small">${state.siteSettingsLoading ? 'Loading current value…' : state.siteSettingsError ? 'Unable to load current value' : 'Global platform access control'}</span>
+      </div>
+      ${state.siteSettingsError
+        ? `<p class="muted">${escHtml(state.siteSettingsError)}</p>`
+        : `<label class="settings-row" for="maintenanceModeToggle">
+            <span>
+              <span class="settings-row__label">Maintenance Mode</span>
+              <span class="muted small">When enabled, customers, vendors and riders will be unable to access the platform. Admin access remains available.</span>
+            </span>
+            <input type="checkbox" id="maintenanceModeToggle" role="switch"${state.siteSettings?.maintenance_mode ? ' checked' : ''}${state.siteSettingsLoading ? ' disabled' : ''}>
+          </label>`}
+    </div>
+
+    <div class="card mt-2">
+      <div class="card__head">
         <h3>Platform configuration</h3>
         <span class="muted small">Display only — configuration lives in the application code and database; no runtime-editable settings exist.</span>
       </div>
@@ -1685,6 +1761,17 @@ function renderSettingsSection({ vendors, orders }) {
 }
 
 function attachAdminEventListeners() {
+
+  const maintenanceToggle = $('#maintenanceModeToggle');
+  if (maintenanceToggle) {
+    maintenanceToggle.addEventListener('change', async () => {
+      const requestedValue = maintenanceToggle.checked;
+      maintenanceToggle.disabled = true;
+      const updated = await updateMaintenanceMode(requestedValue);
+      if (!updated) maintenanceToggle.checked = !requestedValue;
+      maintenanceToggle.disabled = false;
+    });
+  }
 
   document.querySelectorAll('[data-generate-settlement]').forEach(btn => btn.addEventListener('click', async () => {
     try { const { error } = await supabase.rpc('admin_generate_settlement', { p_order_id: btn.dataset.generateSettlement }); if (error) throw error; toast('Settlement prepared'); await loadSettlementsFromSupabase(); renderAdminWorkspace(); }

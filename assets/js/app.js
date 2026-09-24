@@ -4014,6 +4014,100 @@ function playWaybill() {
 // 404'd into the HTML fallback — the browser then refused the script on MIME
 // type and the in-app admin route reported "Admin panel unavailable".
 let adminJsPromise = null;
+let maintenanceGate = { checked: false, enabled: false, isAdmin: false };
+let deliverySettings = null;
+let deliverySettingsPromise = null;
+
+async function loadMaintenanceGate() {
+  if (maintenanceGate.checked) return maintenanceGate;
+  try {
+    const [{ data: settings, error: settingsError }, { data: sessionData }] = await Promise.all([
+      supabase.rpc('get_public_site_settings'),
+      supabase.auth.getSession()
+    ]);
+    if (settingsError) throw settingsError;
+    const session = sessionData && sessionData.session;
+    let isAdmin = false;
+    if (session && session.user) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      isAdmin = profile && profile.role === 'admin';
+    }
+    maintenanceGate = {
+      checked: true,
+      enabled: Boolean(settings && settings.length && settings[0].maintenance_mode),
+      isAdmin
+    };
+    deliverySettings = settings && settings[0] ? settings[0] : null;
+  } catch (err) {
+    // A settings read failure must not strand the public site or admin panel.
+    // Server-side order/request enforcement is handled separately.
+    console.error('Maintenance mode check failed:', err);
+    maintenanceGate = { checked: true, enabled: false, isAdmin: false };
+  }
+  return maintenanceGate;
+}
+
+async function getDeliverySettings(forceRefresh = false) {
+  if (!forceRefresh && deliverySettings) return deliverySettings;
+  if (!forceRefresh && deliverySettingsPromise) return deliverySettingsPromise;
+  deliverySettingsPromise = supabase.rpc('get_public_site_settings').then(({ data, error }) => {
+    if (error) throw error;
+    deliverySettings = data && data[0] ? data[0] : null;
+    return deliverySettings;
+  }).finally(() => { deliverySettingsPromise = null; });
+  return deliverySettingsPromise;
+}
+
+function deliveryHoursMessage() {
+  return 'Delivery is currently closed. Weekdays: 3:00 PM – 8:00 PM. Saturday & Sunday: 8:00 AM – 8:00 PM.';
+}
+
+async function isDeliveryOpen(forceRefresh = false) {
+  const settings = await getDeliverySettings(forceRefresh);
+  if (!settings) throw new Error('Delivery hours are currently unavailable. Please try again.');
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: settings.timezone || 'Africa/Lagos' }));
+  const day = now.getDay();
+  const start = day === 0 || day === 6 ? settings.weekend_delivery_start : settings.weekday_delivery_start;
+  const end = day === 0 || day === 6 ? settings.weekend_delivery_end : settings.weekday_delivery_end;
+  const current = now.getHours() * 60 + now.getMinutes();
+  const [startHour, startMinute] = String(start).slice(0, 5).split(':').map(Number);
+  const [endHour, endMinute] = String(end).slice(0, 5).split(':').map(Number);
+  return current >= startHour * 60 + startMinute && current < endHour * 60 + endMinute;
+}
+
+async function ensureDeliveryOpenForOrdering() {
+  try {
+    if (await isDeliveryOpen(true)) return true;
+    toast(deliveryHoursMessage(), 'info');
+    return false;
+  } catch (err) {
+    console.error('Delivery-hours check failed:', err);
+    toast(err.message || 'Delivery hours are currently unavailable. Please try again.', 'error');
+    return false;
+  }
+}
+
+function maintenanceView() {
+  return `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
+    <div class="brand brand--sm" style="justify-content:center"><span class="brand__logo">🚵</span><span class="brand__text">Drop<span>zyy</span></span></div>
+    <h1 class="mt-2">We're currently under maintenance</h1>
+    <p class="muted">We're making a few improvements and will be back shortly.</p>
+    <p class="muted">Please check back soon.</p>
+  </div></div></section>`;
+}
+
+function setMaintenanceChrome(hidden) {
+  ['appbar', 'footer', 'bottomnav'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.hidden = hidden;
+  });
+}
+
 function ensureAdminJs() {
   if (window.AdminHub) return Promise.resolve();
   if (adminJsPromise) return adminJsPromise;
@@ -4047,6 +4141,15 @@ function setDocumentTitle(parts) {
 }
 
 async function render() {
+  const gate = await loadMaintenanceGate();
+  if (gate.enabled && !gate.isAdmin) {
+    setMaintenanceChrome(true);
+    $('#app').innerHTML = maintenanceView();
+    document.title = 'Maintenance · Dropzyy';
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
+  setMaintenanceChrome(false);
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
   // Success banner on the Refund Request page is one-shot: cleared as soon as
@@ -4699,6 +4802,10 @@ document.addEventListener('submit', e=>{
     state.checkoutSubmitting = true;
 
     getSupabaseUserId().then(async userId => {
+      if (!(await ensureDeliveryOpenForOrdering())) {
+        state.checkoutSubmitting = false;
+        return;
+      }
       if(!userId){
         toast('Order failed: Not authenticated with Supabase', 'error');
         state.checkoutSubmitting = false;
@@ -4959,6 +5066,11 @@ window.addEventListener('hashchange', () => {
     if(main && typeof main.focus==='function') main.focus({ preventScroll: true });
   });
 }); if(!location.hash) location.hash='#/'; else render();
+
+window.addEventListener('dropzyy:maintenance-changed', event => {
+  maintenanceGate.enabled = Boolean(event.detail && event.detail.enabled);
+  render();
+});
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
 loadCatalogFromSupabase();
