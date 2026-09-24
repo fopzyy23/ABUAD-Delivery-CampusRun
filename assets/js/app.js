@@ -3713,7 +3713,7 @@ function acctIcon(name, cls = 'ico') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ACCT_ICONS[name] || ''}</svg>`;
 }
 
-function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const isActiveNav=(h)=>location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}>${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a><a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a><div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList();
+function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('#cartCount').hidden=!count; $('#cartCount').textContent=count; const unreadCount=state.notifications.filter(n=>n.unread).length; const notifCount=document.getElementById('notifCount'); if(notifCount){notifCount.hidden=!unreadCount; notifCount.textContent=unreadCount;} if (state.user) { $('#userAvatar').textContent = state.user.name.charAt(0).toUpperCase(); } else { $('#userAvatar').innerHTML = acctIcon('user'); } const isActiveNav=(h)=>location.hash.startsWith(h)&&h!=='#/'||location.hash==='#/'&&h==='#/'; const nav=[['#/','Home'],['#/browse','Browse'],['#/vendors','Vendors'],['#/rider','Earn']]; $('#topnav').innerHTML=nav.map(([h,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}>${n}</a>`).join(''); $('#bottomnav').innerHTML=[['#/','⌂','Home'],['#/browse','⌕','Browse'],['#/cart','🛒','Cart'],['#/orders','◷','Orders'],['#/rider','₦','Earn']].map(([h,i,n])=>`<a href="${h}" class="${isActiveNav(h)?'is-active':''}"${isActiveNav(h)?' aria-current="page"':''}><i>${i}</i>${n}${n==='Cart'&&count?`<span class="badge-count">${count}</span>`:''}</a>`).join(''); $('#userPanel').innerHTML=state.user?`<div class="dropdown__meta"><b>${esc(state.user.name)}</b><br><span class="muted small">${esc(state.user.email)}</span></div><div class="dropdown__sep"></div><a class="dropdown__item" href="#/profile">${acctIcon('user')} My profile</a><a class="dropdown__item" href="#/orders">${acctIcon('package')} My orders</a><a class="dropdown__item" href="#/rider">${acctIcon('bike')} Rider hub</a><a class="dropdown__item" href="#/vendor">${acctIcon('store')} Vendor dashboard</a>${state.user.role === 'admin' ? `<a class="dropdown__item" href="#/admin">${acctIcon('dashboard')} Admin dashboard</a>` : ''}<div class="dropdown__sep"></div><button class="dropdown__item" id="logoutBtn">${acctIcon('logout')} Sign out</button>`:`<a class="dropdown__item" href="#/login">${acctIcon('login')} Sign in</a><a class="dropdown__item" href="#/register">${acctIcon('user-plus')} Create account</a>`; $('#notifList').innerHTML=renderNotificationList();
   // Show/hide Admin link based on user role (profiles.role === 'admin')
   // (footer Admin link removed — role-gated entry is via the account dropdown)
 }
@@ -4052,6 +4052,15 @@ async function loadMaintenanceGate() {
     maintenanceGate = { checked: true, enabled: false, isAdmin, checkFailed: true };
   }
   return maintenanceGate;
+}
+
+function invalidateMaintenanceGate() {
+  maintenanceGate = {
+    checked: false,
+    enabled: false,
+    isAdmin: false,
+    checkFailed: false
+  };
 }
 
 async function getDeliverySettings(forceRefresh = false) {
@@ -5079,6 +5088,12 @@ window.addEventListener('hashchange', () => {
 
 window.addEventListener('dropzyy:maintenance-changed', event => {
   maintenanceGate.enabled = Boolean(event.detail && event.detail.enabled);
+  render();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  invalidateMaintenanceGate();
   render();
 });
 
