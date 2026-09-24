@@ -4014,20 +4014,19 @@ function playWaybill() {
 // 404'd into the HTML fallback — the browser then refused the script on MIME
 // type and the in-app admin route reported "Admin panel unavailable".
 let adminJsPromise = null;
-let maintenanceGate = { checked: false, enabled: false, isAdmin: false };
+let maintenanceGate = { checked: false, enabled: false, isAdmin: false, checkFailed: false };
 let deliverySettings = null;
 let deliverySettingsPromise = null;
 
 async function loadMaintenanceGate() {
   if (maintenanceGate.checked) return maintenanceGate;
+  let isAdmin = false;
   try {
     const [{ data: settings, error: settingsError }, { data: sessionData }] = await Promise.all([
       supabase.rpc('get_public_site_settings'),
       supabase.auth.getSession()
     ]);
-    if (settingsError) throw settingsError;
     const session = sessionData && sessionData.session;
-    let isAdmin = false;
     if (session && session.user) {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -4037,17 +4036,20 @@ async function loadMaintenanceGate() {
       if (profileError) throw profileError;
       isAdmin = profile && profile.role === 'admin';
     }
+    if (settingsError) throw settingsError;
+    const publicSettings = Array.isArray(settings) ? settings[0] : settings;
     maintenanceGate = {
       checked: true,
-      enabled: Boolean(settings && settings.length && settings[0].maintenance_mode),
-      isAdmin
+      enabled: Boolean(publicSettings && publicSettings.maintenance_mode),
+      isAdmin,
+      checkFailed: false
     };
-    deliverySettings = settings && settings[0] ? settings[0] : null;
+    deliverySettings = publicSettings || null;
   } catch (err) {
-    // A settings read failure must not strand the public site or admin panel.
+    // A settings read failure must not grant normal site access.
     // Server-side order/request enforcement is handled separately.
     console.error('Maintenance mode check failed:', err);
-    maintenanceGate = { checked: true, enabled: false, isAdmin: false };
+    maintenanceGate = { checked: true, enabled: false, isAdmin, checkFailed: true };
   }
   return maintenanceGate;
 }
@@ -4101,6 +4103,14 @@ function maintenanceView() {
   </div></div></section>`;
 }
 
+function maintenanceUnavailableView() {
+  return `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
+    <div class="brand brand--sm" style="justify-content:center"><span class="brand__logo">🚵</span><span class="brand__text">Drop<span>zyy</span></span></div>
+    <h1 class="mt-2">Dropzyy is temporarily unavailable</h1>
+    <p class="muted">Please check back shortly.</p>
+  </div></div></section>`;
+}
+
 function setMaintenanceChrome(hidden) {
   ['appbar', 'footer', 'bottomnav'].forEach(id => {
     const element = document.getElementById(id);
@@ -4142,10 +4152,10 @@ function setDocumentTitle(parts) {
 
 async function render() {
   const gate = await loadMaintenanceGate();
-  if (gate.enabled && !gate.isAdmin) {
+  if ((gate.enabled || gate.checkFailed) && !gate.isAdmin) {
     setMaintenanceChrome(true);
-    $('#app').innerHTML = maintenanceView();
-    document.title = 'Maintenance · Dropzyy';
+    $('#app').innerHTML = gate.checkFailed ? maintenanceUnavailableView() : maintenanceView();
+    document.title = gate.checkFailed ? 'Temporarily unavailable · Dropzyy' : 'Maintenance · Dropzyy';
     window.scrollTo({ top: 0, behavior: 'instant' });
     return;
   }
