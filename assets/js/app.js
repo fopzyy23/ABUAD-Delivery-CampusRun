@@ -136,6 +136,17 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
 const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null };
+const riderLoadPromises = new Map();
+const ordersLoadPromises = new Map();
+
+async function isCurrentAuthenticatedUser(userId) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return Boolean(session && session.user && session.user.id === userId);
+  } catch (_) {
+    return false;
+  }
+}
 
 // Re-read the catalog from storage on every access. The catalog's source of
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
@@ -358,48 +369,78 @@ async function loadRiderFromSupabase() {
   if (typeof supabase === 'undefined' || !supabase) return;
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !session.user) return;
-    const { data, error } = await supabase
-      .from('riders')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .maybeSingle();
-    if (error) throw error;
-    state.rider = data || null;
-    save();
-    // Authoritative pending earnings from the settlement model (B5 cutover):
-    // get_rider_earnings() sums delivery_settlements.rider_amount for the
-    // rider's pending rows and ownership-checks rider_id against auth.uid().
-    // Falls back to the per-delivery estimate below when the RPC is
-    // unavailable or the rider has no row yet.
-    if (state.rider) {
-      const { data: earnings, error: earningsError } = await supabase.rpc('get_rider_earnings', { p_rider_id: state.rider.id });
-      // Lifetime balance (20261022): prefer lifetime_available_balance so
-      // completed earnings persist after their settlement leaves 'pending'.
-      // Fall back to the legacy pending-only keys on older databases.
-      const lifetime = earnings && earnings.lifetime_available_balance != null
-        ? Number(earnings.lifetime_available_balance)
-        : NaN;
-      if (!earningsError && earnings && Number.isFinite(lifetime)) {
-        state.riderEarnings = Math.max(0, lifetime);
-      } else if (!earningsError && earnings && earnings.pending_earnings != null) {
-        state.riderEarnings = Math.max(0, Number(earnings.pending_earnings));
+    if (!session || !session.user) {
+      state.riderLoaded = true;
+      return;
+    }
+    const userId = session.user.id;
+    const existing = riderLoadPromises.get(userId);
+    if (existing) return existing;
+
+    const loadPromise = (async () => {
+      let sessionIsCurrent = false;
+      try {
+        const { data, error } = await supabase
+          .from('riders')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (error) throw error;
+        const nextRider = data || null;
+        let nextRiderEarnings = state.riderEarnings;
+        // Authoritative pending earnings from the settlement model (B5 cutover):
+        // get_rider_earnings() sums delivery_settlements.rider_amount for the
+        // rider's pending rows and ownership-checks rider_id against auth.uid().
+        // Falls back to the per-delivery estimate below when the RPC is
+        // unavailable or the rider has no row yet.
+        if (nextRider) {
+          const riderId = nextRider.id;
+          const { data: earnings, error: earningsError } = await supabase.rpc('get_rider_earnings', { p_rider_id: riderId });
+          // Lifetime balance (20261022): prefer lifetime_available_balance so
+          // completed earnings persist after their settlement leaves 'pending'.
+          // Fall back to the legacy pending-only keys on older databases.
+          const lifetime = earnings && earnings.lifetime_available_balance != null
+            ? Number(earnings.lifetime_available_balance)
+            : NaN;
+          if (!earningsError && earnings && Number.isFinite(lifetime)) {
+            nextRiderEarnings = Math.max(0, lifetime);
+          } else if (!earningsError && earnings && earnings.pending_earnings != null) {
+            nextRiderEarnings = Math.max(0, Number(earnings.pending_earnings));
+          }
+        }
+        const { data: ratings, error: ratingsError } = await supabase
+          .from('rider_ratings')
+          .select('*')
+          .eq('reviewer_id', userId);
+        sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
+        if (!sessionIsCurrent) return;
+        state.rider = nextRider;
+        state.riderEarnings = nextRiderEarnings;
+        save();
+        // A7 cleanup: state.riderRatings was write-only (never read anywhere), so its
+        // assignment was removed. The fetch above is intentionally left untouched
+        // (Supabase queries are out of scope for this hygiene task).
+        if (!ratingsError && ratings) {
+          save();
+        }
+      } catch (err) {
+        sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
+        if (sessionIsCurrent) {
+          console.error('Failed to load rider status:', err);
+          state.riderLoadError = true;
+        }
+      } finally {
+        if (sessionIsCurrent) state.riderLoaded = true;
       }
-    }
-    const { data: ratings, error: ratingsError } = await supabase
-      .from('rider_ratings')
-      .select('*')
-      .eq('reviewer_id', session.user.id);
-    // A7 cleanup: state.riderRatings was write-only (never read anywhere), so its
-    // assignment was removed. The fetch above is intentionally left untouched
-    // (Supabase queries are out of scope for this hygiene task).
-    if (!ratingsError && ratings) {
-      save();
-    }
+    })();
+    riderLoadPromises.set(userId, loadPromise);
+    loadPromise.finally(() => {
+      if (riderLoadPromises.get(userId) === loadPromise) riderLoadPromises.delete(userId);
+    }).catch(() => {});
+    return loadPromise;
   } catch (err) {
     console.error('Failed to load rider status:', err);
     state.riderLoadError = true;
-  } finally {
     state.riderLoaded = true;
   }
 }
@@ -766,22 +807,41 @@ async function loadOrdersFromSupabase() {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) {
-      // No authenticated session — clear any cached orders. LocalStorage orders
-      // are shared per-browser, so without an authenticated user we cannot know
-      // whose orders they are; keeping them would leak the previous user's
-      // order history. They are reloaded from Supabase on the next sign-in.
-
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession && currentSession.user) return false;
       state.orders = [];
       state.ordersLoadedFromSupabase = true;
       return false;
     }
     const userId = session.user.id;
+    const existing = ordersLoadPromises.get(userId);
+    if (existing) return existing;
+    const loadPromise = loadOrdersForUser(userId);
+    ordersLoadPromises.set(userId, loadPromise);
+    loadPromise.finally(() => {
+      if (ordersLoadPromises.get(userId) === loadPromise) ordersLoadPromises.delete(userId);
+    }).catch(() => {});
+    return loadPromise;
+  } catch (err) {
+    console.error('Supabase orders load failed — using localStorage fallback:', err);
+    state.ordersLoadError = true;
+    state.ordersLoadedFromSupabase = true;
+    return false;
+  }
+}
 
+async function loadOrdersForUser(userId) {
+  if (typeof supabase === 'undefined' || !supabase) {
+    console.error('Supabase client is missing — using localStorage orders fallback');
+    state.ordersLoadError = true;
+    state.ordersLoadedFromSupabase = true;
+    return false;
+  }
+  let sessionIsCurrent = false;
+  try {
     // Per-user Rider Hub pool: rebuilt from Supabase below. Never reuse a stale
     // cached/previously-logged-in-user pool — this also guarantees that an error
     // mid-load cannot leave another user's (or a stale) pool visible..
-    state.riderPool = [];
-
     // 1. Fetch the user's orders from Supabase
     const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
@@ -934,8 +994,6 @@ async function loadOrdersFromSupabase() {
         poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames)));
       }
     }
-    state.riderPool = poolOrders;
-
     // 5. Replace local orders entirely with the Supabase result, sorted
     //    newest-first by created_at. Supabase queries here are
     //    scoped to the authenticated user (user_id = session.user.id), so this is the
@@ -943,14 +1001,21 @@ async function loadOrdersFromSupabase() {
     //    that merge was the root cause of one user's orders leaking into another user's view
     //    after logout/login. Orders placed earlier in this session were persisted via the
     //    place_order RPC and are included in this Supabase result.
-    state.orders = sortOrdersNewestFirst(supabaseOrders);
-
+    sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
+    if (!sessionIsCurrent) return false;
+    const nextRiderPool = poolOrders;
+    const nextOrders = sortOrdersNewestFirst(supabaseOrders);
+    state.riderPool = nextRiderPool;
+    state.orders = nextOrders;
     state.ordersLoadedFromSupabase = true;
     return true;
   } catch (err) {
-    console.error('Supabase orders load failed — using localStorage fallback:', err);
-    state.ordersLoadError = true;
-    state.ordersLoadedFromSupabase = true;
+    sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
+    if (sessionIsCurrent) {
+      console.error('Supabase orders load failed — using localStorage fallback:', err);
+      state.ordersLoadError = true;
+      state.ordersLoadedFromSupabase = true;
+    }
     return false;
   }
 }
@@ -4182,6 +4247,14 @@ async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
   const isLoginRoute = parts[0] === 'login';
+  if (isLoginRoute && !state.user) {
+    setMaintenanceChrome(false);
+    setDocumentTitle(parts);
+    $('#app').innerHTML = auth('login');
+    updateChrome();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
   const gate = await loadMaintenanceGate();
   if ((gate.enabled || gate.checkFailed) && !gate.isAdmin && !isLoginRoute) {
     setMaintenanceChrome(true);
@@ -4787,11 +4860,8 @@ document.addEventListener('submit', e=>{
           // dashboard/withdrawal state so ensureVendorLoaded() refetches for
           // THIS user (never reuse a prior vendor's vendorLoaded === true).
           resetVendorSessionState();
-          // Reload the rider record for THIS session, then the Rider Hub order pool
-          // (assigned orders included) from Supabase — never reuse a prior user's
-          // stale cached pool..
-          await loadRiderFromSupabase();
-          await loadOrdersFromSupabase();
+          // Rider and order data load in the background below for THIS session;
+          // never reuse a prior user's stale cached pool.
           addNotification('You\'re signed in','Start exploring what\'s available around campus.');
           // A session now exists: load this user's notifications and start the
           // realtime subscription for them (no-op-safe, re-uses the channel).
@@ -4799,6 +4869,12 @@ document.addEventListener('submit', e=>{
           subscribeNotificationsRealtime();
           location.hash='#/';
           toast('Welcome to Dropzyy!');
+          // Load rider and order data after navigation starts so authentication
+          // and the basic profile are not blocked by order history or rider data.
+          Promise.all([
+            loadRiderFromSupabase(),
+            loadOrdersFromSupabase()
+          ]).catch(err => console.error('Background post-login data load failed:', err));
         });
     }
   }
