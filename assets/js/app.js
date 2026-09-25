@@ -4024,6 +4024,19 @@ maintenanceChannel.addEventListener('message', (event) => {
   window.location.reload();
 });
 
+const maintenanceRealtimeChannel = supabase
+  .channel('dropzyy-maintenance')
+  .on('broadcast', { event: 'maintenance-changed' }, payload => {
+    const message = payload && payload.payload;
+    if (!message || message.type !== 'maintenance-changed') return;
+    window.location.reload();
+  })
+  .subscribe(status => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      console.warn('Maintenance realtime channel unavailable:', status);
+    }
+  });
+
 async function loadMaintenanceGate() {
   if (maintenanceGate.checked) return maintenanceGate;
   let isAdmin = false;
