@@ -1,5 +1,11 @@
 # Netlify deployment configuration for Dropzyy
-# Publish from the repo root so all assets (css, js, images) are accessible.
+# Publish ONLY the assembled website directory (`dist/`), never the repo root.
+# `node scripts/build_publish.js` copies an explicit allow-list of website files
+# (assets/ + robots.txt + _redirects) into `dist/`; every other repository file
+# (supabase/, scripts/, documentation, SQL backups, .netlify/) sits OUTSIDE the
+# publish directory and is therefore never uploaded. `dist/` mirrors the old
+# layout, so all URL paths below and every root-absolute URL in the HTML shells
+# keep resolving exactly as before.
 #
 # ============================================================
 # ROUTING — SINGLE SOURCE OF TRUTH
@@ -25,7 +31,8 @@
 # ============================================================
 
 [build]
-  publish = "."
+  publish = "dist"
+  command = "node scripts/build_publish.js"
 
 # 1. Root → the customer app shell.
 #    A rewrite (not a redirect) is what stops "/" bouncing visitors to

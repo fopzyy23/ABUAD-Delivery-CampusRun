@@ -12,3 +12,11 @@ supabase/.temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Netlify CLI link/build state — generated locally, not source configuration.
+# The authoritative configuration is the root netlify.toml.
+.netlify/
+
+# Assembled Netlify publish output (rebuilt by scripts/build_publish.js on
+# every deploy, so it is never committed).
+dist/
