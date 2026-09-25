@@ -4017,6 +4017,12 @@ let adminJsPromise = null;
 let maintenanceGate = { checked: false, enabled: false, isAdmin: false, checkFailed: false };
 let deliverySettings = null;
 let deliverySettingsPromise = null;
+const maintenanceChannel = new BroadcastChannel('dropzyy-maintenance');
+
+maintenanceChannel.addEventListener('message', (event) => {
+  if (!event.data || event.data.type !== 'maintenance-changed') return;
+  window.location.reload();
+});
 
 async function loadMaintenanceGate() {
   if (maintenanceGate.checked) return maintenanceGate;
@@ -4160,8 +4166,11 @@ function setDocumentTitle(parts) {
 }
 
 async function render() {
+  const [path] = location.hash.slice(1).split('?');
+  const parts = path.split('/').filter(Boolean);
+  const isLoginRoute = parts[0] === 'login';
   const gate = await loadMaintenanceGate();
-  if ((gate.enabled || gate.checkFailed) && !gate.isAdmin) {
+  if ((gate.enabled || gate.checkFailed) && !gate.isAdmin && !isLoginRoute) {
     setMaintenanceChrome(true);
     $('#app').innerHTML = gate.checkFailed ? maintenanceUnavailableView() : maintenanceView();
     document.title = gate.checkFailed ? 'Temporarily unavailable · Dropzyy' : 'Maintenance · Dropzyy';
@@ -4169,8 +4178,6 @@ async function render() {
     return;
   }
   setMaintenanceChrome(false);
-  const [path] = location.hash.slice(1).split('?');
-  const parts = path.split('/').filter(Boolean);
   // Success banner on the Refund Request page is one-shot: cleared as soon as
   // the customer navigates anywhere else. Same for the Issue Report / Vendor
   // application confirmation (reportView shows it, then it is reset).

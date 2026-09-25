@@ -796,6 +796,12 @@ async function updateMaintenanceMode(enabled) {
     window.dispatchEvent(new CustomEvent('dropzyy:maintenance-changed', {
       detail: { enabled: Boolean(data.maintenance_mode) }
     }));
+    const maintenanceChannel = new BroadcastChannel('dropzyy-maintenance');
+    maintenanceChannel.postMessage({
+      type: 'maintenance-changed',
+      enabled: Boolean(data.maintenance_mode)
+    });
+    maintenanceChannel.close();
     toast(`Maintenance Mode turned ${data.maintenance_mode ? 'ON' : 'OFF'}`);
     return true;
   } catch (err) {
