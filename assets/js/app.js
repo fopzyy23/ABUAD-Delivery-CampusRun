@@ -4648,7 +4648,10 @@ document.addEventListener('click', async e=>{
     if(!itemId || typeof supabase==='undefined' || !supabase) return;
     availability.disabled=true;
     const { error }=await supabase.rpc('record_product_availability_check',{p_order_item_id:itemId,p_available:available});
-    if(error) toast('Could not save product availability. Please try again.','error');
+    if(error) {
+      console.error('record_product_availability_check failed:', error);
+      toast('Could not save product availability: ' + (error.message || 'unknown error'), 'error');
+    }
     else { await loadOrdersFromSupabase(); toast(available?'Product marked available':'Product marked unavailable'); }
     render();
   }
