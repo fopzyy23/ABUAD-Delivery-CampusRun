@@ -135,7 +135,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
@@ -146,6 +146,27 @@ async function isCurrentAuthenticatedUser(userId) {
   } catch (_) {
     return false;
   }
+}
+
+async function loadRefundRecipient() {
+  if (state.refundRecipientLoaded || typeof supabase === 'undefined' || !supabase || !state.user) return;
+  const { data } = await supabase.from('transfer_recipients').select('bank_name,account_name,account_number_last4,recipient_status').eq('payee_type','customer').eq('profile_id',state.user.id).eq('recipient_status','verified').maybeSingle();
+  state.refundRecipient = data || null; state.refundRecipientLoaded = true; render();
+}
+
+async function loadRefundBanks() {
+  const result = await window['supabase'+'EdgeFunctionRequest']('paystack-transfer-recipient', { mode: 'banks' });
+  if (result?.banks) { state.refundBanks = result.banks; render(); }
+}
+
+async function submitRefundRecipientForm(form) {
+  const f = new FormData(form); const bank_code=String(f.get('bank_code')||''); const account_number=String(f.get('account_number')||'').replace(/\s+/g,'');
+  if (!/^\d{10}$/.test(account_number) || !bank_code) { toast('Select a bank and enter a valid 10-digit account number.','error'); return; }
+  const resolved=await window['supabase'+'EdgeFunctionRequest']('paystack-transfer-recipient',{payee_type:'customer',mode:'resolve',account_number,bank_code});
+  if (!resolved?.account_name) return;
+  if (!(await DropzyyModal.confirm({title:'Confirm refund account',message:`${resolved.account_name} · ${resolved.bank_name} · ••••••${resolved.account_number_last4}`,confirmText:'Confirm this account'}))) return;
+  const saved=await window['supabase'+'EdgeFunctionRequest']('paystack-transfer-recipient',{payee_type:'customer',mode:'confirm',account_number,bank_code});
+  if (saved?.registered) { state.refundRecipientLoaded=false; await loadRefundRecipient(); toast('Refund account verified','success'); }
 }
 
 // Re-read the catalog from storage on every access. The catalog's source of
@@ -404,6 +425,7 @@ async function loadRiderFromSupabase() {
             : NaN;
           if (!earningsError && earnings && Number.isFinite(lifetime)) {
             nextRiderEarnings = Math.max(0, lifetime);
+            state.riderBalance = earnings;
           } else if (!earningsError && earnings && earnings.pending_earnings != null) {
             nextRiderEarnings = Math.max(0, Number(earnings.pending_earnings));
           }
@@ -447,7 +469,7 @@ async function loadRiderFromSupabase() {
 
 // Submit a rider application to Supabase (with duplicate prevention).
 async function submitRiderApplication(formData) {
-  if (!state.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
+  if (!state.user) { toast('Please sign in to apply as a rider', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — application could not be saved', 'error'); return; }
   if (state.rider && ['pending','approved'].includes(state.rider.status)) {
     toast(state.rider.status === 'approved' ? 'You are already an approved rider' : 'You already have a pending application', 'info');
@@ -456,7 +478,7 @@ async function submitRiderApplication(formData) {
   }
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !session.user) { toast('Please sign in to apply as a rider', 'info'); location.hash = '#/login'; return; }
+    if (!session || !session.user) { toast('Please sign in to apply as a rider', 'info'); redirectToLoginWithReturnRoute(); return; }
     const full_name = (formData.get('full_name') || '').trim();
     const matricNumber = (formData.get('studentId') || formData.get('matric') || '').trim();
     const college = (formData.get('college') || '').trim();
@@ -602,17 +624,14 @@ const RIDER_PAYOUT_BANKS = [
 // request_withdrawal RPC (SECURITY DEFINER): it re-validates rider
 // ownership, eligibility, amount, the authoritative available balance
 // (lifetime earnings minus non-rejected requests) and the bank details (regex
-// mirrored in paystack-transfer-recipient). The client pre-check above is a
-// UX hint only — direct table INSERT is revoked client-side.
+// mirrored in paystack-transfer-recipient). The server RPC is the sole
+// authority for withdrawal availability; direct table INSERT is revoked.
 async function requestWithdrawal(amount, bankDetails) {
   if (!state.user) { toast('Please sign in to request a withdrawal', 'info'); return false; }
   if (!state.rider || state.rider.status !== 'approved') { toast('Only approved riders can request withdrawals', 'error'); return false; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — request could not be saved', 'error'); return false; }
   const value = Number(amount);
   if (!Number.isFinite(value) || value <= 0) { toast('Enter a valid amount greater than ₦0', 'error'); return false; }
-  const available = Math.max(0, riderPendingEarnings() - riderPendingRequestsTotal());
-  if (value > available) { toast(`Amount exceeds your available estimated earnings of ${money(available)}`, 'error'); return false; }
-
   const bankCode = String(bankDetails?.bank_code || '').trim();
   const bank = RIDER_PAYOUT_BANKS.find(b => b.code === bankCode);
   if (!bank) { toast('Please select a valid bank', 'error'); return false; }
@@ -867,6 +886,7 @@ async function loadOrdersForUser(userId) {
       if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
       itemsByOrder[item.order_id].push({
         id: item.product_id,
+        orderItemId: item.id,
         vendor: item.vendor_id,
         name: item.name,
         price: item.price,
@@ -874,6 +894,7 @@ async function loadOrdersForUser(userId) {
         desc: '',
         category: '',
         qty: item.qty
+        ,availability_state: item.availability_state || 'unconfirmed'
       });
     });
 
@@ -900,6 +921,9 @@ async function loadOrdersForUser(userId) {
       transaction_id: o.transaction_id || null,
       spot: o.spot || '',
       delivery_method: o.delivery_method || 'rider',
+      product_availability_status: o.product_availability_status || 'not_started',
+      purchase_funding_status: o.purchase_funding_status || 'not_required',
+      cancellation_stage: o.cancellation_stage || 'none',
       rider_id: o.rider_id || null,
       rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
       rider_phone: (o.rider_id && riderPhones && riderPhones[o.rider_id]) || null,
@@ -981,6 +1005,7 @@ async function loadOrdersForUser(userId) {
           if (!poolItemsByOrder[item.order_id]) poolItemsByOrder[item.order_id] = [];
           poolItemsByOrder[item.order_id].push({
             id: item.product_id,
+            orderItemId: item.id,
             vendor: item.vendor_id,
             name: item.name,
             price: item.price,
@@ -988,6 +1013,7 @@ async function loadOrdersForUser(userId) {
             desc: '',
             category: '',
             qty: item.qty
+            ,availability_state: item.availability_state || 'unconfirmed'
           });
         });
 
@@ -1088,7 +1114,7 @@ function refundStatusLabel(status) {
 async function requestRefund(orderDbId, reason, paymentType) {
   if (!state.user) {
     toast('Please sign in to request a refund', 'info');
-    location.hash = '#/login';
+    redirectToLoginWithReturnRoute();
     return false;
   }
   if (typeof supabase === 'undefined' || !supabase) {
@@ -1142,7 +1168,7 @@ const REFUND_REASON_MIN = 10;
 const REFUND_REASON_MAX = 500;
 
 async function refundRequestView(orderDbId) {
-  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>Request a Refund</h1><p class="muted">Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
   }
@@ -1226,7 +1252,7 @@ const REPORT_DESC_MIN = 10;
 const REPORT_DESC_MAX = 1000;
 
 async function reportView(mode = '') {
-  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>${mode === 'vendor' ? 'Become a Vendor' : 'Report an Issue'}</h1><p class="muted">Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
   }
@@ -1302,13 +1328,13 @@ async function submitIssueReport(formData) {
   const fail = (msg) => { if (errEl) errEl.textContent = msg; toast(msg, 'error'); };
   if (!subject) { fail('Please choose a subject for your report'); return; }
   if (description.length < REPORT_DESC_MIN) { fail(`Please describe the ${isVendor ? 'application' : 'issue'} — at least ${REPORT_DESC_MIN} characters.`); return; }
-  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — this could not be saved'); return; }
   state.reportSubmitting = true;
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting…'; }
   try {
     const userId = await getSupabaseUserId();
-    if (!userId) { fail('Sign in required to submit'); location.hash = '#/login'; return; }
+    if (!userId) { fail('Sign in required to submit'); redirectToLoginWithReturnRoute(); return; }
     const payload = { user_id: userId, subject, description };
     if (orderDbId) payload.order_id = orderDbId;
     const { data, error } = await supabase.from('issue_reports').insert(payload).select().single();
@@ -1337,9 +1363,9 @@ async function submitIssueReport(formData) {
 // user's profiles.vendor_id server-side). RLS guarantees the applicant only
 // ever inserts/reads their OWN row (user_id = auth.uid()).
 async function vendorApplyView() {
-  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
   const userId = await getSupabaseUserId();
-  if (!userId) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return ''; }
+  if (!userId) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
 
   let existing = null;
   if (typeof supabase !== 'undefined' && supabase) {
@@ -1439,10 +1465,10 @@ async function submitVendorApplication(formData) {
     return;
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fail('Please enter a valid email address'); return; }
-  if (!state.user) { toast('Please sign in to continue', 'info'); location.hash = '#/login'; return; }
+  if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { fail('Supabase unavailable — application could not be saved'); return; }
   const userId = await getSupabaseUserId();
-  if (!userId) { fail('Sign in required to apply'); location.hash = '#/login'; return; }
+  if (!userId) { fail('Sign in required to apply'); redirectToLoginWithReturnRoute(); return; }
   state.reportSubmitting = true;
   const btn = document.getElementById('vaSubmitBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
@@ -2605,6 +2631,7 @@ function resetVendorSessionState() {
   // rider's authoritative pending_earnings figure (loadRiderFromSupabase()
   // repopulates it for the current account).
   state.riderEarnings = null;
+  state.riderBalance = null;
 }
 
 async function loadVendorDataFromSupabase() {
@@ -3109,7 +3136,7 @@ function checkout() {
   // Require the user to be logged in before placing an order
   if (!state.user) {
     toast('Please sign in to place an order', 'info');
-    location.hash = '#/login';
+    redirectToLoginWithReturnRoute();
     return '';
   }
   const checkoutItems = cartItems();
@@ -3191,7 +3218,7 @@ async function orders() {
 // Vendor Requests View (Customer)
 // ============================================
 async function vendorRequestsView() {
-  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>My Vendor Requests</h1><p>Loading your requests...</p></div></div>${skeletonCard()}</section>`;
   }
@@ -3375,6 +3402,18 @@ async function track(id) {
   // (and stageIndex) keep the internal 'Order confirmed' workflow value,
   // but the timeline DISPLAYS the first step as "Awaiting payment".
   const payPending = o.payment_status === 'pending' && o.status === 'Order confirmed';
+  const availabilityNotice = o.product_availability_status === 'in_progress'
+    ? '<div class="card"><b>Product check in progress</b><div class="muted small">Your rider is checking product availability.</div></div>'
+    : o.product_availability_status === 'confirmed'
+      ? '<div class="card"><b>All products confirmed</b><div class="muted small">Your order is proceeding.</div></div>'
+      : o.product_availability_status === 'needs_customer_decision'
+        ? '<div class="card"><b>Product unavailable</b><div class="muted small">One or more products require your decision. Replacement and removal options will be available here later.</div></div>'
+        : '';
+  const unavailableItems = (o.items || []).filter(it => it.availability_state === 'unavailable');
+  const replacementChoices = unavailableItems.map(it => {
+    const choices = (state.catalog || []).filter(p => p.active !== false && p.vendor === it.vendor).slice(0, 8);
+    return `<div class="card mt-1"><b>Item unavailable: ${esc(it.name || 'Item')}</b><div class="row row--wrap mt-1" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(it.orderItemId || '')}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(it.orderItemId || '')}">Remove item</button></div></div>`;
+  }).join('');
 
   // Rider rating: only for the customer's own DELIVERED order that had an
   // assigned rider (rider-delivery only — vendor-self orders have no rider).
@@ -3422,7 +3461,7 @@ async function track(id) {
 // method, vendor(s) and the placed-at timestamp. Loading / not-found / empty
 // states mirror the orders() view.
 async function orderView(id) {
-  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div>${skeletonCard()}</section>`;
   }
@@ -3490,7 +3529,7 @@ async function orderView(id) {
 // active=true customer query) are skipped and clearly reported — they are
 // never silently added.
 function reorder(orderId) {
-  if (!state.user) { toast('Please sign in to reorder', 'info'); location.hash = '#/login'; return; }
+  if (!state.user) { toast('Please sign in to reorder', 'info'); redirectToLoginWithReturnRoute(); return; }
   const o = state.orders.find(x => x.id === orderId);
   if (!o) { toast('Order not found', 'error'); return; }
   if (!['Delivered', 'Rated'].includes(o.status)) { toast('Only completed orders can be reordered', 'info'); return; }
@@ -3534,7 +3573,9 @@ function auth(kind) { const login = kind==='login'; return `<section class="cont
 // this app's auth architecture. state.user is refreshed after a successful
 // save. Loading / success / error states are shown.
 function profile() {
-  if (!state.user) { location.hash = '#/login'; return ''; }
+  if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
+  if (!state.refundRecipientLoaded) { loadRefundRecipient(); }
+  if (!state.refundBanks.length) { loadRefundBanks(); }
   if (state.profileLoading) {
     return `<section class="section container"><div class="page-head"><div><h1>My profile</h1><p>Loading your details…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
   }
@@ -3554,7 +3595,7 @@ function profile() {
         <div class="field"><label>Hostel / Residence</label><input class="input" name="hostel" value="${esc(hostel)}" placeholder="e.g. Adams Hall"></div>
         <button class="btn btn--block" type="submit">Save changes</button>
       </form>
-      <div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div>
+      <div class="stack"><div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div><div class="card"><div class="card__head"><h3>Refund Bank Account</h3><span class="badge badge--${state.refundRecipient?.recipient_status === 'verified' ? 'success' : 'warn'}">${state.refundRecipient?.recipient_status === 'verified' ? 'Verified' : 'Not set up'}</span></div>${state.refundRecipient?.recipient_status === 'verified' ? `<p class="small">${esc(state.refundRecipient.bank_name || 'Nigerian bank')} · ${esc(state.refundRecipient.account_name || '')}</p><p class="muted small">••••••${esc(state.refundRecipient.account_number_last4 || '')}</p>` : '<p class="muted small">Set up a verified destination for future reimbursements.</p>'}<form id="refundRecipientForm" class="stack mt-1"><select class="input" name="bank_code" required><option value="">Select bank</option>${state.refundBanks.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select><input class="input" name="account_number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit account number" required><button class="btn btn--block" type="submit">Verify refund account</button></form></div></div>
     </div>
   </section>`;
 }
@@ -3563,7 +3604,7 @@ function profile() {
 // is updated (RLS profiles_update_own + the role-escalation trigger keep
 // role/vendor_id/id untouched). state.user is refreshed from the returned row.
 async function submitProfileForm(form) {
-  if (!state.user) { toast('Please sign in to edit your profile', 'info'); location.hash = '#/login'; return; }
+  if (!state.user) { toast('Please sign in to edit your profile', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — profile could not be saved', 'error'); return; }
   const f = new FormData(form);
   const phone = (f.get('phone') || '').trim();
@@ -3572,7 +3613,7 @@ async function submitProfileForm(form) {
   if (hostel && hostel.length > 120) { toast('Hostel / residence is too long', 'error'); return; }
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !session.user) { toast('Please sign in to edit your profile', 'info'); location.hash = '#/login'; return; }
+    if (!session || !session.user) { toast('Please sign in to edit your profile', 'info'); redirectToLoginWithReturnRoute(); return; }
     const { data, error } = await supabase
       .from('profiles')
       .update({ phone, hostel })
@@ -3608,6 +3649,14 @@ function riderOrderItemsHtml(o) {
   if (!items.length) return '';
   const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || '🛒')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">× ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
   return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.total)}</b></div></div>`;
+}
+
+function riderAvailabilityHtml(o) {
+  const items = Array.isArray(o.items) ? o.items : [];
+  if (!items.length || !['Rider assigned','Picked up','On the Way'].includes(o.status)) return '';
+  const stateLabel = o.product_availability_status === 'confirmed' ? 'All products confirmed' : o.product_availability_status === 'needs_customer_decision' ? 'Customer decision required' : o.product_availability_status === 'in_progress' ? 'Check in progress' : 'Check products';
+  const lines = items.map(it => `<div class="row row--between row--wrap availability-line" style="gap:8px"><span><b>${esc(it.name || 'Item')}</b> <span class="muted small">× ${it.qty || 0}</span></span><span class="badge badge--${it.availability_state === 'available' ? 'success' : it.availability_state === 'unavailable' ? 'danger' : 'warn'}">${it.availability_state === 'available' ? 'Available' : it.availability_state === 'unavailable' ? 'Unavailable' : 'Not checked'}</span></div>`).join('');
+  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div><div class="row row--wrap mt-1" style="gap:6px">${items.map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>${items.every(it => it.availability_state === 'available') && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">Confirm products</button>` : ''}</div>`;
 }
 
 function rider() {
@@ -3702,7 +3751,7 @@ function rider() {
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -3720,7 +3769,9 @@ function rider() {
         : list.length
           ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Bank</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td class="muted small">${w.bank_name ? esc(w.bank_name) + ' ···• ' + (w.account_number ? esc(w.account_number.slice(-4)) : '') : esc('—')}</td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty"><div class="empty__icon">🏦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
-      const requestable = Math.max(0, earnings - pendingRequestsTotal);
+      const requestable = state.riderBalance && state.riderBalance.available_balance != null
+        ? Math.max(0, Number(state.riderBalance.available_balance))
+        : Math.max(0, earnings - pendingRequestsTotal);
     const lastBank = list.find(w => w.account_number) || null;
     withdrawalHtml = `
       <div class="card mt-3">
@@ -3728,7 +3779,7 @@ function rider() {
         ${rowsHtml}
         <div class="divider"></div>
                 <form id="withdrawalForm" class="row row--wrap row--between" style="gap:8px">
-          <div class="muted small">Requestable now (estimated): <b>${money(requestable)}</b></div>
+          <div class="muted small">Available to withdraw: <b>${money(requestable)}</b></div>
           <div class="row row--wrap" style="gap:8px">
             <input class="input" name="amount" type="number" min="1" step="any" placeholder="Amount (₦)" style="max-width:180px" required>
             <input class="input" name="account_name" placeholder="Account name" maxlength="120" required style="max-width:180px" ${lastBank ? 'value="' + esc(lastBank.account_name) + '"' : ''}>
@@ -3746,7 +3797,8 @@ function rider() {
       </div>`;
   }
 
-  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Estimated earnings</span><span class="stat__value">${money(earnings)}</span><span class="stat__hint">${done.length} completed delivery${done.length === 1 ? '' : 'ies'} · pending settlement</span></div><div class="stat"><span class="stat__label">Deliveries completed</span><span class="stat__value">${done.length}</span><span class="stat__hint">${active.length} active now</span></div><div class="stat"><span class="stat__label">Pending withdrawals</span><span class="stat__value">${money(pendingRequestsTotal)}</span><span class="stat__hint">${pendingRequestsCount} awaiting admin review</span></div></div>${errorBanner}${statusErrorHtml}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and the estimated delivery-fee earnings they earned.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
+  const bonusToday = state.riderBalance && state.riderBalance.bonus_earned_today != null ? Number(state.riderBalance.bonus_earned_today) : 0;
+  return `<section class="section container"><div class="page-head"><div><h1>Rider hub</h1><p>Deliver around campus, on your own schedule.</p></div>${statusBadge} ${actionBtn}</div><div class="grid grid--stats"><div class="stat stat--brand"><span class="stat__label">Gross earnings</span><span class="stat__value">${money(state.riderBalance && state.riderBalance.gross_earned != null ? state.riderBalance.gross_earned : earnings)}</span><span class="stat__hint">Lifetime delivery earnings and bonuses</span></div><div class="stat"><span class="stat__label">Available to withdraw</span><span class="stat__value">${money(requestable)}</span><span class="stat__hint">After paid and reserved withdrawals</span></div><div class="stat"><span class="stat__label">Withdrawn / reserved</span><span class="stat__value">${money(state.riderBalance?.withdrawn_amount || 0)} / ${money(state.riderBalance?.reserved_amount || pendingRequestsTotal)}</span><span class="stat__hint">Paid / currently reserved</span></div><div class="stat"><span class="stat__label">Daily bonus</span><span class="stat__value">${money(bonusToday)}</span><span class="stat__hint">${bonusToday > 0 ? 'Earned today' : 'Earned on the 5th qualifying delivery'}</span></div></div>${errorBanner}${statusErrorHtml}${ratingCard}<div class="page-head mt-3"><div><h2>Available deliveries</h2><p>Only unassigned rider deliveries are shown — assigned ones appear in Active deliveries.</p></div>${isApprovedRider ? (isOnline ? '<span class="badge badge--success">● Online</span>' : '<span class="badge badge--warn">● Offline</span>') : ''}</div>${availableHtml}<div class="page-head mt-3"><div><h2>Active deliveries</h2><p>Progress on the deliveries you accepted.</p></div></div>${activeHtml}<div class="page-head mt-3"><div><h2>Delivery history & earnings</h2><p>Completed deliveries and authoritative earnings.</p></div></div>${historyHtml}${withdrawalHtml}</section>`;
 }
 function riderApply() {
   if (state.rider && ['pending','approved','suspended'].includes(state.rider.status)) {
@@ -3791,7 +3843,7 @@ async function supabaseEdgeFunctionRequest(functionName, body) {
   const token = session?.access_token;
   if (!token) {
     toast('Please sign in to continue', 'info');
-    location.hash = '#/login';
+    redirectToLoginWithReturnRoute();
     return null;
   }
   const edgeUrl = window.SUPABASE_EDGE_URL + '/functions/v1/' + functionName;
@@ -3817,7 +3869,10 @@ function customerOrderStatusBadge(o) {
   if (o.payment_status === 'failed') return '<span class="badge badge--danger">Payment Failed</span>';
   if (o.payment_status === 'pending' && o.status === 'Order confirmed') return '<span class="badge badge--warn">Payment Pending</span>';
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
-  return '<span class="badge badge--'+badge+'">'+esc(o.status)+'</span>';
+  const availability = o.product_availability_status === 'in_progress' ? ' · Product check in progress' : o.product_availability_status === 'confirmed' ? ' · All products confirmed' : o.product_availability_status === 'needs_customer_decision' ? ' · Customer decision required' : '';
+  const funding = o.purchase_funding_status === 'transferred' ? ' · Rider has purchase funds' : '';
+  const cancellation = o.cancellation_stage === 'admin_resolution_required' ? ' · Cancellation pending review' : o.cancellation_stage === 'reimbursed' ? ' · Reimbursement completed' : o.cancellation_stage === 'reimbursement_pending' || o.cancellation_stage === 'reimbursement_processing' ? ' · Reimbursement processing' : o.cancellation_stage === 'reimbursement_failed' || o.cancellation_stage === 'reimbursement_reversed' ? ' · Reimbursement requires resolution' : '';
+  return '<span class="badge badge--'+badge+'">'+esc(o.status)+'</span>' + (availability || funding || cancellation ? '<span class="muted small">'+esc(availability + funding + cancellation)+'</span>' : '');
 }
 
 function vendorDeliveryStatusMessage(o, block = false) {
@@ -3838,6 +3893,33 @@ function moneyStatusBadge(p) {
   const m = { pending:['Awaiting payment','badge--info'], success:['Payment successful','badge--success'], failed:['Payment failed','badge--danger'] };
   const [l,cls] = m[p]||['Pending','badge--info'];
   return '<span class="badge '+cls+'">'+l+'</span>';
+}
+
+const LOGIN_RETURN_ROUTE_KEY = 'dropzyy_login_return_route';
+function isValidLoginReturnRoute(route) {
+  return typeof route === 'string'
+    && route.startsWith('#/')
+    && route !== '#/login'
+    && !/[\u0000-\u001F\u007F]/.test(route);
+}
+function redirectToLoginWithReturnRoute() {
+  const currentRoute = location.hash;
+  try {
+    const saved = sessionStorage.getItem(LOGIN_RETURN_ROUTE_KEY);
+    if (isValidLoginReturnRoute(currentRoute) && !isValidLoginReturnRoute(saved)) {
+      sessionStorage.setItem(LOGIN_RETURN_ROUTE_KEY, currentRoute);
+    }
+  } catch (e) { /* normal login fallback remains available */ }
+  location.hash = '#/login';
+}
+function consumeLoginReturnRoute() {
+  let target = '#/';
+  try {
+    const saved = sessionStorage.getItem(LOGIN_RETURN_ROUTE_KEY);
+    sessionStorage.removeItem(LOGIN_RETURN_ROUTE_KEY);
+    if (isValidLoginReturnRoute(saved)) target = saved;
+  } catch (e) { /* normal home fallback */ }
+  return target;
 }
 
 // ============================================
@@ -3907,7 +3989,7 @@ async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'prod
 }
 
 async function pay(orderId) {
-  if (!state.user) { toast('Please sign in to view payment','info'); location.hash='#/login'; return ''; }
+  if (!state.user) { toast('Please sign in to view payment','info'); redirectToLoginWithReturnRoute(); return ''; }
   await ensureOrdersLoaded();
   const order = state.orders.find(x => x.dbId === orderId) || state.orders.find(x => x.id === orderId);
   if (!order) return notFound();
@@ -4335,10 +4417,25 @@ async function render() {
   }
   else view = notFound();
   $('#app').innerHTML = view;
+  initReplacementDecisionUi(parts);
   playWaybill();
   initVendorCarousel();
   updateChrome();
        window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function initReplacementDecisionUi(parts) {
+  if (parts[0] !== 'track') return;
+  const order = state.orders.find(o => o.id === parts[1]);
+  if (!order) return;
+  const unavailable = (order.items || []).filter(i => i.availability_state === 'unavailable' && i.orderItemId);
+  if (!unavailable.length) return;
+  const box = document.createElement('div'); box.className = 'card mt-2';
+  box.innerHTML = '<h3>Customer decision required</h3>' + unavailable.map(i => {
+    const choices = (state.catalog || []).filter(p => p.active !== false && p.vendor === i.vendor).slice(0, 8);
+    return `<div class="stack mt-1"><b>Item unavailable: ${esc(i.name || 'Item')}</b><div class="row row--wrap" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(i.orderItemId)}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(i.orderItemId)}">Remove item</button></div></div>`;
+  }).join('') + (Number(order.additional_amount_due) > 0 ? `<button class="btn btn--block mt-1" data-replacement-pay="${esc(order.dbId)}">Pay additional amount ${money(order.additional_amount_due)}</button>` : '');
+  const split = document.querySelector('.split'); if (split) split.prepend(box);
 }
 
 // ============================================
@@ -4546,23 +4643,49 @@ document.addEventListener('click', async e=>{
       onSuccess:()=>addNotification('Order on the way',`Order #${o.id} is on the way to the customer.`)
     });
   }}
+  const availability=e.target.closest('[data-availability]'); if(availability){
+    const itemId=availability.dataset.availability; const available=availability.dataset.available === 'true';
+    if(!itemId || typeof supabase==='undefined' || !supabase) return;
+    availability.disabled=true;
+    const { error }=await supabase.rpc('record_product_availability_check',{p_order_item_id:itemId,p_available:available});
+    if(error) toast('Could not save product availability. Please try again.','error');
+    else { await loadOrdersFromSupabase(); toast(available?'Product marked available':'Product marked unavailable'); }
+    render();
+  }
+  const removeUnavailable=e.target.closest('[data-remove-unavailable]'); if(removeUnavailable){
+    const { error }=await supabase.rpc('customer_remove_unavailable_item',{p_order_item_id:removeUnavailable.dataset.removeUnavailable});
+    if(error) toast('This item could not be removed.','error'); else { toast('Item removed from the final order'); await loadOrdersFromSupabase(); render(); }
+  }
+  const replaceUnavailable=e.target.closest('[data-replace-unavailable]'); if(replaceUnavailable){
+    const { data, error }=await supabase.rpc('customer_replace_unavailable_item',{p_order_item_id:replaceUnavailable.dataset.replaceUnavailable,p_replacement_product_id:replaceUnavailable.dataset.replacementProduct});
+    if(error) toast('Replacement could not be selected.','error'); else if(data?.requires_payment){ toast('Additional payment is required.'); await loadOrdersFromSupabase(); render(); } else { toast('Replacement confirmed'); await loadOrdersFromSupabase(); render(); }
+  }
+  const replacementPay=e.target.closest('[data-replacement-pay]'); if(replacementPay){
+    startPaystackCheckout(replacementPay.dataset.replacementPay,replacementPay,'Redirecting to Paystack…','replacement');
+  }
+  const confirmProducts=e.target.closest('[data-confirm-products]'); if(confirmProducts){
+    if(typeof supabase==='undefined' || !supabase) return;
+    const orderId=confirmProducts.dataset.confirmProducts; confirmProducts.disabled=true;
+    try {
+      const result=await supabaseEdgeFunctionRequest('paystack-transfer',{order_id:(state.riderPool.find(x=>x.id===orderId)||{}).dbId});
+      if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
+      else toast('Purchase funding request submitted');
+    } catch (error) { toast(error.message && /eligible|confirmed|unavailable|decision/i.test(error.message) ? error.message : 'Purchase funding could not be released.','error'); }
+    await loadOrdersFromSupabase(); render();
+  }
   // Customer cancellation: only while the order is still cancellable
   // ('Order confirmed' / 'Preparing'). The order is never deleted — its status
   // becomes 'Cancelled' locally and in Supabase (orders_update_own_cancel RLS).
   // For PAID orders, warn the customer that cancellation may require a separate
   // refund process instead of promising an immediate refund.
-  const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && ['Order confirmed','Preparing'].includes(o.status)){
-    const hasSuccessfulPayment = o.payment_status === 'success' || o.delivery_payment_status === 'success';
-    if (hasSuccessfulPayment && !(await DropzyyModal.confirm({ title:'Cancel this order?', message:'Your order will be cancelled, but your payment may require a separate refund process.', confirmText:'Cancel order', danger:true }))) return;
-    const prevStatus=o.status;
-    o.status='Cancelled'; save();
-    addNotification('Order cancelled',`Your order #${o.id} has been cancelled.`);
-    if(typeof supabase!=='undefined' && supabase && o.dbId){
-      supabase.from('orders').update({ status:'Cancelled' }).eq('id',o.dbId)
-        .then(({ error })=>{ if(error){ console.error('Customer cancel sync failed:', error); o.status=prevStatus; save(); } })
-        .catch(err=>console.error('Customer cancel sync error:', err));
-    }
-    toast('Order cancelled','info'); render();
+  const cancel=e.target.closest('[data-cancel]'); if(cancel){const o=state.orders.find(x=>x.id===cancel.dataset.cancel); if(o && typeof supabase!=='undefined' && supabase){
+    if (!(await DropzyyModal.confirm({ title:'Cancel this order?', message:'Cancellation will be recorded and any eligible reimbursement will be processed securely.', confirmText:'Cancel order', danger:true }))) return;
+    cancel.disabled=true;
+    try {
+      const result=await supabaseEdgeFunctionRequest('paystack-transfer',{order_id:o.dbId});
+      toast(result?.status === 'processing' ? 'Reimbursement is processing.' : 'Cancellation and reimbursement are processing.');
+    } catch (err) { toast(err?.message || 'Cancellation requires admin resolution.','info'); }
+    await loadOrdersFromSupabase(); render();
   }}
   // Refund request: navigate to the dedicated Refund Request page (shared by
   // the My Orders and Order Details entry points — no popup modal).
@@ -4745,6 +4868,7 @@ document.addEventListener('input', e => {
 
 document.addEventListener('submit', e=>{
   if(e.target.id==='profileForm'){e.preventDefault(); submitProfileForm(e.target); return;}
+  if(e.target.id==='refundRecipientForm'){e.preventDefault(); submitRefundRecipientForm(e.target); return;}
   if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
   if(e.target.id==='vendorProductForm'){e.preventDefault(); submitVendorProductForm(e.target); return;}
   if(e.target.id==='heroSearch'||e.target.id==='browseSearch'){e.preventDefault(); location.hash=`#/browse?q=${encodeURIComponent(new FormData(e.target).get('q'))}`;}
@@ -4867,7 +4991,7 @@ document.addEventListener('submit', e=>{
           // realtime subscription for them (no-op-safe, re-uses the channel).
           loadNotificationsFromSupabase();
           subscribeNotificationsRealtime();
-          location.hash='#/';
+           location.hash=consumeLoginReturnRoute();
           toast('Welcome to Dropzyy!');
           // Load rider and order data after navigation starts so authentication
           // and the basic profile are not blocked by order history or rider data.
@@ -4882,7 +5006,7 @@ document.addEventListener('submit', e=>{
     e.preventDefault();
     if(state.checkoutSubmitting){ toast('Order is being placed — please wait…', 'info'); return; }
     // Require the user to be logged in before placing an order
-    if(!state.user){ toast('Please sign in to place an order','info'); location.hash='#/login'; return; }
+    if(!state.user){ toast('Please sign in to place an order','info'); redirectToLoginWithReturnRoute(); return; }
     const f=new FormData(e.target);
     const items=cartItems();
     const unavailableItem=items.find(x => x.active === false);
