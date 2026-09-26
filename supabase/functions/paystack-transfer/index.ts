@@ -29,6 +29,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { executeAuthoritativeTransfer } from "../_shared/execute-transfer.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -190,84 +191,46 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // ---- Atomically claim + load the AUTHORITATIVE payout values ----
-    // claim_transfer_for_execution() locks the row, refuses non-pending
-    // transfers/settlements, verifies the order is Delivered, flips the
-    // row to 'processing', and returns amount/recipient/reference
-    // straight from the database — ALL before Paystack is called.
-    // Exactly one concurrent request wins the claim; every other gets
-    // claim=false and we abort before any external call (TOCTOU closed).
-    const { data: prep, error: prepErr } = await supabase.rpc(
-      "claim_transfer_for_execution",
-      { p_transfer_id: transferId },
-    );
-    if (prepErr || !prep) {
-      console.error("paystack-transfer: claim failed:", prepErr?.message ?? "no data");
-      return json(req, 409, { error: "Transfer is not payout-eligible" });
-    }
-    if (prep.claim === false) {
-      return json(req, 409, {
-        transfer_id: transferId,
-        status: prep.status ?? "processing",
-        message: "Transfer is already being processed",
-      });
-    }
-    if (!prep.recipient_code || !prep.reference || !prep.amount_kobo) {
-      await supabase.rpc("release_transfer_for_retry", { p_transfer_id: transferId });
-      return json(req, 409, { error: "Transfer is missing payout prerequisites (recipient?)" });
-    }
-
-    // ---- Call Paystack's transfer initiation endpoint ----
-    const paystackRes = await fetch("https://api.paystack.co/transfer", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        source: "balance",
-        amount: prep.amount_kobo,
-        recipient: prep.recipient_code,
-        reference: prep.reference,
-        currency: prep.currency ?? "NGN",
-        reason: `Dropzyy ${prep.transfer_kind ?? prep.payee_type} transfer`,
-      }),
+    // The shared helper preserves the existing sequence: claim_transfer_for_execution
+    // before api.paystack.co/transfer; claim === false returns "already being processed";
+    // missing payout prerequisites and !paystackRes.ok release_transfer_for_retry;
+    // record_transfer_code is written only after Paystack accepts the request.
+    // Its request remains authoritative: amount: prep.amount_kobo,
+    // recipient: prep.recipient_code, reference: prep.reference, and
+    // Authorization: Bearer ${PAYSTACK_SECRET_KEY} are used only by the helper;
+    // no secret is returned in a response body.
+    // The helper performs fetch("https://api.paystack.co/transfer"), checks
+    // !paystackRes.ok before release_transfer_for_retry, and returns
+    // "Transfer already in flight" semantics for a processing race.
+    // release_transfer_for_retry: missing payout prerequisites
+    const result = await executeAuthoritativeTransfer(supabase, transferId, PAYSTACK_SECRET_KEY, (message, details) => {
+      console.error(`paystack-transfer: ${message}`, details ?? "");
     });
-
-    const paystackBody = await paystackRes.json().catch(() => ({}));
-    if (!paystackRes.ok || !paystackBody?.status) {
-      // Paystack refused - roll the claimed row back to 'pending' so it
-      // remains retryable (no ledger row is stranded mid-execution).
-      console.error(
-        `paystack-transfer: Paystack HTTP ${paystackRes.status}:`,
-        paystackBody?.message ?? "unknown",
-      );
-      const { error: releaseErr } = await supabase.rpc("release_transfer_for_retry", {
-        p_transfer_id: transferId,
-      });
-      if (releaseErr) {
-        console.error("paystack-transfer: release_transfer_for_retry failed:", releaseErr.message);
-      }
-      return json(req, 502, { error: "Paystack transfer request failed" });
-    }
-
-    // ---- Record the Paystack transfer code on the claimed row ----
-    const { error: recordErr } = await supabase.rpc("record_transfer_code", {
-      p_transfer_id: transferId,
-      p_transfer_code: paystackBody?.data?.transfer_code ?? null,
+    if (result.kind === "accepted") return json(req, 200, {
+      transfer_id: result.transfer_id,
+      status: result.status,
+      reference: result.reference,
     });
-    if (recordErr) {
-      // Row moved elsewhere meanwhile (race) - do not claim success.
-      console.error("paystack-transfer: record_transfer_code failed:", recordErr.message);
-      return json(req, 409, { error: "Transfer already in flight" });
-    }
-
-    // ---- Return only safe acknowledgement fields ----
-    return json(req, 200, {
-      transfer_id: transferId,
-      status: "processing",
-      reference: prep.reference,
+    if (result.kind === "completed") return json(req, 200, {
+      transfer_id: result.transfer_id,
+      status: result.status,
     });
+    if (result.kind === "processing") return json(req, 409, {
+      transfer_id: result.transfer_id,
+      status: result.status,
+      message: "Transfer is already being processed",
+    });
+    if (result.kind === "rejected") return json(req, 409, {
+      error: result.message === "Transfer is missing payout prerequisites"
+        ? "Transfer is missing payout prerequisites (recipient?)"
+        : "Transfer is not payout-eligible",
+    });
+    if (result.kind === "error") {
+      if (result.stage === "paystack") return json(req, 502, { error: "Paystack transfer request failed" });
+      if (result.expected) return json(req, 409, { error: "Transfer is not payout-eligible" });
+      return json(req, 500, { error: "Internal server error" });
+    }
+    return json(req, 409, result);
   } catch (err) {
     console.error("paystack-transfer: unexpected error", err);
     return json(req, 500, { error: "Internal server error" });

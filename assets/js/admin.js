@@ -336,25 +336,55 @@ async function syncProductToSupabase(product) {
   }
 }
 
-// Delete a vendor and all its products from Supabase.
+// Deactivate a vendor and all its products in Supabase. Historical rows are
+// retained so product/order foreign keys and order history remain intact.
 async function deleteVendorFromSupabase(vendorId) {
   if (!supabaseAvailable()) return false;
   try {
-    // Delete products belonging to this vendor first (FK constraint)
     const { error: productError } = await supabase
       .from('products')
-      .delete()
+      .update({ active: false })
       .eq('vendor_id', vendorId);
-    if (productError) throw productError;
+    if (productError) {
+      console.error('Supabase vendor delete failed:', {
+        code: productError.code,
+        message: productError.message,
+        details: productError.details,
+        hint: productError.hint,
+        vendorId,
+        operation: 'product deactivation',
+        entity: 'products'
+      });
+      return false;
+    }
 
     const { error: vendorError } = await supabase
       .from('vendors')
-      .delete()
+      .update({ open: false })
       .eq('id', vendorId);
-    if (vendorError) throw vendorError;
+    if (vendorError) {
+      console.error('Supabase vendor delete failed:', {
+        code: vendorError.code,
+        message: vendorError.message,
+        details: vendorError.details,
+        hint: vendorError.hint,
+        vendorId,
+        operation: 'vendor deactivation',
+        entity: 'vendors'
+      });
+      return false;
+    }
     return true;
   } catch (err) {
-    console.error('Supabase vendor delete failed:', err);
+    console.error('Supabase vendor delete failed:', {
+      code: err?.code,
+      message: err?.message,
+      details: err?.details,
+      hint: err?.hint,
+      vendorId,
+      operation: 'unexpected delete error',
+      entity: 'unknown'
+    });
     return false;
   }
 }
@@ -760,23 +790,22 @@ async function addVendor(formData) {
 }
 
 async function deleteVendor(vendorId) {
-  if (await DropzyyModal.confirm({ title:'Delete vendor', message:'Delete this vendor and all its products?', confirmText:'Delete vendor', danger:true })) {
+  if (await DropzyyModal.confirm({ title:'Deactivate vendor', message:'Deactivate this vendor and all its products? Historical orders will be preserved.', confirmText:'Deactivate vendor', danger:true })) {
     const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
-    state.catalog.vendors = state.catalog.vendors.filter(v => v.id !== vendorId);
-    state.catalog.products = state.catalog.products.filter(p => p.vendor !== vendorId);
-    // Remove any cart entries that referenced the deleted vendor's products
-    const cart = load('cart', []);
-    store('cart', cart.filter(x => !vendorProductIds.includes(x.id)));
-
-    // Save to localStorage (fallback)
-    saveCatalog();
-
     // Sync to Supabase
     const synced = await deleteVendorFromSupabase(vendorId);
     if (!synced) {
-      toast('Vendor deleted locally (Supabase sync failed)', 'error');
+      toast('Vendor deactivation failed — local state was not changed', 'error');
     } else {
-      toast('Vendor deleted');
+      state.catalog.vendors = state.catalog.vendors.map(v => v.id === vendorId ? { ...v, open: false } : v);
+      state.catalog.products = state.catalog.products.map(p => p.vendor === vendorId ? { ...p, active: false } : p);
+      // Remove any cart entries that referenced the deleted vendor's products
+      const cart = load('cart', []);
+      store('cart', cart.filter(x => !vendorProductIds.includes(x.id)));
+
+      // Save to localStorage only after Supabase succeeds.
+      saveCatalog();
+      toast('Vendor deactivated successfully');
     }
 
     renderAdminWorkspace();

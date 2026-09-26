@@ -136,7 +136,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
 const catalogProducts = catalog => Array.isArray(catalog) ? catalog : Array.isArray(catalog?.products) ? catalog.products : [];
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
@@ -707,14 +707,20 @@ async function submitRiderRatingForm(form) {
   if (!orderId || !riderId) { toast('Could not submit rating — missing order details', 'error'); return; }
   const rating = activeStar ? Number(activeStar.dataset.rating) : 0;
   if (rating < 1 || rating > 5 || !Number.isInteger(rating)) { toast('Please select a star rating (1–5)', 'error'); return; }
+  if (state.ratingSubmitting[orderId]) return;
+  state.ratingSubmitting[orderId] = true;
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Submitting…'; }
   const submitted = await submitRiderRating(orderId, riderId, rating, review);
-  if (!submitted) return;
+  delete state.ratingSubmitting[orderId];
+  if (!submitted) { if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Submit rating'; } return; }
   // Mark as rated locally, then persist the Delivered → Rated transition via
   // the permitted RLS path. On failure keep the order Delivered and show the
   // form again so the user can retry.
   const order = state.orders.find(x => x.dbId === orderId);
   const prevStatus = order ? order.status : null;
   if (order) order.status = 'Rated';
+  if (order) order.rider_rating = { rating, review };
   state.ratingCompleteOrder = orderId;
   save();
   if (typeof supabase !== 'undefined' && supabase) {
@@ -870,10 +876,21 @@ async function loadOrdersForUser(userId) {
       .eq('user_id', userId);
     if (ordersError) throw ordersError;
 
+    const orderIds = (ordersData || []).map(o => o.id);
+    let ratingsByOrder = {};
+    if (orderIds.length) {
+      const { data: ratingRows, error: ratingsError } = await supabase
+        .from('rider_ratings')
+        .select('order_id, rating, review')
+        .in('order_id', orderIds)
+        .eq('reviewer_id', userId);
+      if (ratingsError) throw ratingsError;
+      (ratingRows || []).forEach(r => { ratingsByOrder[r.order_id] = r; });
+    }
+
     // 2. Fetch order_items for all the user's orders
     let orderItemsData = [];
     if (ordersData && ordersData.length > 0) {
-      const orderIds = ordersData.map(o => o.id);
       const { data: itemsData, error: itemsError } = await supabase
         .from('order_items')
         .select('*')
@@ -927,6 +944,7 @@ async function loadOrdersForUser(userId) {
       purchase_funding_status: o.purchase_funding_status || 'not_required',
       cancellation_stage: o.cancellation_stage || 'none',
       rider_id: o.rider_id || null,
+      rider_rating: ratingsByOrder[o.id] || null,
       rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
       rider_phone: (o.rider_id && riderPhones && riderPhones[o.rider_id]) || null,
       created: formatOrderCreated(o.created_at),
@@ -3299,6 +3317,46 @@ async function vendorRequestsView() {
 let productsChannel = null;
 let trackChannel = null;
 let trackPollTimer = null;
+let riderOrdersChannel = null;
+let riderOrdersSubscriptionStarting = false;
+
+function clearRiderOrdersSubscription() {
+  if (riderOrdersChannel && typeof supabase !== 'undefined' && supabase) {
+    try { supabase.removeChannel(riderOrdersChannel); } catch (e) { /* ignore */ }
+    riderOrdersChannel = null;
+  }
+  riderOrdersSubscriptionStarting = false;
+}
+
+// Keep the Rider Hub's pool/current deliveries synchronized with customer and
+// vendor changes. The authoritative reload rebuilds both orders and order
+// items, so no stale localStorage merge or client-side financial mutation is
+// involved.
+function subscribeRiderOrdersRealtime() {
+  if (typeof supabase === 'undefined' || !supabase || riderOrdersChannel || riderOrdersSubscriptionStarting) return;
+  riderOrdersSubscriptionStarting = true;
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session || riderOrdersChannel) { riderOrdersSubscriptionStarting = false; return; }
+    const channel = supabase
+      .channel('rider-orders-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async () => {
+        await loadOrdersFromSupabase();
+        if (location.hash.startsWith('#/rider')) render();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, async () => {
+        await loadOrdersFromSupabase();
+        if (location.hash.startsWith('#/rider')) render();
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Rider orders realtime channel unavailable — using pull fallback:', status);
+          if (riderOrdersChannel === channel) riderOrdersChannel = null;
+        }
+      });
+    riderOrdersChannel = channel;
+    riderOrdersSubscriptionStarting = false;
+  }).catch(() => { riderOrdersSubscriptionStarting = false; /* pull-based order loading remains the fallback */ });
+}
 
 function clearTrackSubscription() {
   if (trackChannel && typeof supabase !== 'undefined' && supabase) {
@@ -3360,6 +3418,15 @@ function startTrackSubscription(dbId) {
         if (idx < 0) return;
         state.orders[idx] = { ...prev, status: ns, payment_status: nps, rider_id: nrider };
         render();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'order_items',
+        filter: 'order_id=eq.' + dbId
+      }, async () => {
+        await loadOrdersFromSupabase();
+        if (location.hash.startsWith('#/track/')) render();
       })
       .subscribe();
   } catch (e) {
@@ -3424,9 +3491,11 @@ async function track(id) {
   // reviewer_id) plus the client-side state.ratingCompleteOrder guard prevent
   // duplicate submissions. 'Rated' order status also hides the form.
   let ratingUi = '';
-  if (o.rider_id && o.status === 'Delivered') {
-    if (state.ratingCompleteOrder === o.dbId) {
-      ratingUi = `<div class="card"><div class="row row--between row--wrap"><div><b>Your rating was submitted</b><div class="small muted">Thanks for rating your rider!</div></div><span class="badge badge--success">★ Rated</span></div></div>`;
+  if (o.rider_id && ['Delivered', 'Rated'].includes(o.status)) {
+    if (o.rider_rating || state.ratingCompleteOrder === o.dbId) {
+      const savedRating = o.rider_rating || {};
+      const stars = Math.max(0, Math.min(5, Number(savedRating.rating) || 0));
+      ratingUi = `<div class="card"><div class="row row--between row--wrap"><div><b>Your rating</b><div class="stars" aria-label="${stars} out of 5">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>${savedRating.review ? `<div class="small muted mt-1">${esc(savedRating.review)}</div>` : ''}</div><span class="badge badge--success">★ Submitted</span></div></div>`;
     } else {
       ratingUi = `
       <div class="card">
@@ -3562,7 +3631,15 @@ function reorder(orderId) {
   location.hash = '#/cart';
 }
 
-function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form><p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
+function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form>${login?'<p class="center small mt-2 mb-0"><a class="link-btn" href="#/forgot-password">Forgot password?</a></p>':''}<p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
+
+function passwordReset() {
+  return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">Reset your password</h1><p class="muted">Choose a new password for your Dropzyy account.</p></div><form id="passwordResetForm" class="stack mt-2"><div class="field"><label for="resetPassword">New password</label><input required minlength="6" class="input" type="password" name="password" id="resetPassword" autocomplete="new-password"></div><div class="field"><label for="resetConfirmPassword">Confirm new password</label><input required minlength="6" class="input" type="password" name="confirmPassword" id="resetConfirmPassword" autocomplete="new-password"></div><button class="btn btn--block btn--lg" type="submit">Update password</button></form><p class="center small muted mt-2 mb-0"><a class="link-btn" href="#/login">Back to sign in</a></p></div></div></section>`;
+}
+
+function forgotPassword() {
+  return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">Forgot password?</h1><p class="muted">Enter your registered email and we’ll send you a reset link.</p></div><form id="forgotPasswordForm" class="stack mt-2"><div class="field"><label for="forgotEmail">University email</label><input required class="input" type="email" name="email" id="forgotEmail" autocomplete="email"></div><button class="btn btn--block btn--lg" type="submit">Send reset link</button></form><p class="center small muted mt-2 mb-0"><a class="link-btn" href="#/login">Back to sign in</a></p></div></div></section>`;
+}
 
 // ============================================
 // Customer Profile
@@ -4073,8 +4150,9 @@ async function handlePaystackReturn() {
     await loadOrdersFromSupabase();
     const order = (state.orders || []).find(o => o.payment_reference === ref);
     if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your orders…');
-      if (location.hash !== '#/orders') location.hash = '#/orders'; else render();
+      toast('Payment successful — opening your order…');
+      const orderRoute = `#/order/${encodeURIComponent(order.dbId || order.id)}`;
+      if (location.hash !== orderRoute) location.hash = orderRoute; else render();
       return;
     }
     // Webhook may lag a moment behind the redirect — brief retry.
@@ -4097,8 +4175,8 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
     try { await loadOrdersFromSupabase(); } catch (e) { /* retry next tick; order stays visible */ }
     const order = (state.orders || []).find(x => x.dbId === dbId || x.id === routeOrderId);
     if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your orders…');
-      location.hash = '#/orders';
+      toast('Payment successful — opening your order…');
+      location.hash = `#/order/${encodeURIComponent(order.dbId || order.id)}`;
       return;
     }
     if (n < attempts) setTimeout(tick, interval);
@@ -4318,7 +4396,7 @@ const ROUTE_TITLES = {
   checkout:'Checkout', 'report-issue':'Report an Issue', report:'Report an Issue',
   faqs:'FAQs', orders:'My Orders', track:'Track Order', order:'Order',
   refund:'Request Refund', pay:'Payment', profile:'My Profile', login:'Sign in',
-  register:'Create account', admin:'Admin'
+  register:'Create account', 'forgot-password':'Forgot password', 'reset-password':'Reset password', admin:'Admin'
 };
 function setDocumentTitle(parts) {
   let label = ROUTE_TITLES[parts[0]] || '';
@@ -4331,10 +4409,19 @@ async function render() {
   const [path] = location.hash.slice(1).split('?');
   const parts = path.split('/').filter(Boolean);
   const isLoginRoute = parts[0] === 'login';
+  const isRecoveryRoute = parts[0] === 'reset-password';
   if (isLoginRoute && !state.user) {
     setMaintenanceChrome(false);
     setDocumentTitle(parts);
     $('#app').innerHTML = auth('login');
+    updateChrome();
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    return;
+  }
+  if (isRecoveryRoute) {
+    setMaintenanceChrome(false);
+    setDocumentTitle(parts);
+    $('#app').innerHTML = passwordReset();
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
     return;
@@ -4373,6 +4460,7 @@ async function render() {
   else if (parts[0]==='vendor-requests') view = await vendorRequestsView();
   else if (parts[0]==='profile') view = profile();
   else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
+  else if (parts[0]==='forgot-password') view = forgotPassword();
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
   else if (parts[0]==='vendor') {
@@ -4859,6 +4947,7 @@ document.addEventListener('click', async e=>{
     // for the next sign-in by subscribeNotificationsRealtime()).
     if(typeof supabase!=='undefined' && supabase){
       if(state.notificationsChannel){ supabase.removeChannel(state.notificationsChannel).catch(()=>{}); state.notificationsChannel=null; }
+      clearRiderOrdersSubscription();
       supabase.auth.signOut().catch(()=>{});
     }
     location.hash='#/'; toast('Signed out','info');
@@ -4872,6 +4961,29 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('submit', e=>{
+  if(e.target.id==='passwordResetForm'){
+    e.preventDefault();
+    const f=new FormData(e.target), password=String(f.get('password')||''), confirm=String(f.get('confirmPassword')||'');
+    if(password.length<6){ toast('Password must be at least 6 characters','error'); return; }
+    if(password!==confirm){ toast('Passwords do not match','error'); return; }
+    supabase.auth.updateUser({ password }).then(({ error })=>{
+      if(error){ toast(error.message,'error'); return; }
+      supabase.auth.signOut().catch(()=>{});
+      toast('Password updated. Please sign in.','success');
+      location.hash='#/login';
+    });
+    return;
+  }
+  if(e.target.id==='forgotPasswordForm'){
+    e.preventDefault();
+    const email=String(new FormData(e.target).get('email')||'').trim();
+    const origin=window.location.origin;
+    supabase.auth.resetPasswordForEmail(email,{ redirectTo: `${origin}/?recovery=1` }).then(({ error })=>{
+      if(error){ toast(error.message,'error'); return; }
+      toast('Check your email for a password reset link.','success');
+    });
+    return;
+  }
   if(e.target.id==='profileForm'){e.preventDefault(); submitProfileForm(e.target); return;}
   if(e.target.id==='refundRecipientForm'){e.preventDefault(); submitRefundRecipientForm(e.target); return;}
   if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
@@ -4996,6 +5108,7 @@ document.addEventListener('submit', e=>{
           // realtime subscription for them (no-op-safe, re-uses the channel).
           loadNotificationsFromSupabase();
           subscribeNotificationsRealtime();
+          subscribeRiderOrdersRealtime();
            location.hash=consumeLoginReturnRoute();
           toast('Welcome to Dropzyy!');
           // Load rider and order data after navigation starts so authentication
@@ -5166,7 +5279,7 @@ function setDropdownOpen(triggerId, panelId, open){
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 $('#notifBtn').addEventListener('click',()=>{ setDropdownOpen('notifBtn','notifPanel', $('#notifPanel').hidden); loadNotificationsFromSupabase(); }); $('#userBtn').addEventListener('click',()=>setDropdownOpen('userBtn','userPanel', $('#userPanel').hidden)); $('#notifClear').addEventListener('click',()=>markAllNotificationsRead());
-document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(!e.target.closest('#notifWrap'))setDropdownOpen('notifBtn','notifPanel',false); if(!e.target.closest('#userWrap'))setDropdownOpen('userBtn','userPanel',false);});
+document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){e.stopPropagation();markNotificationRead(e.target.closest('[data-notif-read]').getAttribute('data-notif-read'));return;}if(e.target.closest('#userPanel a'))setDropdownOpen('userBtn','userPanel',false); if(!e.target.closest('#notifWrap'))setDropdownOpen('notifBtn','notifPanel',false); if(!e.target.closest('#userWrap'))setDropdownOpen('userBtn','userPanel',false);});
 // Escape closes open dropdown panels (account + notifications) — ARIA stays in sync.
 // Skip-to-content: preventDefault so the bare "#app" hash never collides with
 // the "#/route" router, and focus the routed main container without scrolling.
@@ -5278,7 +5391,7 @@ const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DR
 // (?reference= / ?trxref=) reach handlePaystackReturn().
 const PATH_ROUTE_PREFIXES = [
   'browse', 'vendors', 'vendor', 'product', 'cart', 'checkout', 'orders',
-  'order', 'track', 'refund', 'pay', 'profile', 'login', 'register', 'faqs',
+  'order', 'track', 'refund', 'pay', 'profile', 'login', 'register', 'forgot-password', 'reset-password', 'faqs',
   'report', 'report-issue', 'vendor-requests', 'rider'
 ];
 function pathRouteFromLocation() {
@@ -5347,6 +5460,7 @@ loadNotificationsFromSupabase();
 // and list update without a manual refresh. Falls back to the pull-based
 // loader above (panel open / login / boot) when Realtime is unavailable.
 subscribeNotificationsRealtime();
+subscribeRiderOrdersRealtime();
 // NOTE: handlePaystackReturn() is deliberately NOT called here. It requires
 // state.user (it can only confirm a payment against the signed-in user's own
 // orders) and state.user is populated by the async session restore below, so
@@ -5354,6 +5468,11 @@ subscribeNotificationsRealtime();
 // payment-return flow was dead. It is invoked at the end of the session
 // restore instead.
 
+
+function isPasswordRecoveryReturn() {
+  const query = new URLSearchParams(location.search);
+  return query.get('recovery') === '1' || new URLSearchParams(location.hash.replace(/^#/, '')).get('type') === 'recovery';
+}
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
@@ -5390,6 +5509,8 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         // (pool + assigned orders) from Supabase for THIS user before rendering..
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
+        subscribeRiderOrdersRealtime();
+        if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
         render();
         // Paystack return: state.user and this user's orders are finally
         // available, so a ?reference= / ?trxref= left in the URL can be
@@ -5401,6 +5522,8 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         save();
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
+        subscribeRiderOrdersRealtime();
+        if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
         render();
         // Same as the branch above: only now is there an authenticated user to
         // match the returned payment reference against.

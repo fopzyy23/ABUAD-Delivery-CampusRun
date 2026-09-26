@@ -1,7 +1,7 @@
 -- Fix the replacement product ID parameter type to match the bigint column.
 DROP FUNCTION IF EXISTS public.record_product_availability_check(uuid, boolean, text, numeric);
 
-CREATE FUNCTION public.record_product_availability_check(
+CREATE OR REPLACE FUNCTION public.record_product_availability_check(
   p_order_item_id uuid,
   p_available boolean,
   p_replacement_product_id bigint DEFAULT NULL,

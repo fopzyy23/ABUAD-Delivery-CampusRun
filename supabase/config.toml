@@ -1,0 +1,11 @@
+[functions.paystack-transfer]
+verify_jwt = true
+
+[functions.automatic-cutoff-transfer]
+verify_jwt = false
+
+[functions.automatic-cutoff-worker]
+verify_jwt = false
+
+[functions.paystack-payout-cost-reconcile]
+verify_jwt = false
