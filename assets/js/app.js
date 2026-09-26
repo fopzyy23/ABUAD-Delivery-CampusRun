@@ -3687,6 +3687,9 @@ function rider() {
   const earnings = riderPendingEarnings();
   const pendingRequestsTotal = riderPendingRequestsTotal();
   const pendingRequestsCount = (state.withdrawals || []).filter(w => w.status === 'pending').length;
+  const requestable = state.riderBalance && state.riderBalance.available_balance != null
+    ? Math.max(0, Number(state.riderBalance.available_balance))
+    : Math.max(0, earnings - pendingRequestsTotal);
   const pickupName = o => { const v = o.items[0] ? vendor(o.items[0].vendor) : null; return `${esc(v ? v.name : 'Campus vendor')} → ${esc(o.spot)}`; };
   // Transparent ETA estimate: exact routing data is unavailable, so the figure
   // is derived from the order size + queue position and is always clearly
@@ -3769,9 +3772,6 @@ function rider() {
         : list.length
           ? `<div class="table-wrap"><table class="table"><thead><tr><th>Amount</th><th>Bank</th><th>Status</th><th>Requested</th><th>Reviewed</th><th>Admin note</th></tr></thead><tbody>${list.map(w => `<tr><td><b>${money(w.amount)}</b></td><td class="muted small">${w.bank_name ? esc(w.bank_name) + ' ···• ' + (w.account_number ? esc(w.account_number.slice(-4)) : '') : esc('—')}</td><td><span class="badge badge--${w.status === 'pending' ? 'warn' : w.status === 'approved' ? 'success' : w.status === 'paid' ? 'info' : 'danger'}">${esc(w.status)}</span></td><td>${w.requested_at ? formatFullDate(w.requested_at) : '—'}</td><td>${w.reviewed_at ? formatFullDate(w.reviewed_at) : '—'}</td><td class="muted small">${esc(w.admin_note || '—')}</td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty"><div class="empty__icon">🏦</div><b>No withdrawal requests yet</b><span>Request a payout from your estimated earnings below.</span></div>`;
-      const requestable = state.riderBalance && state.riderBalance.available_balance != null
-        ? Math.max(0, Number(state.riderBalance.available_balance))
-        : Math.max(0, earnings - pendingRequestsTotal);
     const lastBank = list.find(w => w.account_number) || null;
     withdrawalHtml = `
       <div class="card mt-3">
