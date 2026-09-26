@@ -38,6 +38,7 @@ let state = {
   siteSettings: null,
   siteSettingsLoading: false,
   siteSettingsError: null
+  ,mfa: { factors: [], aal: null, enrollment: null, challenge: null, factorId: null, challengeRequired: false, loading: false, error: null }
 };
 
 // Order filtering state (presentational only — the full order set is always
@@ -63,12 +64,120 @@ const CANCELLED_STATUS = 'Cancelled';
 
 // Supabase authentication tracking
 let supabaseAdminUser = null;
+let lastVendorSyncError = null;
 
 function adminMfaMessage(message) {
   const text = String(message || '');
   return /aal2|mfa|multi-factor|assurance/i.test(text)
     ? 'Complete or enroll Supabase MFA, then retry this admin action.'
     : text;
+}
+
+async function refreshAdminMfa() {
+  if (!supabaseAvailable() || !supabaseAdminUser || !state.isAuthenticated) return;
+  state.mfa.loading = true;
+  try {
+    const [{ data: factors, error: factorError }, { data: aal, error: aalError }] = await Promise.all([
+      supabase.auth.mfa.listFactors(),
+      supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    ]);
+    if (factorError) throw factorError;
+    if (aalError) throw aalError;
+    state.mfa.factors = (factors?.all || []).filter(f => f.factor_type === 'totp');
+    state.mfa.aal = aal || null;
+    state.mfa.error = null;
+  } catch (err) {
+    state.mfa.error = err.message || 'Could not load MFA status.';
+    console.error('Admin MFA status failed:', err);
+  } finally {
+    state.mfa.loading = false;
+  }
+}
+
+async function prepareAdminMfaChallenge() {
+  const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aalError) throw aalError;
+  state.mfa.aal = aal || null;
+  if (aal?.currentLevel !== 'aal1' || aal?.nextLevel !== 'aal2') {
+    state.mfa.challengeRequired = false;
+    return false;
+  }
+  const { data: factors, error: factorError } = await supabase.auth.mfa.listFactors();
+  if (factorError) throw factorError;
+  const verified = (factors?.all || []).filter(f => f.factor_type === 'totp' && f.status === 'verified');
+  if (!verified.length) return false;
+  state.mfa.factors = verified;
+  state.mfa.factorId = verified[0].id;
+  state.mfa.challengeRequired = true;
+  state.mfa.error = null;
+  return true;
+}
+
+async function verifyAdminMfaChallenge(form) {
+  const code = String(new FormData(form).get('code') || '').trim();
+  if (!/^\d{6}$/.test(code) || !state.mfa.factorId) { toast('Enter the 6-digit authenticator code.', 'error'); return; }
+  state.mfa.loading = true; state.mfa.error = null; renderAdminMfaChallenge();
+  try {
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: state.mfa.factorId });
+    if (challengeError) throw challengeError;
+    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId: state.mfa.factorId, challengeId: challenge.id, code });
+    if (verifyError) throw verifyError;
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aalError) throw aalError;
+    state.mfa.aal = aal;
+    if (aal?.currentLevel !== 'aal2') throw new Error('MFA verification did not promote this session to AAL2. Please try again.');
+    state.mfa.challengeRequired = false; state.mfa.factorId = null; state.mfa.loading = false;
+    await init();
+  } catch (err) {
+    state.mfa.loading = false; state.mfa.error = adminMfaMessage(err.message || 'MFA verification failed.');
+    console.error('Admin MFA challenge failed:', err);
+    renderAdminMfaChallenge();
+  }
+}
+
+function renderAdminMfaChallenge() {
+  const app = $('#app');
+  if (!app) return;
+  app.innerHTML = `<section class="section container"><div class="auth-wrap" style="max-width:480px"><div class="card"><h1>Admin verification</h1><p class="muted">Enter the 6-digit code from your authenticator app.</p>${state.mfa.error ? `<p class="text-danger">${escHtml(state.mfa.error)}</p>` : ''}<form id="adminMfaChallengeForm" class="stack"><input class="input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code" required ${state.mfa.loading ? 'disabled' : ''}><button class="btn" type="submit" ${state.mfa.loading ? 'disabled' : ''}>${state.mfa.loading ? 'Verifying…' : 'Verify'}</button></form><p class="muted small mt-1">Your admin workspace remains locked until this session reaches AAL2.</p></div></div></section>`;
+  $('#adminMfaChallengeForm')?.addEventListener('submit', event => { event.preventDefault(); verifyAdminMfaChallenge(event.target); });
+}
+
+async function beginAdminMfaEnrollment() {
+  const verified = state.mfa.factors.find(f => f.status === 'verified');
+  if (verified) { toast('An authenticator is already enrolled.', 'info'); return; }
+  const pending = state.mfa.factors.find(f => f.status !== 'verified');
+  if (pending) { toast('An MFA enrollment is already pending. Complete it in Supabase Auth before starting another.', 'info'); return; }
+  try {
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Dropzyy Admin' });
+    if (error) throw error;
+    state.mfa.enrollment = data;
+    renderAdminWorkspace();
+  } catch (err) {
+    console.error('Admin MFA enrollment failed:', err);
+    toast(adminMfaMessage(err.message || 'Could not start MFA enrollment.'), 'error');
+  }
+}
+
+async function verifyAdminMfaEnrollment(form) {
+  const code = String(new FormData(form).get('code') || '').trim();
+  const enrollment = state.mfa.enrollment;
+  if (!/^\d{6}$/.test(code) || !enrollment?.id) { toast('Enter the 6-digit authenticator code.', 'error'); return; }
+  try {
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: enrollment.id });
+    if (challengeError) throw challengeError;
+    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId: enrollment.id, challengeId: challenge.id, code });
+    if (verifyError) throw verifyError;
+    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aalError) throw aalError;
+    if (aal.currentLevel !== 'aal2') throw new Error('MFA verification succeeded, but this session is still AAL1. Refresh and try again.');
+    state.mfa.enrollment = null;
+    await refreshAdminMfa();
+    toast('MFA setup complete — this admin session is AAL2.');
+    renderAdminWorkspace();
+  } catch (err) {
+    console.error('Admin MFA verification failed:', err);
+    toast(adminMfaMessage(err.message || 'MFA verification failed.'), 'error');
+  }
 }
 
 // ============================================
@@ -151,6 +260,7 @@ function productToRow(p) {
 // Upsert a vendor into Supabase. Returns true on success, false on failure.
 async function syncVendorToSupabase(vendor) {
   if (!supabaseAvailable()) return false;
+  lastVendorSyncError = null;
   try {
     const { error } = await supabase
       .from('vendors')
@@ -158,7 +268,14 @@ async function syncVendorToSupabase(vendor) {
     if (error) throw error;
     return true;
   } catch (err) {
+    lastVendorSyncError = err;
     console.error('Supabase vendor sync failed:', err);
+    console.error('Supabase vendor sync details:', {
+      code: err?.code,
+      message: err?.message,
+      details: err?.details,
+      hint: err?.hint
+    });
     return false;
   }
 }
@@ -467,6 +584,7 @@ async function checkAuth() {
       return false;
     }
     state.isAuthenticated = true;
+    await prepareAdminMfaChallenge();
     return true;
   } catch (err) {
     console.error('Supabase session check failed:', err);
@@ -592,7 +710,7 @@ async function addVendor(formData) {
   // Sync to Supabase
   const synced = await syncVendorToSupabase(vendor);
   if (!synced) {
-    toast('Vendor saved locally (Supabase sync failed)', 'error');
+    toast(adminMfaMessage(lastVendorSyncError?.message || 'Vendor saved locally (Supabase sync failed)'), 'error');
   } else {
     toast('Vendor saved successfully');
   }
@@ -635,7 +753,7 @@ async function toggleVendor(vendorId) {
     // Sync to Supabase
     const synced = await syncVendorToSupabase(vendor);
     if (!synced) {
-      toast(`Vendor ${vendor.open ? 'opened' : 'closed'} locally (Supabase sync failed)`, 'error');
+      toast(adminMfaMessage(lastVendorSyncError?.message || `Vendor ${vendor.open ? 'opened' : 'closed'} locally (Supabase sync failed)`), 'error');
     } else {
       toast(`Vendor ${vendor.open ? 'opened' : 'closed'}`);
     }
@@ -714,6 +832,11 @@ async function init() {
     renderLogin();
     return false;
   }
+  if (state.mfa.challengeRequired) {
+    renderAdminMfaChallenge();
+    return true;
+  }
+  await refreshAdminMfa();
   // Load catalog, orders, riders, and assignable users only once (lazy load on
   // first admin entry). loadAssignableUsers requires admin auth, which
   // checkAuth() already enforced above.
@@ -1751,6 +1874,13 @@ function renderSettingsSection({ vendors, orders }) {
     </div>
 
     <div class="card mt-2">
+      <div class="card__head"><h3>Admin Security</h3><span class="badge badge--${state.mfa.aal?.currentLevel === 'aal2' ? 'success' : 'warn'}">${state.mfa.aal?.currentLevel === 'aal2' ? 'AAL2' : 'AAL1'}</span></div>
+      <p class="muted">Authenticator MFA is required for protected admin writes.</p>
+      <p><b>${state.mfa.factors.some(f => f.status === 'verified') ? 'MFA enrolled' : 'MFA not enrolled'}</b> · Current session: ${escHtml(state.mfa.aal?.currentLevel || 'unknown')}</p>
+      ${state.mfa.error ? `<p class="muted">${escHtml(state.mfa.error)}</p>` : ''}
+      ${state.mfa.enrollment ? `<div class="card mt-1"><p>Scan this QR code with your authenticator app:</p><img src="${escHtml(state.mfa.enrollment.totp.qr_code)}" alt="Admin MFA QR code" style="max-width:220px"><p class="small">Manual secret: <code>${escHtml(state.mfa.enrollment.totp.secret)}</code></p><form id="adminMfaVerifyForm" class="row row--wrap" style="gap:8px"><input class="input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code" required><button class="btn" type="submit">Verify authenticator</button></form></div>` : state.mfa.factors.some(f => f.status === 'verified') ? '<p class="muted">A verified authenticator is enrolled.</p>' : '<button class="btn btn--soft" id="adminMfaEnrollBtn" type="button">Set up authenticator</button>'}
+    </div>
+    <div class="card mt-2">
       <div class="card__head">
         <h3>Maintenance Mode</h3>
         <span class="muted small">${state.siteSettingsLoading ? 'Loading current value…' : state.siteSettingsError ? 'Unable to load current value' : 'Global platform access control'}</span>
@@ -1790,6 +1920,11 @@ function attachAdminEventListeners() {
       maintenanceToggle.disabled = false;
     });
   }
+  $('#adminMfaEnrollBtn')?.addEventListener('click', beginAdminMfaEnrollment);
+  $('#adminMfaVerifyForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    verifyAdminMfaEnrollment(event.target);
+  });
 
   document.querySelectorAll('[data-generate-settlement]').forEach(btn => btn.addEventListener('click', async () => {
     try { const { error } = await supabase.rpc('admin_generate_settlement', { p_order_id: btn.dataset.generateSettlement }); if (error) throw error; toast('Settlement prepared'); await loadSettlementsFromSupabase(); renderAdminWorkspace(); }
