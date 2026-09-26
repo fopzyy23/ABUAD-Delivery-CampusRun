@@ -15,7 +15,7 @@
 // Deploy: supabase functions deploy paystack-transfer-recipient
 // Invoke: POST {SUPABASE_URL}/functions/v1/paystack-transfer-recipient
 // Header: Authorization: Bearer <user-jwt>
-// Body:   { "payee_type": "vendor" | "rider",
+// Body:   { "payee_type": "vendor" | "rider" | "customer",
 //           "account_number": "0123456789",
 //           "bank_code": "058",
 //           "account_name": "optional display name" }
@@ -39,6 +39,7 @@ const ALLOWED_ORIGINS: string[] = (
 // Paystack's /transferrecipient endpoint ONLY — /transfer is never called here.
 const PAYSTACK_TRANSFER_RECIPIENT_URL =
   "https://api.paystack.co/transferrecipient";
+const PAYSTACK_BANK_LIST_URL = "https://api.paystack.co/bank?country=nigeria&currency=NGN&perPage=500";
 
 // ---- CORS: strict allowlist echo (no wildcard) ----
 // The request Origin is echoed back ONLY when it appears in the
@@ -122,16 +123,37 @@ serve(async (req: Request): Promise<Response> => {
     } catch {
       return json({ error: "Invalid JSON body" }, 400, origin);
     }
+    const mode = clean(body.mode, 10).toLowerCase();
+    if (mode === "banks") {
+      const banksRes = await fetch(PAYSTACK_BANK_LIST_URL, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
+      const banks = await banksRes.json().catch(() => ({}));
+      if (!banksRes.ok || !banks.status || !Array.isArray(banks.data)) return json({ error: "Bank list unavailable" }, 502, origin);
+      return json({ banks: banks.data.filter((b: any) => b.currency === "NGN" && b.active !== false).map((b: any) => ({ name: clean(b.name, 120), code: clean(b.code, 20) })) }, 200, origin);
+    }
     const payeeType = clean(body.payee_type, 10).toLowerCase();
     const accountNumber = clean(body.account_number, 20);
     const bankCode = clean(body.bank_code, 10);
-    const accountName = clean(body.account_name, 120);
+    let accountName = clean(body.account_name, 120);
 
-    if (payeeType !== "vendor" && payeeType !== "rider") {
-      return json({ error: "payee_type must be 'vendor' or 'rider'" }, 400, origin);
+    if (payeeType !== "vendor" && payeeType !== "rider" && payeeType !== "customer") {
+      return json({ error: "invalid payee_type" }, 400, origin);
     }
-    if (!/^\d{6,20}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,10}$/.test(bankCode)) {
+    if (payeeType === "customer" && !/^\d{10}$/.test(accountNumber)) return json({ error: "Nigerian account number must contain exactly 10 digits" }, 400, origin);
+    if (payeeType !== "customer" && (!/^\d{6,20}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,10}$/.test(bankCode))) {
       return json({ error: "Invalid account_number or bank_code" }, 400, origin);
+    }
+
+    if (payeeType === "customer") {
+      const banksRes = await fetch(PAYSTACK_BANK_LIST_URL, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
+      const banks = await banksRes.json().catch(() => ({}));
+      const bank = Array.isArray(banks.data) ? banks.data.find((b: any) => String(b.code) === bankCode && b.currency === "NGN" && b.active !== false) : null;
+      if (!banksRes.ok || !bank) return json({ error: "Selected bank is not valid for NGN" }, 400, origin);
+      const resolveUrl = `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`;
+      const resolvedRes = await fetch(resolveUrl, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
+      const resolved = await resolvedRes.json().catch(() => ({}));
+      if (!resolvedRes.ok || !resolved.status || !resolved.data?.account_name) return json({ error: "Account could not be resolved" }, 422, origin);
+      accountName = clean(resolved.data.account_name, 120);
+      if (mode !== "confirm") return json({ resolved: true, account_name: accountName, account_number_last4: accountNumber.slice(-4), bank_name: clean(bank.name, 120), bank_code: bankCode, currency: "NGN" }, 200, origin);
     }
 
     // ---- Derive the payee identity from the JWT (NEVER from the payload) ----
@@ -157,7 +179,7 @@ serve(async (req: Request): Promise<Response> => {
         return json({ error: "Authenticated user is not a vendor" }, 403, origin);
       }
       vendorId = profile.vendor_id;
-    } else {
+    } else if (payeeType === "rider") {
       // Riders are identified by the `riders` table, NOT by profiles.role.
       // profiles.role is never 'rider' (valid roles: 'user' / 'vendor' /
       // 'admin'); the profiles_role_check constraint rejects role='rider', so
@@ -180,7 +202,7 @@ serve(async (req: Request): Promise<Response> => {
       ? await supabase.from("transfer_recipients").select(recipientSelect)
           .eq("payee_type", "vendor").eq("vendor_id", vendorId).maybeSingle()
       : await supabase.from("transfer_recipients").select(recipientSelect)
-          .eq("payee_type", "rider").eq("profile_id", profileId).maybeSingle();
+          .eq("payee_type", payeeType).eq("profile_id", profileId).eq("recipient_status", "verified").maybeSingle();
     if (existing) {
       // Already registered — a safe no-op (never create a second row).
       return json({
@@ -234,6 +256,9 @@ serve(async (req: Request): Promise<Response> => {
         p_paystack_customer_code: clean(ps.data.customer_code, 60) || null,
         p_account_name: clean(details.account_name, 120) || accountName || null,
         p_bank_name: clean(details.bank_name, 120) || null,
+        p_bank_code: bankCode || null,
+        p_account_number_last4: accountNumber.slice(-4) || null,
+        p_currency: "NGN",
       },
     );
     if (rpcErr || !recipientId) {

@@ -147,7 +147,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // ---- Parse + validate request body ----
-    let body: { order_id?: unknown; email?: unknown };
+    let body: { order_id?: unknown; email?: unknown; payment_type?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -175,7 +175,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Fetch the order SERVER-SIDE ----
     const { data: order, error: orderErr } = await supabase
       .from("orders")
-      .select("id, order_number, user_id, total, payment_status, fee, subtotal")
+      .select("id, order_number, user_id, total, payment_status, fee, subtotal, additional_amount_due")
       .eq("id", orderId)
       .single();
 
@@ -192,6 +192,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
         status: 403,
         headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
+    }
+
+    const paymentType = body.payment_type === "replacement" || (order.payment_status === "success" && Number(order.additional_amount_due) > 0) ? "replacement" : "product";
+    if (paymentType === "replacement") {
+      const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
+      const { data: obligation, error: obligationErr } = await userClient.rpc("create_replacement_payment_obligation", { p_order_id: order.id });
+      if (obligationErr || !obligation?.amount) return new Response(JSON.stringify({ error: obligationErr?.message ?? "No additional payment is required" }), { status: 409, headers: { ...corsHeaders(req), "Content-Type": "application/json" } });
+      order.total = obligation.amount;
+      order.payment_status = "pending";
     }
 
     // ---- Verify the order is awaiting payment ----
@@ -228,6 +237,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .from("payments")
       .select("reference, authorization_url, access_code, status")
       .eq("order_id", order.id)
+      .eq("payment_type", paymentType)
       .eq("status", "pending")
       .not("authorization_url", "is", null)
       .maybeSingle();
@@ -313,17 +323,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Use the same server-generated reference sent to Paystack.
     // The create_pending_payment RPC is idempotent: if an identical
     // pending payment already exists, it returns the existing record.
-    const { error: paymentErr } = await supabase.rpc(
-      "create_pending_payment",
-      {
-        p_order_id: order.id,
-        p_reference: reference,
-        p_amount: Number(order.total),
-        p_currency: "NGN",
-        p_authorization_url: paystackBody.data.authorization_url,
-        p_access_code: paystackBody.data.access_code,
-      },
-    );
+    const { error: paymentErr } = paymentType === "replacement"
+      ? await supabase.rpc("store_replacement_payment_checkout", { p_order_id: order.id, p_reference: reference, p_amount: Number(order.total), p_authorization_url: paystackBody.data.authorization_url, p_access_code: paystackBody.data.access_code })
+      : await supabase.rpc("create_pending_payment", { p_order_id: order.id, p_reference: reference, p_amount: Number(order.total), p_currency: "NGN", p_authorization_url: paystackBody.data.authorization_url, p_access_code: paystackBody.data.access_code });
 
     // ---- Unique-violation race resolution (20261002) ----
     // Two concurrent initializes for the same order both passed the

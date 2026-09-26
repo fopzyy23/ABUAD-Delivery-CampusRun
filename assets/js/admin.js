@@ -25,6 +25,7 @@ let state = {
   refundsLoading: false,
   refundsError: null,
   settlements: [],
+  bonuses: [],
   transfers: [],
   settlementsLoading: false,
   settlementsError: null,
@@ -1068,6 +1069,11 @@ function renderDashboardSection({ vendors, products, orders, riders, totalOrders
     </div>
 
     <div class="card mt-3">
+      <div class="card__head"><h3>Rider Daily Bonuses</h3><span class="muted small">Server-awarded fifth-delivery bonuses</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Rider</th><th>Date</th><th>Amount</th><th>Reason</th><th>Created</th></tr></thead><tbody>${renderBonusRows()}</tbody></table></div>
+    </div>
+
+    <div class="card mt-3">
       <div class="card__head">
         <h3>Recent orders</h3>
         <span class="muted small">Latest ${recent.length} order${recent.length !== 1 ? 's' : ''}</span>
@@ -1652,15 +1658,21 @@ async function loadSettlementsFromSupabase() {
   if (!supabaseAvailable()) return null;
   state.settlementsLoading = true; state.settlementsError = null;
   try {
-    const [v, d, t] = await Promise.all([
+    const [v, d, t, b] = await Promise.all([
       supabase.from('vendor_settlements').select('id,order_id,vendor_id,amount,status,created_at').order('created_at', { ascending: false }),
       supabase.from('delivery_settlements').select('id,order_id,rider_id,delivery_fee,rider_amount,platform_amount,status,created_at').order('created_at', { ascending: false }),
-      supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,withdrawal_request_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false })
+      supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,withdrawal_request_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false }),
+      supabase.from('rider_daily_bonuses').select('id,rider_id,qualifying_date,amount,bonus_type,reason,created_at').order('qualifying_date', { ascending: false })
     ]);
-    if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error;
+    if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error; if (b.error) throw b.error;
     state.settlements = [...(v.data || []).map(x => ({ ...x, kind: 'vendor', authoritative_amount: Number(x.amount) })), ...(d.data || []).map(x => ({ ...x, kind: 'rider', authoritative_amount: Number(x.rider_amount) }))];
-    state.transfers = t.data || []; state.settlementsLoading = false; return state.settlements;
+    state.transfers = t.data || []; state.bonuses = b.data || []; state.settlementsLoading = false; return state.settlements;
   } catch (err) { state.settlementsLoading = false; state.settlementsError = err.message || 'Load failed'; state.settlements = []; state.transfers = []; return null; }
+}
+
+function renderBonusRows() {
+  if (!state.bonuses.length) return '<tr><td colspan="5" class="muted center">No rider bonuses awarded yet.</td></tr>';
+  return state.bonuses.map(b => `<tr><td>${escHtml(b.rider_id)}</td><td>${escHtml(b.qualifying_date)}</td><td>${money(b.amount)}</td><td>${escHtml(b.reason || b.bonus_type)}</td><td>${b.created_at ? new Date(b.created_at).toLocaleString('en-NG') : '—'}</td></tr>`).join('');
 }
 
 function renderSettlementRows() {
@@ -2223,7 +2235,7 @@ function renderWithdrawalRows() {
               <option value="pending" ${w.status === 'pending' ? 'selected' : ''}>Pending</option>
               <option value="approved" ${w.status === 'approved' ? 'selected' : ''}>Approve &amp; pay</option>
               <option value="rejected" ${w.status === 'rejected' ? 'selected' : ''}>Rejected</option>
-              <option value="paid" ${w.status === 'paid' ? 'selected' : ''}>Paid</option>
+              ${w.status === 'paid' ? '<option value="paid" selected disabled>Paid (Paystack confirmed)</option>' : ''}
             </select>
             <input class="input" style="max-width:170px;min-width:120px" placeholder="Admin note" data-withdrawal-note="${w.id}" value="${String(w.admin_note || '').replace(/"/g, '&quot;')}">
             <button class="link-btn" data-review-withdrawal="${w.id}" ${w.status === 'paid' ? 'disabled' : ''}>Save</button>

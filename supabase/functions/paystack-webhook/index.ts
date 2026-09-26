@@ -186,6 +186,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let expectedKobo: number;
     if (payment.payment_type === "vendor_delivery") {
       expectedKobo = 150000; // ₦1,500 = 150000 kobo
+    } else if (payment.payment_type === "replacement") {
+      expectedKobo = Math.round(Number(payment.amount) * 100);
     } else {
       expectedKobo = Math.round(Number(order.total) * 100);
     }
@@ -212,7 +214,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       const txnId = String(data?.id ?? data?.transaction_id ?? "");
 
-      if (payment.payment_type === "vendor_delivery") {
+      if (payment.payment_type === "replacement") {
+        const { error: rpcErr } = await supabase.rpc("handle_replacement_payment_success", { p_reference: reference, p_transaction_id: String(data?.id ?? data?.transaction_id ?? "") });
+        if (rpcErr) return new Response(JSON.stringify({ error: "replacement payment settlement failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } else if (payment.payment_type === "vendor_delivery") {
         // ---- VENDOR DELIVERY PAYMENT SUCCESS ----
         // Verify this is a vendor delivery order
         if (order.request_type !== "vendor_request") {
@@ -293,7 +298,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     } else {
       // failed event
-      if (payment.payment_type === "vendor_delivery") {
+      if (payment.payment_type === "replacement") {
+        const { error: rpcErr } = await supabase.rpc("handle_replacement_payment_failed", { p_reference: reference });
+        if (rpcErr) return new Response(JSON.stringify({ error: "replacement payment update failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } else if (payment.payment_type === "vendor_delivery") {
         const { error: rpcErr } = await supabase.rpc(
           "handle_vendor_delivery_payment_failed",
           {

@@ -61,7 +61,7 @@ check("earnings RPC keeps authenticated grant", /GRANT EXECUTE ON FUNCTION publi
 console.log("\n== FRONTEND USES THE RPC ==");
   check("app.js calls request_withdrawal RPC", /supabase\.rpc\('request_withdrawal', \{[\s\S]{0,300}p_amount:\s*value/.test(app));
 check("app.js no longer directly inserts withdrawal_requests", !/from\('withdrawal_requests'\)[\s\S]{0,120}\.insert/.test(app));
-check("client pre-check kept as UX (value > available)", /value > available/.test(app));
+check("client does not reject based on a local balance calculation", !/value > available/.test(app));
 check("withdrawal_requests load via SELECT untouched", /\.from\('withdrawal_requests'\)[\s\S]{0,60}\.select/.test(app));
 check("no rider self-approve/self-update path in app.js", !/from\('withdrawal_requests'\)[\s\S]{0,120}update/i.test(app));
 

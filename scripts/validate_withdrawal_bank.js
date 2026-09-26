@@ -57,7 +57,7 @@ check('form has account_name input', /name="account_name"/.test(app));
 check('form has account_number input', /name="account_number"/.test(app));
 check('form has bank select', /<select[^>]*name="bank"/.test(app));
 check('withdrawal request amount validated > 0 kept', /Number\.isFinite\(value\) \|\| value <= 0/.test(app));
-check('withdrawal request capped to available kept', /value > available/.test(app));
+check('withdrawal availability remains server-authoritative', /request_withdrawal/.test(app) && !/value > available/.test(app));
 check('RPC called with bank params', app.includes('p_account_name:') && app.includes('p_bank_name:') && app.includes('p_bank_code:'));
 check('recipient registration via paystack-transfer-recipient (rider)', /paystack-transfer-recipient/.test(app) && /payee_type: 'rider'/.test(app));
 check('no direct withdrawal_requests INSERT on client', !/from\('withdrawal_requests'\)[\s\S]{0,200}\.insert/.test(app));

@@ -1,8 +1,13 @@
 // ============================================================
 // L-B1 validator — automatic settlement on delivered orders
 // ============================================================
-// Read-only structural checks over the 20261004 settlement-automation
-// migration and the supporting (unchanged) architecture. No database access.
+// Read-only structural checks, no database access:
+//   1. HISTORICAL: the append-only 20261004 settlement-automation migration
+//      (origin of _settle_order_core / generate_settlement / triggers).
+//   2. EFFECTIVE: the CURRENT auto_settle_delivered_order() definition,
+//      resolved deterministically as the latest (lexicographically last,
+//      date-prefixed) migration that re-declares the function — i.e. the
+//      definition the database runs once all migrations are applied.
 //   node scripts/validate_settlement_automation.js
 // ============================================================
 const fs = require("fs");
@@ -16,6 +21,52 @@ const mig = fs.readFileSync(
 const mig30 = fs.readFileSync(
   path.join(root, "supabase/migrations/20260930_critical_hardening.sql"),
   "utf8"
+);
+
+// --- Resolve the EFFECTIVE auto_settle_delivered_order() definition. ---
+// Migrations are date-prefixed and applied in name order, so the
+// lexicographically last migration that re-declares the function is the
+// definition the database runs after all migrations are applied.
+const migDir = path.join(root, "supabase/migrations");
+const definingMigrations = fs
+  .readdirSync(migDir)
+  .filter((f) => f.endsWith(".sql"))
+  .filter((f) =>
+    /CREATE OR REPLACE FUNCTION public\.auto_settle_delivered_order\s*\(/.test(
+      fs.readFileSync(path.join(migDir, f), "utf8")
+    )
+  )
+  .sort();
+const effectiveName = definingMigrations[definingMigrations.length - 1] || "";
+const effective = effectiveName
+  ? fs.readFileSync(path.join(migDir, effectiveName), "utf8")
+  : "";
+const effStart = effective.indexOf(
+  "CREATE OR REPLACE FUNCTION public.auto_settle_delivered_order()"
+);
+const effEnd = effStart >= 0 ? effective.indexOf("$func$;", effStart) : -1;
+const effBody =
+  effStart >= 0 && effEnd >= 0
+    ? effective.slice(effStart, effEnd + "$func$;".length)
+    : "";
+const effBodyNoComments = effBody.replace(/--[^\n]*/g, "");
+const effDefinitionCount = (
+  effective.match(
+    /CREATE OR REPLACE FUNCTION public\.auto_settle_delivered_order\s*\(/g
+  ) || []
+).length;
+const migrationFiles = fs
+  .readdirSync(migDir)
+  .filter((f) => f.endsWith(".sql"));
+const coreFunctionDefined = migrationFiles.some((f) =>
+  /CREATE OR REPLACE FUNCTION public\._settle_order_core/.test(
+    fs.readFileSync(path.join(migDir, f), "utf8")
+  )
+);
+const bonusFunctionDefined = migrationFiles.some((f) =>
+  /CREATE OR REPLACE FUNCTION public\._award_rider_daily_bonus/.test(
+    fs.readFileSync(path.join(migDir, f), "utf8")
+  )
 );
 
 let fail = 0;
@@ -51,12 +102,25 @@ check("authenticated EXECUTE grant preserved", /GRANT EXECUTE ON FUNCTION public
 check("anon/PUBLIC EXECUTE revoked", /REVOKE EXECUTE ON FUNCTION public\.generate_settlement\(uuid\) FROM anon/.test(mig) && /REVOKE EXECUTE ON FUNCTION public\.generate_settlement\(uuid\) FROM PUBLIC/.test(mig));
 check("20260930 original admin gate still present (no regression)", /generate_settlement[\s\S]{0,1500}IF NOT public\.is_admin\(\)[\s\S]{0,200}admin privileges required/.test(mig30));
 
-console.log("\n== AUTOMATIC TRIGGER ==");
+console.log("\n== AUTOMATIC TRIGGER (HISTORICAL 20261004 TEXT) ==");
 check("trigger function defined", /CREATE OR REPLACE FUNCTION public\.auto_settle_delivered_order\(\)/.test(mig));
 check("trigger function is SECURITY DEFINER + search_path", /auto_settle_delivered_order\(\)[\s\S]*?SECURITY DEFINER[\s\S]*?SET search_path = public/.test(mig));
 check("trigger only settles Delivered + paid orders", /NEW\.status = 'Delivered' AND NEW\.payment_status = 'success'/.test(mig));
 check("trigger only fires on an actual change", /OLD\.status IS DISTINCT FROM 'Delivered' OR OLD\.payment_status IS DISTINCT FROM 'success'/.test(mig));
 check("trigger failures cannot corrupt the order update (WARNING)", /EXCEPTION WHEN OTHERS THEN[\s\S]{0,300}RAISE WARNING 'auto settlement skipped/.test(mig));
+
+console.log("\n== AUTOMATIC TRIGGER — EFFECTIVE DEFINITION (" + (effectiveName || "<unresolved>") + ") ==");
+check("latest defining migration resolved deterministically", definingMigrations.length > 0 && effBody.length > 0, "no migration re-declares auto_settle_delivered_order()");
+check("exactly one definition in the effective migration (no duplicates/conflicts)", effDefinitionCount === 1, "found " + effDefinitionCount);
+check("effective trigger is SECURITY DEFINER + search_path", /RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public/.test(effBodyNoComments));
+check("entry is gated on status = Delivered", /NEW\.status\s*=\s*'Delivered'\s+AND\s+\(/.test(effBodyNoComments));
+check("restaurant settlement path (product payment success)", /NEW\.request_type\s*=\s*'restaurant'\s+AND\s+NEW\.payment_status\s*=\s*'success'/.test(effBodyNoComments));
+check("vendor-rider settlement path (vendor request + Dropzyy rider + delivery_payment_status success)", /NEW\.request_type\s*=\s*'vendor_request'\s+AND\s+NEW\.delivery_method\s*=\s*'rider'\s+AND\s+NEW\.vendor_delivery_requested\s+IS\s+TRUE\s+AND\s+NEW\.delivery_payment_status\s*=\s*'success'/.test(effBodyNoComments));
+check("vendor-self excluded from automatic settlement", !/vendor_self/.test(effBodyNoComments));
+check("re-fire guard also watches delivery_payment_status changes", /OLD\.delivery_payment_status\s+IS DISTINCT FROM\s*'success'/.test(effBodyNoComments));
+check("delegates to the existing settlement core (_settle_order_core still defined)", coreFunctionDefined && /PERFORM\s+public\._settle_order_core\(NEW\.id\)/.test(effBodyNoComments));
+check("Phase 8A daily bonus stays on the settlement path (_award_rider_daily_bonus still defined)", bonusFunctionDefined && /PERFORM\s+public\._award_rider_daily_bonus/.test(effBodyNoComments));
+check("no alien objects in the effective migration (trigger function only)", !/DROP TABLE|DROP POLICY|DROP TRIGGER|CREATE TABLE|ALTER TABLE|DISABLE ROW LEVEL SECURITY|TRUNCATE/.test(effective));
 
 console.log("\n== TRIGGERS ON public.orders ==");
 check("AFTER UPDATE OF status trigger created", /AFTER UPDATE OF status ON public\.orders/.test(mig));

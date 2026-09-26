@@ -39,7 +39,8 @@ check('estimate label text explains the estimate', /labelled as an ESTIMATE/.tes
 console.log('\n== EARNINGS / HISTORY FOUNDATION (derived from delivery fee) ==');
 check('earnings never client-supplied — derived from authoritative rider share',
   /riderPendingEarnings/.test(app) && /riderShareAmount/.test(app));
-check('earnings figures clearly labelled estimated/pending', /Estimated earnings/.test(app) && /pending settlement/.test(app));
+check('earnings figures use authoritative balance labels',
+  /Gross earnings/.test(app) && /Available to withdraw/.test(app) && /Withdrawn \/ reserved/.test(app));
 check('fake "96% acceptance rate" removed', !/96%/.test(app));
 check('delivery history table present', /Delivery history & earnings/.test(app));
 check('rider completed deliveries uses Delivered status only', /o\.status === 'Delivered'/.test(app));
@@ -53,7 +54,8 @@ console.log('\n== WITHDRAWAL FOUNDATION (rider side) ==');
 check('rider withdrawal loader uses withdrawal_requests table', /\.from\('withdrawal_requests'\)/.test(app));
 check('rider request submitter exists', /async function requestWithdrawal/.test(app));
 check('withdrawal amount validated > 0', /Number\.isFinite\(value\) \|\| value <= 0/.test(app));
-check('withdrawal request limited to estimated earnings', /value > available/.test(app));
+check('withdrawal authorization is delegated to the server RPC',
+  /request_withdrawal/.test(app) && !/value > available/.test(app));
 check('withdrawal form wired to submit handler', /e\.target\.id==='withdrawalForm'/.test(app));
 check('withdrawal UI shows loading/empty/error states', /Loading your requests…/.test(app) && /No withdrawal requests yet/.test(app) && /Could not load your requests/.test(app));
 check('withdrawals loaded on boot', /loadWithdrawalsFromSupabase\(\)/.test(app));

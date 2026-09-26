@@ -113,18 +113,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .select("role")
       .eq("id", userData.user.id)
       .single();
-    if (profErr || !profile || profile.role !== "admin") {
-      return json(req, 403, { error: "Admin authorization required" });
-    }
+    const { data: riderIdentity } = await supabase
+      .from("riders")
+      .select("id, status")
+      .eq("user_id", userData.user.id)
+      .eq("status", "approved")
+      .maybeSingle();
+    const isAdmin = !profErr && profile?.role === "admin";
+    const isApprovedRider = !!riderIdentity;
+    const isCustomer = !isAdmin && !isApprovedRider;
     const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
-    const { data: isAdmin, error: adminErr } = await userClient.rpc("is_admin");
-    if (adminErr || !isAdmin) {
+    const { data: adminCheck, error: adminErr } = await userClient.rpc("is_admin");
+    if (isAdmin && (adminErr || !adminCheck)) {
       return json(req, 403, { error: "Admin authorization required" });
     }
-    const { error: aalErr } = await userClient.rpc("require_admin_aal2");
-    if (aalErr) {
+    const { error: aalErr } = isAdmin ? await userClient.rpc("require_admin_aal2") : { error: null };
+    if (isAdmin && aalErr) {
       return json(req, 403, { error: aalErr.message || "AAL2/MFA is required" });
     }
 
@@ -136,7 +142,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json(req, 400, { error: "Invalid JSON body" });
     }
     let transferId = body.transfer_id;
+    const purchaseOrderId = body.order_id;
     const withdrawalId = body.withdrawal_id;
+    if (isApprovedRider && (typeof purchaseOrderId !== "string" || withdrawalId !== undefined || body.transfer_id !== undefined)) {
+      return json(req, 400, { error: "Approved riders must submit only order_id for purchase funding" });
+    }
+    if (isCustomer && (typeof purchaseOrderId !== "string" || withdrawalId !== undefined || body.transfer_id !== undefined)) {
+      return json(req, 400, { error: "Customers must submit only order_id for cancellation reimbursement" });
+    }
+    if (isApprovedRider && typeof purchaseOrderId === "string") {
+      const { data: fundingId, error: confirmErr } = await userClient.rpc("confirm_order_products", { p_order_id: purchaseOrderId });
+      if (confirmErr || !fundingId) return json(req, 409, { error: "Products are not eligible for purchase funding" });
+      const { data: created, error: createErr } = await supabase.rpc("create_pending_purchase_funding_transfer", { p_purchase_funding_id: fundingId });
+      if (createErr || !created) return json(req, 409, { error: "Purchase funding transfer could not be prepared" });
+      transferId = created;
+    }
+    if (isCustomer && typeof purchaseOrderId === "string") {
+      const { data: cancellation, error: cancelErr } = await userClient.rpc("request_customer_cancellation", { p_order_id: purchaseOrderId, p_reason: "Customer requested cancellation" });
+      if (cancelErr || !cancellation?.cancellation_id || cancellation.stage !== "eligible_for_reimbursement") return json(req, 409, { error: "Cancellation requires admin resolution" });
+      const { data: created, error: createErr } = await supabase.rpc("create_pending_customer_reimbursement_transfer", { p_cancellation_id: cancellation.cancellation_id });
+      if (createErr || !created) return json(req, 409, { error: "Reimbursement is pending admin resolution" });
+      transferId = created;
+    }
     if (withdrawalId !== undefined) {
       if (typeof withdrawalId !== "number" && typeof withdrawalId !== "string") return json(req, 400, { error: "withdrawal_id is required" });
       const { data: approved, error: approveErr } = await supabase.rpc("approve_withdrawal_for_payout", {
@@ -203,7 +230,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         recipient: prep.recipient_code,
         reference: prep.reference,
         currency: prep.currency ?? "NGN",
-        reason: `Dropzyy ${prep.payee_type} payout`,
+        reason: `Dropzyy ${prep.transfer_kind ?? prep.payee_type} transfer`,
       }),
     });
 

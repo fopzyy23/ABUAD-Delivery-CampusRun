@@ -43,8 +43,8 @@ check("vendor revenue from own order_items", /Your own items on delivered orders
 check("vendor excludes delivery fee", /excludes the ₦1,500 delivery fee/.test(app));
 
 console.log("\n== WITHDRAWAL SAFETY ==");
-check("withdrawal checks available balance", /value > available/.test(app));
-check("available uses riderPendingEarnings", /riderPendingEarnings\(\) - riderPendingRequestsTotal/.test(app));
+check("withdrawal delegates balance authorization to the server", /request_withdrawal/.test(app) && !/value > available/.test(app));
+check("client does not reconstruct withdrawal availability", !/riderPendingEarnings\(\) - riderPendingRequestsTotal/.test(app));
 
 console.log("\n== EDGE CASES ==");
 check("vendor_self excluded from completed", /delivery_method.*vendor_self/.test(app));
