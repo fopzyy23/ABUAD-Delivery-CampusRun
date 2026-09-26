@@ -135,7 +135,8 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // literals. Prevents HTML/XSS injection via names, descriptions, spots,
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: load('catalog_v3', clone(SEED_DATA)), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
+const catalogProducts = catalog => Array.isArray(catalog) ? catalog : Array.isArray(catalog?.products) ? catalog.products : [];
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
@@ -177,13 +178,13 @@ async function submitRefundRecipientForm(form) {
 // now-deleted products so the cart/checkout views never crash or show ₦NaN.
 const data = () => {
   const cat = load('catalog_v3', clone(SEED_DATA));
-  state.catalog = cat;
-  const ids = new Set(state.catalog.products.map(p => p.id));
+  state.catalog = catalogProducts(cat);
+  const ids = new Set(state.catalog.map(p => p.id));
   if (state.cart.some(x => !ids.has(x.id))) {
     state.cart = state.cart.filter(x => ids.has(x.id));
     store('cart', state.cart);
   }
-  return state.catalog;
+  return cat;
 };
 
 // Load the catalog from Supabase (vendors + products). This is the source of
@@ -213,9 +214,10 @@ async function loadCatalogFromSupabase() {
       icon: p.icon, category: p.category, image: p.image || '',
       active: p.active !== false
     }));
-    state.catalog = { vendors, products };
+    const catalog = { vendors, products };
+    state.catalog = products;
     state.catalogLoadError = false;
-    store('catalog_v3', state.catalog);
+    store('catalog_v3', catalog);
     render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
@@ -5178,13 +5180,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){setDropdownOpen('us
 // site reflects admin changes live. Also refresh when the tab becomes visible.
 window.addEventListener('storage', (e) => {
   if (e.key === 'campusrun_catalog_v3') {
-    state.catalog = load('catalog_v3', clone(SEED_DATA));
+    state.catalog = catalogProducts(load('catalog_v3', clone(SEED_DATA)));
     render();
   }
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    state.catalog = load('catalog_v3', clone(SEED_DATA));
+    state.catalog = catalogProducts(load('catalog_v3', clone(SEED_DATA)));
     render();
   }
 });
