@@ -4892,7 +4892,8 @@ document.addEventListener('submit', e=>{
           // A session now exists: load this user's notifications and start the
           // realtime subscription for them (no-op-safe, re-uses the channel).
           loadNotificationsFromSupabase();
-          subscribeNotificationsRealtime();`n          location.hash=consumeLoginReturnRoute();
+          subscribeNotificationsRealtime();
+          location.hash=consumeLoginReturnRoute();
           toast('Welcome to Dropzyy!');
           // Load rider and order data after navigation starts so authentication
           // and the basic profile are not blocked by order history or rider data.
