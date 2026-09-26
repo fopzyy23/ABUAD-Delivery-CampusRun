@@ -73,6 +73,31 @@ function adminMfaMessage(message) {
     : text;
 }
 
+function jwtPayloadMetadata(accessToken) {
+  try {
+    const payload = accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '=')));
+  } catch { return {}; }
+}
+
+async function logAdminMfaSessionMetadata(stage) {
+  const [{ data: aal }, { data: { session } }] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.auth.getSession()
+  ]);
+  const jwt = session?.access_token ? jwtPayloadMetadata(session.access_token) : {};
+  console.info('Admin MFA session metadata:', {
+    stage,
+    currentLevel: aal?.currentLevel || null,
+    nextLevel: aal?.nextLevel || null,
+    sessionExists: Boolean(session),
+    userId: session?.user?.id || null,
+    jwtAal: jwt.aal || null,
+    jwtSessionId: jwt.session_id || null
+  });
+  return { aal, session, jwt };
+}
+
 async function refreshAdminMfa() {
   if (!supabaseAvailable() || !supabaseAdminUser || !state.isAuthenticated) return;
   state.mfa.loading = true;
@@ -122,10 +147,14 @@ async function verifyAdminMfaChallenge(form) {
     if (challengeError) throw challengeError;
     const { error: verifyError } = await supabase.auth.mfa.verify({ factorId: state.mfa.factorId, challengeId: challenge.id, code });
     if (verifyError) throw verifyError;
-    const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aalError) throw aalError;
+    let { aal, session, jwt } = await logAdminMfaSessionMetadata('after-mfa-verify');
+    if (aal?.currentLevel !== 'aal2' || jwt.aal !== 'aal2') {
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      ({ aal, session, jwt } = await logAdminMfaSessionMetadata('after-mfa-refresh'));
+    }
     state.mfa.aal = aal;
-    if (aal?.currentLevel !== 'aal2') throw new Error('MFA verification did not promote this session to AAL2. Please try again.');
+    if (aal?.currentLevel !== 'aal2' || jwt.aal !== 'aal2') throw new Error('MFA verification did not promote the active session JWT to AAL2. Please try again.');
     state.mfa.challengeRequired = false; state.mfa.factorId = null; state.mfa.loading = false;
     await init();
   } catch (err) {
