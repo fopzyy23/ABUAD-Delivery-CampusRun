@@ -98,6 +98,17 @@ async function logAdminMfaSessionMetadata(stage) {
   return { aal, session, jwt };
 }
 
+async function ensureAdminAal2() {
+  if (!supabaseAvailable() || !state.isAuthenticated) return false;
+  let { aal, session, jwt } = await logAdminMfaSessionMetadata('before-admin-write');
+  if (aal?.currentLevel !== 'aal2' || jwt.aal !== 'aal2') {
+    const { error } = await supabase.auth.refreshSession();
+    if (error) throw error;
+    ({ aal, session, jwt } = await logAdminMfaSessionMetadata('after-admin-write-refresh'));
+  }
+  return Boolean(session && aal?.currentLevel === 'aal2' && jwt.aal === 'aal2');
+}
+
 async function refreshAdminMfa() {
   if (!supabaseAvailable() || !supabaseAdminUser || !state.isAuthenticated) return;
   state.mfa.loading = true;
@@ -291,6 +302,7 @@ async function syncVendorToSupabase(vendor) {
   if (!supabaseAvailable()) return false;
   lastVendorSyncError = null;
   try {
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
     const { error } = await supabase
       .from('vendors')
       .upsert(vendorToRow(vendor), { onConflict: 'id' });
@@ -2247,6 +2259,7 @@ async function assignUserToVendor(userId, vendorId) {
     return false;
   }
   try {
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
     const { error } = await supabase.rpc('assign_user_to_vendor', {
       target_user_id: userId,
       target_vendor_id: vendorId
@@ -2258,7 +2271,7 @@ async function assignUserToVendor(userId, vendorId) {
     return true;
   } catch (err) {
     console.error('Vendor assignment failed:', err);
-    toast('Assignment failed: ' + (err.message || 'Unknown error'), 'error');
+    toast('Assignment failed: ' + adminMfaMessage(err.message || 'Unknown error'), 'error');
     return false;
   }
 }
