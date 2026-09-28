@@ -684,27 +684,6 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
   background: var(--brand);
 }
 
-/* --- Featured Bookshop Materials --- */
-.dropzyy-bookshop { padding: 0 0 64px; }
-.dropzyy-bookshop__inner {
-  display: grid; grid-template-columns: minmax(240px, 0.9fr) 2.1fr;
-  gap: 44px; align-items: center;
-}
-.dropzyy-bookshop__eyebrow {
-  display: inline-block; font-size: .78rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .06em; color: var(--brand);
-}
-.dropzyy-bookshop__intro h2 { margin: 4px 0 8px; font-size: 1.65rem; }
-.dropzyy-bookshop__intro p { margin: 0 0 18px; color: var(--muted); max-width: 40ch; }
-.dropzyy-bookshop__grid { display: grid; gap: 16px; grid-template-columns: repeat(2, 1fr); }
-@media (max-width: 900px) {
-  .dropzyy-bookshop__inner { grid-template-columns: 1fr; gap: 24px; align-items: start; }
-}
-@media (max-width: 480px) {
-  .dropzyy-bookshop { padding-bottom: 48px; }
-  .dropzyy-bookshop__grid { gap: 12px; }
-}
-
 /* --- dropzyy-features --- */
 .dropzyy-features {
   background: var(--surface-2); border-top: 1px solid var(--line);
@@ -719,7 +698,10 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 .dropzyy-features__head h2 { margin: 0 0 8px; font-size: 1.6rem; }
 .dropzyy-features__head p { margin: 0; color: var(--muted); max-width: 48ch; }
 .dropzyy-features__grid {
-  display: grid; gap: 14px; grid-template-columns: repeat(4, 1fr);
+  /* auto-fit keeps the row balanced with any number of cards (the Bookshop
+     card was removed for Dropzyy 1.0; a replacement can be added later with no
+     CSS change) instead of leaving an empty 4th column. */
+  display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 .dropzyy-feature {
   display: flex; flex-direction: column; gap: 8px;

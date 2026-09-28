@@ -9,7 +9,6 @@
     { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
     { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
     { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
     { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
   ],
   products: [
@@ -87,22 +86,6 @@
     { id: 72, vendor: 'smoothie-shack', name: 'Chicken', desc: 'Smoothie Shack serving.', price: 2500, icon: '🍗', category: 'Food' },
     { id: 73, vendor: 'smoothie-shack', name: 'Boiled Egg', desc: 'Listed higher price pending confirmation.', price: 350, icon: '🥚', category: 'Meals' },
     { id: 74, vendor: 'smoothie-shack', name: 'Macaroni', desc: 'Price is subject to confirmation.', price: 500, icon: '🍝', category: 'Meals' },
-    { id: 75, vendor: 'bookshop', name: 'Engineering Mathematics Textbook', desc: 'Advanced Engineering Mathematics by Kreyszig.', price: 15000, icon: '📘', category: 'Bookshop' },
-    { id: 76, vendor: 'bookshop', name: 'University Physics Textbook', desc: 'Physics for Scientists and Engineers.', price: 12000, icon: '📕', category: 'Bookshop' },
-    { id: 77, vendor: 'bookshop', name: 'Organic Chemistry Textbook', desc: 'Organic Chemistry by Morrison and Boyd.', price: 10000, icon: '📗', category: 'Bookshop' },
-    { id: 78, vendor: 'bookshop', name: 'Biology Textbook', desc: 'Campbell Biology for students.', price: 18000, icon: '📙', category: 'Bookshop' },
-    { id: 79, vendor: 'bookshop', name: 'Calculus Textbook', desc: 'Calculus by Thomas.', price: 14000, icon: '📐', category: 'Bookshop' },
-    { id: 80, vendor: 'bookshop', name: 'Law Textbook', desc: 'Nigerian Legal Methods.', price: 20000, icon: '⚖️', category: 'Bookshop' },
-    { id: 81, vendor: 'bookshop', name: 'Anatomy Textbook', desc: 'Gray Anatomy for Students.', price: 25000, icon: '🩺', category: 'Bookshop' },
-    { id: 82, vendor: 'bookshop', name: 'A4 Notebook (80 pages)', desc: 'Hardcover lecture notebook.', price: 1500, icon: '📓', category: 'Bookshop' },
-    { id: 83, vendor: 'bookshop', name: 'Pen (Biro)', desc: 'Blue or black ink pen.', price: 200, icon: '🖊️', category: 'Bookshop' },
-    { id: 84, vendor: 'bookshop', name: 'Pencil Set', desc: 'HB pencil with eraser.', price: 150, icon: '✏️', category: 'Bookshop' },
-    { id: 85, vendor: 'bookshop', name: 'Scientific Calculator', desc: 'Casio fx-991S.', price: 12000, icon: '🧮', category: 'Bookshop' },
-    { id: 86, vendor: 'bookshop', name: 'Geometry Set', desc: 'Ruler, set square and protractor.', price: 1000, icon: '📏', category: 'Bookshop' },
-    { id: 87, vendor: 'bookshop', name: 'Highlighters (Pack of 4)', desc: 'Assorted colours.', price: 1200, icon: '🖍️', category: 'Bookshop' },
-    { id: 88, vendor: 'bookshop', name: 'A4 Drawing Book', desc: 'For technical drawing and art.', price: 2000, icon: '🎨', category: 'Bookshop' },
-    { id: 89, vendor: 'bookshop', name: 'File Folder', desc: 'Document folder for assignments.', price: 800, icon: '📁', category: 'Bookshop' },
-    { id: 90, vendor: 'bookshop', name: 'Stapler and Staples', desc: 'Office stapler with pins.', price: 2500, icon: '📎', category: 'Bookshop' },
     { id: 91, vendor: 'campus-drinks', name: 'Coca-Cola', desc: 'Classic refreshing cola drink.', price: 300, icon: '🥤', category: 'Drinks' },
     { id: 92, vendor: 'campus-drinks', name: 'Fanta Orange', desc: 'Sweet orange flavored soda.', price: 300, icon: '🍊', category: 'Drinks' },
     { id: 93, vendor: 'campus-drinks', name: 'Fanta Pineapple', desc: 'Tropical pineapple flavor.', price: 300, icon: '🍍', category: 'Drinks' },
@@ -136,6 +119,54 @@ const clone = value => JSON.parse(JSON.stringify(value));
 // comments, notifications, etc.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', '<': '&' + 'lt;', '>': '&' + 'gt;', '"': '&' + 'quot;', "'": '&' + '#39;' }[c]));
 const catalogProducts = catalog => Array.isArray(catalog) ? catalog : Array.isArray(catalog?.products) ? catalog.products : [];
+
+// ============================================================
+// Bookshop removal (Dropzyy 1.0)
+// ============================================================
+// The Bookshop is deferred to Dropzyy 2.0. Until it is rebuilt it must not
+// appear or be usable anywhere, so EVERY catalog read passes through
+// stripBookshop(): the Supabase load, the localStorage fallback, cross-tab
+// storage sync and admin edits are all covered. The guard is deliberately
+// fail-closed and matches the vendor id, the vendor name/type AND the product
+// category (plus the seeded product ids), so an existing database row or a
+// stale browser cache cannot bring the feature back.
+const BOOKSHOP_VENDOR_IDS = new Set(['bookshop', 'campus-bookshop']);
+const BOOKSHOP_PRODUCT_IDS = new Set([75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90]);
+const isBookshopLabel = value => String(value ?? '').trim().toLowerCase().replace(/[^a-z]/g, '') === 'bookshop';
+const isBookshopVendorId = id => BOOKSHOP_VENDOR_IDS.has(String(id ?? '').trim().toLowerCase());
+const isBookshopVendor = v => Boolean(v) && (
+  isBookshopVendorId(v.id) || isBookshopLabel(v.type) || isBookshopLabel(v.name)
+);
+const isBookshopProduct = p => Boolean(p) && (
+  BOOKSHOP_PRODUCT_IDS.has(Number(p.id)) || isBookshopLabel(p.category)
+  || isBookshopVendorId(p.vendor ?? p.vendor_id)
+);
+
+// Remove every Bookshop vendor/product from a catalog object. Never mutates
+// the input; returns { catalog, removed } so callers can also rewrite a stale
+// localStorage copy.
+function stripBookshop(catalog) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) return { catalog, removed: false };
+  const vendors = Array.isArray(catalog.vendors) ? catalog.vendors : [];
+  const products = Array.isArray(catalog.products) ? catalog.products : [];
+  const keptVendors = vendors.filter(v => !isBookshopVendor(v));
+  const removedVendorIds = new Set(vendors.filter(isBookshopVendor).map(v => v.id));
+  const keptProducts = products.filter(p => !isBookshopProduct(p)
+    && !removedVendorIds.has(p.vendor) && !removedVendorIds.has(p.vendor_id));
+  if (keptVendors.length === vendors.length && keptProducts.length === products.length) {
+    return { catalog, removed: false };
+  }
+  return { catalog: { ...catalog, vendors: keptVendors, products: keptProducts }, removed: true };
+}
+
+// The catalog that is actually allowed to be shown (Bookshop-free).
+function allowedCatalog() {
+  const stored = load('catalog_v3', null);
+  const base = (stored && typeof stored === 'object' && !Array.isArray(stored)) ? stored : clone(SEED_DATA);
+  const { catalog, removed } = stripBookshop(base);
+  if (removed && stored) store('catalog_v3', catalog);
+  return catalog;
+}
 const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
@@ -174,10 +205,12 @@ async function submitRefundRecipientForm(form) {
 // truth is Supabase (loadCatalogFromSupabase persists it under 'catalog_v3');
 // the localStorage copy is only an offline fallback. We deliberately do NOT
 // merge seed data back in here — that would resurrect vendors/products the
-// admin deleted in Supabase. We also prune cart entries that reference
+// admin deleted in Supabase. Bookshop rows are stripped on every read too,
+// so a stale localStorage copy (or a still-seeded database) can never show
+// the removed feature. We also prune cart entries that reference
 // now-deleted products so the cart/checkout views never crash or show ₦NaN.
 const data = () => {
-  const cat = load('catalog_v3', clone(SEED_DATA));
+  const cat = allowedCatalog();
   state.catalog = catalogProducts(cat);
   const ids = new Set(state.catalog.map(p => p.id));
   if (state.cart.some(x => !ids.has(x.id))) {
@@ -214,8 +247,10 @@ async function loadCatalogFromSupabase() {
       icon: p.icon, category: p.category, image: p.image || '',
       active: p.active !== false
     }));
-    const catalog = { vendors, products };
-    state.catalog = products;
+    // Bookshop removal (Dropzyy 1.0): strip any Bookshop vendor or product
+    // that still exists in the database before it can reach state or storage.
+    const { catalog } = stripBookshop({ vendors, products });
+    state.catalog = catalog.products;
     state.catalogLoadError = false;
     store('catalog_v3', catalog);
     render();
@@ -2071,11 +2106,11 @@ function initVendorCarousel() {
 // values come from DROPZYY_SUPPORT_EMAIL / DROPZYY_WHATSAPP_CHANNEL.
 // ============================================================
 const REACH_FAQ_ITEMS = [
-  ['How do I place an order?', 'Restaurant and Bookshop items use normal Dropzyy checkout and secure Paystack payment. Vendor products are requests only: the vendor contacts you directly to arrange product payment.'],
+  ['How do I place an order?', 'Restaurant items use normal Dropzyy checkout and secure Paystack payment. Vendor products are requests only: the vendor contacts you directly to arrange product payment.'],
   ['How do vendor requests work?', 'Vendor products are request-only: no product payment is made through Dropzyy. The vendor contacts you directly to arrange product payment. The vendor can self-deliver with no Dropzyy delivery fee, or request a Dropzyy rider and pay the ₦1,500 delivery fee themselves.'],
   ['How long does delivery take?', 'Most campus deliveries arrive in about 15–35 minutes depending on the vendor and how far away you are. Your order page shows the live status as it moves from the vendor to a rider.'],
   ['Can I track my rider?', 'Yes — open any active order to see the status timeline (Order confirmed → Preparing → Ready → Picked up → On the way → Delivered) updated in real time.'],
-  ['How do vendors get paid and how do riders earn?', 'Restaurant and Bookshop orders are paid through Dropzyy. Vendor-request product payments are arranged directly between the customer and vendor. If a vendor requests a Dropzyy rider, the vendor pays ₦1,500 and the rider earns ₦1,000 for the completed delivery.'],
+  ['How do vendors get paid and how do riders earn?', 'Restaurant orders are paid through Dropzyy. Vendor-request product payments are arranged directly between the customer and vendor. If a vendor requests a Dropzyy rider, the vendor pays ₦1,500 and the rider earns ₦1,000 for the completed delivery.'],
   ['What if something goes wrong with my order?', 'Use the Report an Issue card — pick a subject, describe what happened, and our team will review it from the Admin Panel. For paid orders, the Refund option on My Orders covers payment-specific problems.'],
   ['How do I become a rider or vendor?', 'Riders can apply straight from the Rider hub or the Work With Dropzyy section below. Vendors can complete the vendor interest form — the Dropzyy team reviews every application.'],
 ];
@@ -2162,13 +2197,12 @@ function faqsView() {
 
 function home() {
   const vcount = data().vendors.length;
-  const books = data().products.filter(p => p.category === 'Bookshop');
   return `${catalogBanner()}
 <section class="dropzyy-hero">
   <div class="container dropzyy-hero__inner">
     <div class="dropzyy-hero__copy hero-text">
       <h1 class="dropzyy-hero__title">Caf 2 is far. <span class="dropzyy-hero__title-hl">We know.</span></h1>
-      <p class="dropzyy-hero__sub">Order food, drinks, textbooks, or a late-night snack and have another student bring it to your hostel, lecture hall, or wherever you&rsquo;re posted. Track your rider the whole way.</p>
+      <p class="dropzyy-hero__sub">Order food, drinks, or a late-night snack and have another student bring it to your hostel, lecture hall, or wherever you&rsquo;re posted. Track your rider the whole way.</p>
       <div class="dropzyy-hero__actions">
         <a class="btn btn--lg dropzyy-hero__cta" href="#/browse">Start an order</a>
         <a class="btn btn--lg btn--ghost dropzyy-hero__cta-2" href="#/rider/apply">Ride with us &rarr;</a>
@@ -2177,7 +2211,6 @@ function home() {
         <span class="dropzyy-hero__hinted-label">Jump straight to:</span>
         <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Food"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11c0-3.3 3.6-5.5 8-5.5s8 2.2 8 5.5"/><path d="M3.5 11h17"/><path d="M4.5 14.5h15V16a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-1.5z"/></svg>Food</a>
         <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Drinks"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8.5h11L16 21H8L6.5 8.5z"/><path d="M10 8.5L15.5 3"/><path d="M7 12.5h10"/></svg>Drinks</a>
-        <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Bookshop"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Books</a>
         <a class="dropzyy-hero__hinted-chip" href="#/browse?cat=Snacks"><svg class="chip-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 9.5h11L16.1 20.5H7.9L6.5 9.5z"/><circle cx="9" cy="6" r="2.1"/><circle cx="12" cy="4.8" r="2.3"/><circle cx="15" cy="6" r="2.1"/></svg>Snacks</a>
       </div>
     </div>
@@ -2264,27 +2297,12 @@ function home() {
   </div>
 </section>
 
-${books.length ? `
-<section class="dropzyy-bookshop">
-  <div class="container dropzyy-bookshop__inner">
-    <div class="dropzyy-bookshop__intro">
-      <span class="dropzyy-bookshop__eyebrow">Books &amp; materials</span>
-      <h2>Featured Bookshop Materials</h2>
-      <p>Get the books and materials you need for campus.</p>
-      <a class="btn" href="#/browse?cat=Bookshop">Browse Bookshop →</a>
-    </div>
-    <div class="dropzyy-bookshop__grid">
-      ${books.slice(0, 4).map(p => productCard(p)).join('')}
-    </div>
-  </div>
-</section>` : ''}
-
 <section class="dropzyy-features">
   <div class="container">
     <div class="dropzyy-features__head">
       <span class="dropzyy-features__eyebrow">More than food delivery</span>
       <h2>Everything you need, one app</h2>
-      <p>Dropzyy brings the campus together — food, drinks, books and deliveries, all in one place.</p>
+      <p>Dropzyy brings the campus together — food, drinks and deliveries, all in one place.</p>
     </div>
     <div class="dropzyy-features__grid">
       <a class="dropzyy-feature" href="#/browse?cat=Food">
@@ -2296,11 +2314,6 @@ ${books.length ? `
         <span class="dropzyy-feature__icon" aria-hidden="true">🥤</span>
         <span class="dropzyy-feature__title">Drinks & snacks</span>
         <span class="dropzyy-feature__desc">Cold drinks, juices and study fuel, ready when you are.</span>
-      </a>
-      <a class="dropzyy-feature" href="#/browse?cat=Bookshop">
-        <span class="dropzyy-feature__icon" aria-hidden="true">📚</span>
-        <span class="dropzyy-feature__title">Books & materials</span>
-        <span class="dropzyy-feature__desc">Textbooks, stationery and course materials from campus sellers.</span>
       </a>
       <a class="dropzyy-feature" href="#/orders">
         <span class="dropzyy-feature__icon" aria-hidden="true">📦</span>
@@ -2317,8 +2330,11 @@ ${homeReachUs()}`;
 function browse() {
   const params = new URLSearchParams(location.hash.split('?')[1]);
   const q = (params.get('q') || '').toLowerCase();
-  const cat = params.get('cat') || 'All';
-  const cats = ['All','Food','Meals','Snacks','Drinks','Bookshop'];
+  const requestedCat = params.get('cat') || 'All';
+  // The Bookshop category was removed for Dropzyy 1.0 — stale links that ask
+  // for it fall back to 'All' instead of showing a dead category.
+  const cat = requestedCat === 'Bookshop' ? 'All' : requestedCat;
+  const cats = ['All','Food','Meals','Snacks','Drinks'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
   const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
   const availCount = list.filter(p => p.active !== false).length;
@@ -3171,7 +3187,7 @@ function checkout() {
     const restaurantSubtotal = restaurantItems.reduce((sum, item) => sum + item.price * item.qty, 0);
     const restaurantTotal = restaurantSubtotal + DELIVERY_FEE;
     const renderCheckoutItem = x => `<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`;
-    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant / Bookshop</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant/Bookshop total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant/Bookshop items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
@@ -4474,6 +4490,15 @@ async function render() {
         <p class="muted">Only accounts with a linked vendor can access this page.</p>
         <a class="btn mt-2" href="#/">Back to home</a>
       </div></div></section>`;
+    } else if (isBookshopVendorId(state.user.vendor_id)) {
+      // Defensive: an account still linked to the removed Bookshop storefront
+      // cannot use the vendor dashboard on Dropzyy 1.0.
+      view = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center">
+        <span style="font-size:3rem">🏪</span>
+        <h1 class="mt-1">Vendor dashboard</h1>
+        <p class="muted">This storefront is not available on Dropzyy 1.0. Contact Dropzyy support if you think this is a mistake.</p>
+        <a class="btn mt-2" href="#/">Back to home</a>
+      </div></div></section>`;
     } else {
       await ensureVendorLoaded();
       if (!state.vendorLoaded) {
@@ -5293,13 +5318,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){setDropdownOpen('us
 // site reflects admin changes live. Also refresh when the tab becomes visible.
 window.addEventListener('storage', (e) => {
   if (e.key === 'campusrun_catalog_v3') {
-    state.catalog = catalogProducts(load('catalog_v3', clone(SEED_DATA)));
+    state.catalog = catalogProducts(allowedCatalog());
     render();
   }
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    state.catalog = catalogProducts(load('catalog_v3', clone(SEED_DATA)));
+    state.catalog = catalogProducts(allowedCatalog());
     render();
   }
 });

@@ -428,11 +428,46 @@ async function loadCatalogFromSupabase() {
       price: p.price, icon: p.icon, category: p.category,
       image: p.image || ''
     }));
-    return { vendors, products };
+    // Bookshop is removed for Dropzyy 1.0 — strip it before it can be shown,
+    // selected in the product form, or written back to the shared catalog key.
+    return stripBookshop({ vendors, products }).catalog;
   } catch (err) {
     console.error('Supabase catalog load failed:', err);
     return null;
   }
+}
+
+// ============================================================
+// Bookshop removal (Dropzyy 1.0)
+// ============================================================
+// The Bookshop is deferred to Dropzyy 2.0 and must not appear in the admin
+// panel either. loadCatalogFromSupabase() / loadCatalog() pass every catalog
+// through stripBookshop(), so a Bookshop vendor or product that still exists
+// in Supabase is never listed, never selectable in the vendor dropdown and
+// never written back into the shared localStorage catalog.
+const BOOKSHOP_VENDOR_IDS = new Set(['bookshop', 'campus-bookshop']);
+const BOOKSHOP_PRODUCT_IDS = new Set([75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90]);
+const isBookshopLabel = value => String(value ?? '').trim().toLowerCase().replace(/[^a-z]/g, '') === 'bookshop';
+const isBookshopVendorId = id => BOOKSHOP_VENDOR_IDS.has(String(id ?? '').trim().toLowerCase());
+const isBookshopVendor = v => Boolean(v) && (
+  isBookshopVendorId(v.id) || isBookshopLabel(v.type) || isBookshopLabel(v.name)
+);
+const isBookshopProduct = p => Boolean(p) && (
+  BOOKSHOP_PRODUCT_IDS.has(Number(p.id)) || isBookshopLabel(p.category)
+  || isBookshopVendorId(p.vendor ?? p.vendor_id)
+);
+function stripBookshop(catalog) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) return { catalog, removed: false };
+  const vendors = Array.isArray(catalog.vendors) ? catalog.vendors : [];
+  const products = Array.isArray(catalog.products) ? catalog.products : [];
+  const keptVendors = vendors.filter(v => !isBookshopVendor(v));
+  const removedVendorIds = new Set(vendors.filter(isBookshopVendor).map(v => v.id));
+  const keptProducts = products.filter(p => !isBookshopProduct(p)
+    && !removedVendorIds.has(p.vendor) && !removedVendorIds.has(p.vendor_id));
+  if (keptVendors.length === vendors.length && keptProducts.length === products.length) {
+    return { catalog, removed: false };
+  }
+  return { catalog: { ...catalog, vendors: keptVendors, products: keptProducts }, removed: true };
 }
 
 // Seed data (same as main app)
@@ -447,7 +482,6 @@ const SEED_DATA = {
     { id: 'streat-food', name: 'Streat food', icon: '🍟', type: 'Restaurant', rating: '4.7', time: '8–15 min', cover: '#fff1bd', open: true, delivery_method: 'rider', description: 'Suya, chips and street-food classics.', opening_hours: 'Mon–Sun 12:00–22:00' },
     { id: 'med-caf', name: 'Med Caf', icon: '🥘', type: 'Restaurant', rating: '4.5', time: '15–25 min', cover: '#dceaff', open: true, delivery_method: 'rider', description: 'Wholesome cafeteria meals at student prices.', opening_hours: 'Mon–Sat 08:00–18:00' },
     { id: 'smoothie-shack', name: 'Smoothie Shack', icon: '🥤', type: 'Restaurant', rating: '4.6', time: '10–18 min', cover: '#e4d9ff', open: true, delivery_method: 'rider', description: 'Fresh smoothies, shakes and cold drinks.', opening_hours: 'Mon–Sun 09:00–20:00' },
-    { id: 'bookshop', name: 'Campus Bookshop', icon: '📚', type: 'Bookshop', rating: '4.7', time: '5–10 min', cover: '#d8e0ff', open: true, delivery_method: 'rider', description: 'Textbooks, stationery and study essentials.', opening_hours: 'Mon–Fri 08:00–17:00, Sat 09:00–13:00' },
     { id: 'campus-drinks', name: 'Campus Drinks', icon: '🥤', type: 'Beverages', rating: '4.6', time: '5–10 min', cover: '#ffe4e1', open: true, delivery_method: 'rider', description: 'Cold drinks, juices and refreshments.', opening_hours: 'Mon–Sun 08:00–22:00' }
   ],
   products: [
@@ -524,24 +558,7 @@ const SEED_DATA = {
     { id: 71, vendor: 'smoothie-shack', name: 'White Rice', desc: 'Smoothie Shack serving.', price: 500, icon: '🍚', category: 'Food' },
     { id: 72, vendor: 'smoothie-shack', name: 'Chicken', desc: 'Smoothie Shack serving.', price: 2500, icon: '🍗', category: 'Food' },
     { id: 73, vendor: 'smoothie-shack', name: 'Boiled Egg', desc: 'Listed higher price pending confirmation.', price: 350, icon: '🥚', category: 'Meals' },
-    { id: 74, vendor: 'smoothie-shack', name: 'Macaroni', desc: 'Price is subject to confirmation.', price: 500, icon: '🍝', category: 'Meals' },
-    { id: 75, vendor: 'bookshop', name: 'Engineering Mathematics Textbook', desc: 'Advanced Engineering Mathematics by Kreyszig.', price: 15000, icon: '📘', category: 'Bookshop' },
-    { id: 76, vendor: 'bookshop', name: 'University Physics Textbook', desc: 'Physics for Scientists and Engineers.', price: 12000, icon: '📕', category: 'Bookshop' },
-    { id: 77, vendor: 'bookshop', name: 'Organic Chemistry Textbook', desc: 'Organic Chemistry by Morrison and Boyd.', price: 10000, icon: '📗', category: 'Bookshop' },
-    { id: 78, vendor: 'bookshop', name: 'Biology Textbook', desc: 'Campbell Biology for students.', price: 18000, icon: '📙', category: 'Bookshop' },
-    { id: 79, vendor: 'bookshop', name: 'Calculus Textbook', desc: 'Calculus by Thomas.', price: 14000, icon: '📐', category: 'Bookshop' },
-    { id: 80, vendor: 'bookshop', name: 'Law Textbook', desc: 'Nigerian Legal Methods.', price: 20000, icon: '⚖️', category: 'Bookshop' },
-    { id: 81, vendor: 'bookshop', name: 'Anatomy Textbook', desc: 'Gray Anatomy for Students.', price: 25000, icon: '🩺', category: 'Bookshop' },
-    { id: 82, vendor: 'bookshop', name: 'A4 Notebook (80 pages)', desc: 'Hardcover lecture notebook.', price: 1500, icon: '📓', category: 'Bookshop' },
-    { id: 83, vendor: 'bookshop', name: 'Pen (Biro)', desc: 'Blue or black ink pen.', price: 200, icon: '🖊️', category: 'Bookshop' },
-    { id: 84, vendor: 'bookshop', name: 'Pencil Set', desc: 'HB pencil with eraser.', price: 150, icon: '✏️', category: 'Bookshop' },
-    { id: 85, vendor: 'bookshop', name: 'Scientific Calculator', desc: 'Casio fx-991S.', price: 12000, icon: '🧮', category: 'Bookshop' },
-    { id: 86, vendor: 'bookshop', name: 'Geometry Set', desc: 'Ruler, set square and protractor.', price: 1000, icon: '📏', category: 'Bookshop' },
-    { id: 87, vendor: 'bookshop', name: 'Highlighters (Pack of 4)', desc: 'Assorted colours.', price: 1200, icon: '🖍️', category: 'Bookshop' },
-    { id: 88, vendor: 'bookshop', name: 'A4 Drawing Book', desc: 'For technical drawing and art.', price: 2000, icon: '🎨', category: 'Bookshop' },
-    { id: 89, vendor: 'bookshop', name: 'File Folder', desc: 'Document folder for assignments.', price: 800, icon: '📁', category: 'Bookshop' },
-    { id: 90, vendor: 'bookshop', name: 'Stapler and Staples', desc: 'Office stapler with pins.', price: 2500, icon: '📎', category: 'Bookshop' },
-    { id: 91, vendor: 'campus-drinks', name: 'Coca-Cola', desc: 'Classic refreshing cola drink.', price: 300, icon: '🥤', category: 'Drinks' },
+    { id: 74, vendor: 'smoothie-shack', name: 'Macaroni', desc: 'Price is subject to confirmation.', price: 500, icon: '🍝', category: 'Meals' },    { id: 91, vendor: 'campus-drinks', name: 'Coca-Cola', desc: 'Classic refreshing cola drink.', price: 300, icon: '🥤', category: 'Drinks' },
     { id: 92, vendor: 'campus-drinks', name: 'Fanta Orange', desc: 'Sweet orange flavored soda.', price: 300, icon: '🍊', category: 'Drinks' },
     { id: 93, vendor: 'campus-drinks', name: 'Fanta Pineapple', desc: 'Tropical pineapple flavor.', price: 300, icon: '🍍', category: 'Drinks' },
     { id: 94, vendor: 'campus-drinks', name: 'Exotic Juice', desc: 'Premium mixed fruit juice.', price: 500, icon: '🧃', category: 'Drinks' },
@@ -716,8 +733,9 @@ function logout() {
 // ============================================
 
 // Merge any missing seed vendors/products into the loaded catalog. This repairs
-// stale localStorage data that predates new catalog entries (e.g. the drinks and
-// bookshop vendors) so those sections are always present.
+// stale localStorage data that predates new catalog entries (e.g. the drinks
+// vendor) so those sections are always present. Bookshop is removed for
+// Dropzyy 1.0, so loadCatalog() strips it afterwards.
 function mergeSeedIntoStored(cat) {
   let changed = false;
   SEED_DATA.vendors.forEach(seedV => {
@@ -734,12 +752,12 @@ async function loadCatalog() {
   // Try to load from Supabase first (source of truth)
   const supabaseCatalog = await loadCatalogFromSupabase();
   if (supabaseCatalog) {
-    state.catalog = supabaseCatalog;
+    state.catalog = stripBookshop(supabaseCatalog).catalog;
     store('catalog_v3', state.catalog);
     return;
   }
   // Fall back to localStorage if Supabase is unavailable
-  state.catalog = mergeSeedIntoStored(load('catalog_v3', clone(SEED_DATA)));
+  state.catalog = stripBookshop(mergeSeedIntoStored(load('catalog_v3', clone(SEED_DATA)))).catalog;
 }
 
 function saveCatalog() {
