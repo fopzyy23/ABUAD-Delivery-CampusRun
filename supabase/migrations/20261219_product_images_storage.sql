@@ -96,59 +96,77 @@ BEGIN
 
   RAISE NOTICE 'bucket "product-images" ready (public read, 5 MB, jpeg/png/webp)';
 
+END $$;
+
 -- ------------------------------------------------------------
 -- 2. storage.objects RLS (only this bucket, only these shapes).
 -- ------------------------------------------------------------
-DROP POLICY IF EXISTS "product_images_public_read" ON storage.objects;
-CREATE POLICY "product_images_public_read" ON storage.objects
-  FOR SELECT
-  USING (bucket_id = 'product-images');
-
 -- Vendor ownership predicate, expressed once per command because
 -- storage.objects policies cannot call a helper function that reads
 -- profiles without the same RLS context. `name ~ '^[^/]+/[^/]+$'` keeps the
 -- object exactly one folder deep, so the vendor segment is unambiguous.
-DROP POLICY IF EXISTS "product_images_vendor_insert" ON storage.objects;
-CREATE POLICY "product_images_vendor_insert" ON storage.objects
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    bucket_id = 'product-images'
-    AND name ~ '^[^/]+/[^/]+$'
-    AND (storage.foldername(name))[1] = (
-      SELECT p.vendor_id FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
-    )
-  );
+--
+-- Every statement runs through EXECUTE inside a GUARDED DO block: if a database
+-- has no storage schema the whole section only raises a WARNING (fail-safe as
+-- documented in the header) instead of failing on DROP POLICY against a
+-- missing relation.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'storage' AND table_name = 'objects'
+  ) THEN
+    RAISE WARNING 'storage.objects not available — storage policies were skipped';
+    RETURN;
+  END IF;
 
-DROP POLICY IF EXISTS "product_images_vendor_update" ON storage.objects;
-CREATE POLICY "product_images_vendor_update" ON storage.objects
-  FOR UPDATE TO authenticated
-  USING (
-    bucket_id = 'product-images'
-    AND (storage.foldername(name))[1] = (
-      SELECT p.vendor_id FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
-    )
-  )
-  WITH CHECK (
-    bucket_id = 'product-images'
-    AND name ~ '^[^/]+/[^/]+$'
-    AND (storage.foldername(name))[1] = (
-      SELECT p.vendor_id FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
-    )
-  );
+  EXECUTE $pol$DROP POLICY IF EXISTS "product_images_public_read" ON storage.objects$pol$;
+  EXECUTE $pol$CREATE POLICY "product_images_public_read" ON storage.objects
+    FOR SELECT
+    USING (bucket_id = 'product-images')$pol$;
 
-DROP POLICY IF EXISTS "product_images_vendor_delete" ON storage.objects;
-CREATE POLICY "product_images_vendor_delete" ON storage.objects
-  FOR DELETE TO authenticated
-  USING (
-    bucket_id = 'product-images'
-    AND (storage.foldername(name))[1] = (
-      SELECT p.vendor_id FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
+  EXECUTE $pol$DROP POLICY IF EXISTS "product_images_vendor_insert" ON storage.objects$pol$;
+  EXECUTE $pol$CREATE POLICY "product_images_vendor_insert" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (
+      bucket_id = 'product-images'
+      AND name ~ '^[^/]+/[^/]+$'
+      AND (storage.foldername(name))[1] = (
+        SELECT p.vendor_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
+      )
+    )$pol$;
+
+  EXECUTE $pol$DROP POLICY IF EXISTS "product_images_vendor_update" ON storage.objects$pol$;
+  EXECUTE $pol$CREATE POLICY "product_images_vendor_update" ON storage.objects
+    FOR UPDATE TO authenticated
+    USING (
+      bucket_id = 'product-images'
+      AND (storage.foldername(name))[1] = (
+        SELECT p.vendor_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
+      )
     )
-  );
+    WITH CHECK (
+      bucket_id = 'product-images'
+      AND name ~ '^[^/]+/[^/]+$'
+      AND (storage.foldername(name))[1] = (
+        SELECT p.vendor_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
+      )
+    )$pol$;
+
+  EXECUTE $pol$DROP POLICY IF EXISTS "product_images_vendor_delete" ON storage.objects$pol$;
+  EXECUTE $pol$CREATE POLICY "product_images_vendor_delete" ON storage.objects
+    FOR DELETE TO authenticated
+    USING (
+      bucket_id = 'product-images'
+      AND (storage.foldername(name))[1] = (
+        SELECT p.vendor_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.vendor_id IS NOT NULL
+      )
+    )$pol$;
+END $$;
 
 -- Admin management: same bucket, mirroring the AAL2-gated products_admin
 -- policies. The AAL2 helper only exists once 20261217_fix_aal2_policy_safety.sql
@@ -195,5 +213,3 @@ END $$;
 --    https://cmfohldnmytmwjynqfpz.supabase.co, so uploads and rendering need
 --    no policy change.
 -- ============================================================
-
-END $$;

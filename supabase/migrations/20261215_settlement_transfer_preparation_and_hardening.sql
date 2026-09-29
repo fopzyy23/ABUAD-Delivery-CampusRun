@@ -54,6 +54,29 @@ SET attempt_no=1
 WHERE attempt_no IS NULL
   AND (vendor_settlement_id IS NOT NULL OR delivery_settlement_id IS NOT NULL);
 
+-- The original ledger made each settlement link UNIQUE, which prevents the
+-- retry attempts introduced above. Replace those one-to-one constraints with
+-- per-settlement attempt and active-attempt indexes. Existing data is already
+-- one-to-one, so this cannot introduce a historical duplicate.
+ALTER TABLE public.transfers
+  DROP CONSTRAINT IF EXISTS transfers_vendor_settlement_id_key,
+  DROP CONSTRAINT IF EXISTS transfers_delivery_settlement_id_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vendor_settlement_transfer_attempt
+  ON public.transfers(vendor_settlement_id, attempt_no)
+  WHERE vendor_settlement_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_settlement_transfer_attempt
+  ON public.transfers(delivery_settlement_id, attempt_no)
+  WHERE delivery_settlement_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vendor_settlement_active_transfer
+  ON public.transfers(vendor_settlement_id)
+  WHERE vendor_settlement_id IS NOT NULL
+    AND status IN ('pending','processing','success');
+CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_settlement_active_transfer
+  ON public.transfers(delivery_settlement_id)
+  WHERE delivery_settlement_id IS NOT NULL
+    AND status IN ('pending','processing','success');
+
 -- ============================================================
 -- 2. Add payout_status to delivery_settlements (tracks payout separately from settlement)
 -- ============================================================
@@ -89,16 +112,29 @@ DECLARE
   v_payee_type text;
   v_transfer_id uuid;
   v_attempt_no integer;
+  v_order_status text;
+  v_rider_id uuid;
 BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'admin authorization required';
+  END IF;
+  PERFORM public.require_admin_aal2();
+
   IF (p_vendor_settlement_id IS NULL) = (p_delivery_settlement_id IS NULL) THEN
     RAISE EXCEPTION 'exactly one of vendor_settlement_id / delivery_settlement_id is required';
   END IF;
 
   -- Check if transfer already exists for this settlement
   IF p_vendor_settlement_id IS NOT NULL THEN
-    SELECT * INTO v_t FROM public.transfers WHERE vendor_settlement_id = p_vendor_settlement_id;
+    SELECT * INTO v_t FROM public.transfers
+    WHERE vendor_settlement_id = p_vendor_settlement_id
+      AND status IN ('pending', 'processing', 'success')
+    ORDER BY attempt_no DESC, created_at DESC LIMIT 1;
   ELSE
-    SELECT * INTO v_t FROM public.transfers WHERE delivery_settlement_id = p_delivery_settlement_id;
+    SELECT * INTO v_t FROM public.transfers
+    WHERE delivery_settlement_id = p_delivery_settlement_id
+      AND status IN ('pending', 'processing', 'success')
+    ORDER BY attempt_no DESC, created_at DESC LIMIT 1;
   END IF;
 
   IF FOUND THEN
@@ -162,7 +198,8 @@ BEGIN
 
     -- Get recipient
     SELECT * INTO v_recipient FROM public.transfer_recipients
-    WHERE payee_type = 'rider' AND profile_id = v_ds.rider_id;
+    WHERE payee_type = 'rider'
+      AND profile_id = (SELECT user_id FROM public.riders WHERE id = v_ds.rider_id);
     IF NOT FOUND THEN
       RAISE EXCEPTION 'no transfer recipient registered for rider %', v_ds.rider_id;
     END IF;
@@ -182,19 +219,19 @@ BEGIN
   -- Create the pending transfer
   IF p_vendor_settlement_id IS NOT NULL THEN
     INSERT INTO public.transfers (
-      vendor_settlement_id, payee_type, amount, currency, status,
+      transfer_kind, vendor_settlement_id, payee_type, amount, currency, status,
       paystack_reference, recipient_code, attempt_no
     ) VALUES (
-      p_vendor_settlement_id, 'vendor', v_amount, 'NGN', 'pending',
+      'settlement', p_vendor_settlement_id, 'vendor', v_amount, 'NGN', 'pending',
       'dropzyy-vendor-' || p_vendor_settlement_id || '-attempt-' || v_attempt_no::text,
       v_recipient.recipient_code, v_attempt_no
     ) RETURNING id INTO v_transfer_id;
   ELSE
     INSERT INTO public.transfers (
-      delivery_settlement_id, payee_type, amount, currency, status,
+      transfer_kind, delivery_settlement_id, payee_type, amount, currency, status,
       paystack_reference, recipient_code, attempt_no
     ) VALUES (
-      p_delivery_settlement_id, 'rider', v_amount, 'NGN', 'pending',
+      'settlement', p_delivery_settlement_id, 'rider', v_amount, 'NGN', 'pending',
       'dropzyy-rider-' || p_delivery_settlement_id || '-attempt-' || v_attempt_no::text,
       v_recipient.recipient_code, v_attempt_no
     ) RETURNING id INTO v_transfer_id;
@@ -209,7 +246,13 @@ BEGIN
 
   RETURN jsonb_build_object(
     'transfer_id', v_transfer_id,
-    'reference', 'dropzyy-' || (p_vendor_settlement_id IS NOT NULL ? 'vendor' : 'rider') || '-' || (p_vendor_settlement_id IS NOT NULL ? p_vendor_settlement_id : p_delivery_settlement_id) || '-attempt-' || v_attempt_no::text,
+        'reference',
+      CASE
+        WHEN p_vendor_settlement_id IS NOT NULL THEN
+          'dropzyy-vendor-' || p_vendor_settlement_id::text || '-attempt-' || v_attempt_no::text
+        ELSE
+          'dropzyy-rider-' || p_delivery_settlement_id::text || '-attempt-' || v_attempt_no::text
+      END,
     'status', 'pending',
     'already_exists', false
   );
@@ -369,10 +412,13 @@ SELECT
   paystack_transfer_fee_amount,
   paystack_transfer_fee_source,
   paystack_transfer_fee_payload,
-  ledger_event_type,
   observed_at,
   created_at
 FROM public.rider_payout_cost_ledger;
+
+-- Preserve the base table's rider/admin RLS checks rather than allowing the
+-- view owner to expose every ledger row to every authenticated user.
+ALTER VIEW public.rider_payout_cost_ledger_safe SET (security_invoker = true);
 
 GRANT SELECT ON public.rider_payout_cost_ledger_safe TO authenticated;
 REVOKE ALL ON public.rider_payout_cost_ledger FROM PUBLIC, anon;
