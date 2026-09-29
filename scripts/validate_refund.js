@@ -139,8 +139,10 @@ check("calls apply_refund_result on failure", /apply_refund_result[\s\S]{0,300}p
 check("passes gateway_refund_id", /gateway_refund_id/.test(refundFn));
 
 console.log("\n== EDGE FUNCTION: CORS ==");
-check("CORS allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(refundFn));
-check("Vary Origin header", /Vary.*Origin/.test(refundFn));
+const sharedHttpPath = path.join(root, "supabase/functions/_shared/http.ts");
+const sharedHttp = fs.readFileSync(sharedHttpPath, "utf8");
+check("CORS allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(sharedHttp));
+check("Vary Origin header", /Vary.*Origin/.test(sharedHttp));
 check("OPTIONS preflight handled", /OPTIONS/.test(refundFn));
 check("no static wildcard ACAO", !/Access-Control-Allow-Origin.*"\*"/.test(refundFn));
 

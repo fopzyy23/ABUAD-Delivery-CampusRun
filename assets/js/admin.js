@@ -37,7 +37,13 @@ let state = {
   vendorApplicationsError: null,
   siteSettings: null,
   siteSettingsLoading: false,
-  siteSettingsError: null
+  siteSettingsError: null,
+  cancellations: [],
+  cancellationsLoading: false,
+  cancellationsError: null,
+  automaticCutoffClaims: [],
+  automaticCutoffClaimsLoading: false,
+  automaticCutoffClaimsError: null
   ,mfa: { factors: [], aal: null, enrollment: null, challenge: null, factorId: null, challengeRequired: false, loading: false, error: null }
 };
 
@@ -952,6 +958,8 @@ async function init() {
   // Issue reports are always refreshed on admin entry so new reports from
   // customers (homepage "Report an Issue") appear.
   await loadReportsFromSupabase();
+  // Automatic cutoff claims are refreshed on entry so failed claims are retried.
+  await loadAutomaticCutoffClaimsFromSupabase();
   // Vendor applications are refreshed on entry so new "Become a Vendor"
   // submissions appear for review.
   await loadVendorApplicationsFromSupabase();
@@ -997,6 +1005,24 @@ async function updateMaintenanceMode(enabled) {
     return false;
   }
   try {
+    // Require AAL2 for platform-wide maintenance toggle
+    const userClient = createClient(
+      (typeof supabase !== 'undefined' && supabase.supabaseUrl) || '',
+      '',
+      { global: { headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}` } } }
+    );
+    // We'll use the direct supabase client with the user's JWT
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast('Please sign in again to change maintenance mode', 'error');
+      return false;
+    }
+    const { error: aalErr } = await supabase.rpc('require_admin_aal2');
+    if (aalErr) {
+      toast('AAL2/MFA is required to change Maintenance Mode', 'error');
+      return false;
+    }
+
     const { data, error } = await supabase
       .from('site_settings')
       .update({ maintenance_mode: Boolean(enabled) })
@@ -1103,18 +1129,21 @@ function adminSidebar() {
       key: 'riders', label: 'Riders', icon: '🛵',
       count: (state.riders || []).filter(r => r.status === 'pending').length
     },
-    { key: 'customers', label: 'Customers', icon: '👥' },
+{ key: 'customers', label: 'Customers', icon: '👥' },
     { key: 'catalog', label: 'Catalog', icon: '📦' },
     {
       key: 'payments', label: 'Payments & Settlements', icon: '💳',
       count: (state.refunds || []).filter(r => r.status === 'requested').length + (state.withdrawals || []).filter(w => w.status === 'pending').length
     },
     {
-      key: 'reports', label: 'Reports / Activity', icon: '📋',
+      key: 'financial', label: 'Financial Resolution', icon: '⚖️',
+      count: (state.cancellations || []).filter(c => c.stage === 'admin_resolution_required' || c.stage === 'reimbursement_failed').length +
+             (state.automaticCutoffClaims || []).filter(c => c.status === 'admin_resolution_required' || c.status === 'failed').length
+    },
+    { key: 'reports', label: 'Reports / Activity', icon: '📋',
       count: (state.reports || []).filter(r => r.status === 'Open').length
     },
     { key: 'settings', label: 'Settings', icon: '⚙️' }
-  ];
   return `<nav class="admin-nav" aria-label="Admin sections"><ul class="admin-nav__list">
     ${sections.map(s => `
       <li>
@@ -1157,6 +1186,7 @@ function renderAdminWorkspace() {
   else if (adminSection === 'customers') view = renderCustomersSection(shared);
   else if (adminSection === 'catalog') view = renderCatalogSection(shared);
   else if (adminSection === 'payments') view = renderPaymentsSection(shared);
+  else if (adminSection === 'financial') view = renderFinancialSection(shared);
   else if (adminSection === 'reports') view = renderReportsSection(shared);
   else view = renderSettingsSection(shared);
 
@@ -1341,7 +1371,7 @@ function renderOrdersSection({ filteredOrders, orders }) {
       </div>
 
       ${state.ordersError
-        ? `<div class="orders-error">⚠ ${state.ordersError}</div>`
+        ? `<div class="orders-error">⚠ ${escHtml(state.ordersError)}</div>`
         : ''}
 
       <!-- Order Status Filters / Tabs -->
@@ -1503,10 +1533,10 @@ function renderVendorsSection({ vendors }) {
             <tbody>
               ${vendors.map(v => `
                 <tr>
-                  <td>${v.icon} <b>${escHtml(v.name)}</b></td>
+                  <td>${escHtml(v.icon)} <b>${escHtml(v.name)}</b></td>
                   <td>${escHtml(v.type)}</td>
-                  <td>${v.time}</td>
-                  <td>${v.delivery_method || 'rider'}</td>
+                  <td>${escHtml(v.time)}</td>
+                  <td>${escHtml(v.delivery_method || 'rider')}</td>
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
                   <td>
                     <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> ·
@@ -1773,7 +1803,7 @@ function renderCatalogSection({ vendors, products }) {
                 const vendor = vendors.find(v => v.id === p.vendor);
                 return `
                   <tr>
-                    <td>${p.icon} <b>${escHtml(p.name)}</b></td>
+                    <td>${escHtml(p.icon)} <b>${escHtml(p.name)}</b></td>
                     <td>${vendor ? escHtml(vendor.name) : '—'}</td>
                     <td>${escHtml(p.category)}</td>
                     <td>${money(p.price)}</td>
@@ -1888,13 +1918,102 @@ function renderBonusRows() {
 
 function renderSettlementRows() {
   if (state.settlementsLoading) return '<tr><td colspan="6" class="muted center">Loading settlements…</td></tr>';
-  if (state.settlementsError) return `<tr><td colspan="6" class="muted center">Could not load settlements</td></tr>`;
+  if (state.settlementsError) return `<tr><td colspan="6" class="muted center">Could not load settlements: ${escHtml(state.settlementsError)}</td></tr>`;
   if (!state.settlements.length) return '<tr><td colspan="6" class="muted center">No settlements generated yet.</td></tr>';
   return state.settlements.map(s => {
     const tr = state.transfers.find(x => (s.kind === 'vendor' ? x.vendor_settlement_id : x.delivery_settlement_id) === s.id);
     const order = state.orders.find(o => o.dbId === s.order_id || o.id === s.order_id);
     const eligible = s.status === 'pending' && order && order.status === 'Delivered';
-    return `<tr><td>${s.kind === 'vendor' ? `Vendor ${escHtml(s.vendor_id)}` : `Rider ${escHtml(s.rider_id || '—')}`}</td><td>${escHtml(order?.order_number || s.order_id)}</td><td>${money(s.authoritative_amount)}</td><td>${escHtml(s.status)}</td><td>${tr ? escHtml(tr.status) : 'Not prepared'}</td><td>${tr && tr.status === 'pending' ? `<button class="link-btn" data-execute-transfer="${tr.id}">Execute</button>` : eligible && s.kind === 'vendor' ? `<button class="link-btn" data-generate-settlement="${s.order_id}">Prepare</button>` : '—'}</td></tr>`;
+    const hasTransfer = !!tr;
+    const transferStatus = tr ? escHtml(tr.status) : 'No transfer';
+    let actionHtml = '—';
+    if (tr) {
+      if (tr.status === 'pending') {
+        actionHtml = `<button class="link-btn" data-execute-transfer="${tr.id}">Execute</button>`;
+      } else if (tr.status === 'processing') {
+        actionHtml = `<span class="badge badge--info">Processing</span>`;
+      } else if (tr.status === 'success') {
+        actionHtml = `<span class="badge badge--success">Paid</span>`;
+      } else if (tr.status === 'failed') {
+        actionHtml = `<span class="badge badge--danger">Failed</span> <button class="link-btn" data-prepare-settlement-transfer="${s.id}" data-settlement-kind="${s.kind}">Retry</button>`;
+      } else if (tr.status === 'reversed') {
+        actionHtml = `<span class="badge badge--warn">Reversed</span>`;
+      }
+    } else if (eligible) {
+      actionHtml = `<button class="link-btn" data-prepare-settlement-transfer="${s.id}" data-settlement-kind="${s.kind}">Prepare Transfer</button>`;
+    }
+    return `<tr><td>${s.kind === 'vendor' ? `Vendor ${escHtml(s.vendor_id)}` : `Rider ${escHtml(s.rider_id || '—')}`}</td><td>${escHtml(order?.order_number || s.order_id)}</td><td>${money(s.authoritative_amount)}</td><td>${escHtml(s.status)}</td><td>${transferStatus}</td><td>${actionHtml}</td></tr>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Financial Resolution: cancellations & cutoff claims requiring admin review.
+// ---------------------------------------------------------------------------
+function renderFinancialSection() {
+  const cancellations = (state.cancellations || []).filter(c =>
+    c.stage === 'admin_resolution_required' || c.stage === 'reimbursement_failed'
+  );
+  const cutoffClaims = (state.automaticCutoffClaims || []).filter(c =>
+    c.status === 'admin_resolution_required' || c.status === 'failed'
+  );
+
+  return `
+    <div class="page-head">
+      <div>
+        <span class="badge badge--brand">Finance</span>
+        <h1 class="mt-1">Financial Resolution</h1>
+        <p class="muted">Cancellations and cutoff claims requiring admin review or action.</      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card__head"><h3>Cancellations Requiring Resolution</h3><span class="muted small">${cancellations.length} items</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Stage</th><th>Failure Reason</th><th>Created</th><th>Action</th></tr></thead><tbody>${renderCancellationResolutionRows(cancellations)}</tbody></table></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card__head"><h3>Automatic 8 PM Cutoff Claims Requiring Resolution</h3><span class="muted small">${cutoffClaims.length} items</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Error</th><th>Created</th><th>Action</th></tr></thead><tbody>${renderCutoffResolutionRows(cutoffClaims)}</tbody></table></div>
+    </div>
+  `;
+}
+
+function renderCancellationResolutionRows(cancellations) {
+  if (!cancellations.length) return '<tr><td colspan="7" class="muted center">No cancellations requiring resolution.</td></tr>';
+  return cancellations.map(c => {
+    const order = state.orders.find(o => o.id === c.order_id);
+    const customer = order ? (order.user || 'Unknown') : 'Unknown';
+    return `
+      <tr data-cancellation-id="${c.id}">
+        <td>${c.order_id?.slice(0, 8)}...</td>
+        <td>${escHtml(customer)}</td>
+        <td>${money(c.reimbursement_amount || 0)}</td>
+        <td><span class="badge badge--warn">${escHtml(c.stage)}</span></td>
+        <td class="muted small">${escHtml(c.reimbursement_failure_reason || '—')}</td>
+        <td class="muted small">${c.created_at ? new Date(c.created_at).toLocaleDateString('en-NG') : '—'}</td>
+        <td>
+          <button class="link-btn" data-review-cancellation="${c.id}">Review</button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function renderCutoffResolutionRows(claims) {
+  if (!claims.length) return '<tr><td colspan="7" class="muted center">No cutoff claims requiring resolution.</td></tr>';
+  return claims.map(c => {
+    const order = state.orders.find(o => o.id === c.order_id);
+    const customer = order ? (order.user || 'Unknown') : 'Unknown';
+    return `
+      <tr data-claim-id="${c.id}">
+        <td>${c.order_id?.slice(0, 8)}...</td>
+        <td>${escHtml(customer)}</td>
+        <td>${money(c.reimbursement_amount || 0)}</td>
+        <td><span class="badge badge--danger">${escHtml(c.status)}</span></td>
+        <td class="muted small">${escHtml(c.last_error || '—')}</td>
+        <td class="muted small">${c.created_at ? new Date(c.created_at).toLocaleDateString('en-NG') : '—'}</td>
+        <td>
+          <button class="link-btn" data-retry-cutoff="${c.id}">Retry Reimbursement</button>
+        </td>
+      </tr>`;
   }).join('');
 }
 
@@ -2015,8 +2134,28 @@ function attachAdminEventListeners() {
   });
 
   document.querySelectorAll('[data-generate-settlement]').forEach(btn => btn.addEventListener('click', async () => {
-    try { const { error } = await supabase.rpc('admin_generate_settlement', { p_order_id: btn.dataset.generateSettlement }); if (error) throw error; toast('Settlement prepared'); await loadSettlementsFromSupabase(); renderAdminWorkspace(); }
-    catch (err) { toast(err.message || 'Settlement preparation failed', 'error'); }
+    try { const { error } = await supabase.rpc('admin_generate_settlement', { p_order_id: btn.dataset.generateSettlement }); if (error) throw error; toast('Settlement generated'); await loadSettlementsFromSupabase(); renderAdminWorkspace(); }
+    catch (err) { toast(err.message || 'Settlement generation failed', 'error'); }
+  }));
+
+  // Prepare settlement transfer - creates transfer for settlement when recipient is available
+  document.querySelectorAll('[data-prepare-settlement-transfer]').forEach(btn => btn.addEventListener('click', async () => {
+    try { 
+      const settlementId = btn.dataset.prepareSettlementTransfer;
+      const isVendor = btn.dataset.settlementKind === 'vendor';
+      const { data, error } = await supabase.rpc('prepare_settlement_transfer', {
+        p_vendor_settlement_id: isVendor ? settlementId : null,
+        p_delivery_settlement_id: isVendor ? null : settlementId
+      });
+      if (error) throw error;
+      if (data?.already_exists) {
+        toast('Transfer already prepared');
+      } else {
+        toast('Transfer prepared - click Execute to initiate payout');
+      }
+      await loadSettlementsFromSupabase(); renderAdminWorkspace();
+    }
+    catch (err) { toast(err.message || 'Transfer preparation failed', 'error'); }
   }));
   document.querySelectorAll('[data-execute-transfer]').forEach(btn => btn.addEventListener('click', async () => {
     if (!supabaseAvailable()) return;
@@ -2228,6 +2367,38 @@ function attachAdminEventListeners() {
       updateVendorApplicationReview(appId, select ? select.value : null, responseInput ? responseInput.value : '');
     });
   });
+
+  // Financial Resolution: Review cancellation requiring admin resolution
+  document.querySelectorAll('[data-review-cancellation]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cancellationId = btn.dataset.reviewCancellation;
+      // For now, just show the cancellation details - admin can manually resolve
+      const c = state.cancellations.find(c => c.id === cancellationId);
+      if (!c) return;
+      const o = state.orders.find(o => o.id === c.order_id);
+      const customer = o ? (o.user || 'Unknown') : 'Unknown';
+      const message = `Cancellation ${cancellationId.slice(0,8)}...\nCustomer: ${customer}\nStage: ${c.stage}\nAmount: ${money(c.reimbursement_amount || 0)}\nFailure: ${c.reimbursement_failure_reason || '—'}\n\nResolve by manually updating the cancellation stage or creating a transfer.`;
+      alert(message);
+    });
+  });
+
+  // Financial Resolution: Retry automatic cutoff reimbursement
+  document.querySelectorAll('[data-retry-cutoff]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const claimId = btn.dataset.retryCutoff;
+      if (!supabaseAvailable()) return;
+      try {
+        const { data, error } = await supabase.rpc('retry_automatic_8pm_cutoff_reimbursement', { p_claim_id: claimId });
+        if (error) throw error;
+        toast(data?.status === 'completed' ? 'Reimbursement completed' : data?.status === 'processing' ? 'Reimbursement processing' : `Retry attempted: ${data?.status}`);
+        await loadReportsFromSupabase(); // reload cutoff claims
+        renderAdminWorkspace();
+      } catch (err) {
+        console.error('Cutoff retry failed:', err);
+        toast('Retry failed: ' + (err.message || 'unknown error'), 'error');
+      }
+    });
+  });
 }
 
 function editVendor(vendorId) {
@@ -2432,8 +2603,8 @@ function renderWithdrawalRows() {
   if (state.withdrawalsLoading && !state.withdrawals.length) {
     return '<tr>        <td colspan="7" class="muted center">Loading withdrawal requests…</td></tr>';
   }
-  if (!state.withdrawalsLoading && state.withdrawalsError) {
-    return `    <tr><td colspan="7" class="muted center">Could not load withdrawal requests (${String(state.withdrawalsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+if (!state.withdrawalsLoading && state.withdrawalsError) {
+    return `    <tr><td colspan="7" class="muted center">Could not load withdrawal requests: ${escHtml(state.withdrawalsError)}. Please refresh.</td></tr>`;
   }
   if (!state.withdrawals.length) {
     return '    <tr><td colspan="7" class="muted center">No withdrawal requests yet.</td></tr>';
@@ -2461,7 +2632,7 @@ function renderWithdrawalRows() {
               <option value="rejected" ${w.status === 'rejected' ? 'selected' : ''}>Rejected</option>
               ${w.status === 'paid' ? '<option value="paid" selected disabled>Paid (Paystack confirmed)</option>' : ''}
             </select>
-            <input class="input" style="max-width:170px;min-width:120px" placeholder="Admin note" data-withdrawal-note="${w.id}" value="${String(w.admin_note || '').replace(/"/g, '&quot;')}">
+            <input class="input" style="max-width:170px;min-width:120px" placeholder="Admin note" data-withdrawal-note="${w.id}" value="${escHtml(w.admin_note || '')}">
             <button class="link-btn" data-review-withdrawal="${w.id}" ${w.status === 'paid' ? 'disabled' : ''}>Save</button>
           </div>
         </td>
@@ -2580,8 +2751,8 @@ function renderRefundRows() {
   if (state.refundsLoading && !state.refunds.length) {
     return '<tr><td colspan="8" class="muted center">Loading refund requests…</td></tr>';
   }
-  if (!state.refundsLoading && state.refundsError) {
-    return `<tr><td colspan="8" class="muted center">Could not load refunds (${String(state.refundsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+if (!state.refundsLoading && state.refundsError) {
+    return `<tr><td colspan="8" class="muted center">Could not load refunds: ${escHtml(state.refundsError)}. Please refresh.</td></tr>`;
   }
   if (!state.refunds.length) {
     return '<tr><td colspan="8" class="muted center">No refund requests yet.</td></tr>';
@@ -2717,8 +2888,8 @@ function renderReportRows() {
   if (state.reportsLoading && !state.reports.length) {
     return '<tr><td colspan="7" class="muted center">Loading issue reports…</td></tr>';
   }
-  if (!state.reportsLoading && state.reportsError) {
-    return `<tr><td colspan="7" class="muted center">Could not load issue reports (${String(state.reportsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+if (!state.reportsLoading && state.reportsError) {
+    return `<tr><td colspan="7" class="muted center">Could not load issue reports: ${escHtml(state.reportsError)}. Please refresh.</td></tr>`;
   }
   if (!state.reports.length) {
     return '<tr><td colspan="7" class="muted center">No issue reports yet — they appear here as soon as customers submit them.</td></tr>';
@@ -2749,6 +2920,34 @@ function renderReportRows() {
       </tr>`;
   }).join('');
 }
+
+// Load automatic cutoff claims from Supabase
+async function loadAutomaticCutoffClaimsFromSupabase() {
+  if (!supabaseAvailable()) {
+    state.automaticCutoffClaimsLoading = false;
+    state.automaticCutoffClaimsError = 'Supabase unavailable';
+    return null;
+  }
+  state.automaticCutoffClaimsLoading = true;
+  state.automaticCutoffClaimsError = null;
+  try {
+    const { data, error } = await supabase
+      .from('automatic_cutoff_claims')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    state.automaticCutoffClaims = data || [];
+    state.automaticCutoffClaimsLoading = false;
+    return state.automaticCutoffClaims;
+  } catch (err) {
+    console.error('Supabase automatic cutoff claims load failed:', err);
+    state.automaticCutoffClaimsLoading = false;
+    state.automaticCutoffClaimsError = err.message || 'Load failed';
+    state.automaticCutoffClaims = [];
+    return null;
+  }
+}
+
 // ============================================
 // Vendor Applications (admin review) — #/vendor/apply intake
 // ============================================
@@ -2942,8 +3141,8 @@ function renderVendorApplicationRows() {
   if (state.vendorApplicationsLoading && !state.vendorApplications.length) {
     return '<tr><td colspan="8" class="muted center">Loading vendor applications…</td></tr>';
   }
-  if (!state.vendorApplicationsLoading && state.vendorApplicationsError) {
-    return `<tr><td colspan="8" class="muted center">Could not load vendor applications (${String(state.vendorApplicationsError).replace(/"/g, '&quot;')}). Please refresh.</td></tr>`;
+if (!state.vendorApplicationsLoading && state.vendorApplicationsError) {
+    return `<tr><td colspan="8" class="muted center">Could not load vendor applications: ${escHtml(state.vendorApplicationsError)}. Please refresh.</td></tr>`;
   }
   if (!state.vendorApplications.length) {
     return '<tr><td colspan="8" class="muted center">No vendor applications yet — they appear here as soon as students submit the Become a Vendor form.</td></tr>';

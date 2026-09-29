@@ -23,49 +23,17 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
 
 // Paystack's /transferrecipient endpoint ONLY — /transfer is never called here.
 const PAYSTACK_TRANSFER_RECIPIENT_URL =
   "https://api.paystack.co/transferrecipient";
 const PAYSTACK_BANK_LIST_URL = "https://api.paystack.co/bank?country=nigeria&currency=NGN&perPage=500";
-
-// ---- CORS: strict allowlist echo (no wildcard) ----
-// The request Origin is echoed back ONLY when it appears in the
-// comma-separated ALLOWED_ORIGIN allowlist. An unknown (or missing)
-// Origin gets NO Access-Control-Allow-Origin header at all — never a
-// wildcard and never a fallback origin. Mirrors paystack-initialize /
-// paystack-refund / paystack-transfer.
-function corsFor(origin: string | null): Record<string, string> {
-  const o = origin ?? "";
-  const allowOrigin = ALLOWED_ORIGINS.includes(o) ? o : "";
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
-  return headers;
-}
-
-function json(body: unknown, status: number, origin: string | null): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsFor(origin), "Content-Type": "application/json" },
-  });
-}
 
 // Trim + cap every string that crosses a trust boundary.
 function clean(v: unknown, max = 120): string {
@@ -73,11 +41,9 @@ function clean(v: unknown, max = 120): string {
 }
 
 serve(async (req: Request): Promise<Response> => {
-  const origin = req.headers.get("Origin");
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsFor(origin) });
+    return handleOptions(req);
   }
-  if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405, origin);
   }
 

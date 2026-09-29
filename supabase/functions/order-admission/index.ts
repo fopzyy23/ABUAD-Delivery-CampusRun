@@ -3,33 +3,9 @@
 // caller's original JWT. It is never returned to the browser.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const MAX_BODY_BYTES = 16 * 1024;
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyy.com,https://www.dropzyy.com,http://127.0.0.1:5500"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-const corsHeaders = (req: Request): HeadersInit => {
-  const origin = req.headers.get("origin") ?? "";
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
-  const headers: HeadersInit = {
-    "access-control-allow-methods": "POST, OPTIONS",
-    "access-control-allow-headers": "authorization, apikey, content-type",
-    "access-control-max-age": "600",
-    "vary": "Origin",
-  };
-  if (allowOrigin) headers["access-control-allow-origin"] = allowOrigin;
-  return headers;
-};
-const json = (req: Request, body: Record<string, unknown>, status = 200, headers: HeadersInit = {}) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...corsHeaders(req), ...headers },
-  });
 
 async function fingerprint(operation: string, items: unknown[], spot: string): Promise<string> {
   const normalized = items.map((item) => {
@@ -58,8 +34,8 @@ Deno.serve(async (req) => {
       outcome,
       ...details,
     }));
-  };
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
+  });
+  if (req.method === "OPTIONS") return handleOptions(req);
   if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
   const contentType = req.headers.get("content-type") ?? "";
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return json(req, { error: "Content-Type must be application/json" }, 415);

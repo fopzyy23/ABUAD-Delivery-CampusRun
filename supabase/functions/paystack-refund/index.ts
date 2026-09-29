@@ -21,43 +21,16 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? "";
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
-  return headers;
-}
-
-function json(req: Request, status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders(req) });
+    return handleOptions(req);
   }
   if (req.method !== "POST") {
     return json(req, 405, { error: "Method not allowed" });
@@ -65,17 +38,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (contentLength > MAX_JSON_BODY_BYTES) {
-    return new Response(JSON.stringify({ error: "Request body too large" }), {
-      status: 413,
-      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-    });
+    return json(req, 413, { error: "Request body too large" });
   }
   const contentType = req.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
-    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
-      status: 415,
-      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-    });
+    return json(req, 415, { error: "Content-Type must be application/json" });
   }
   if (!PAYSTACK_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("paystack-refund: missing required environment variable(s).");

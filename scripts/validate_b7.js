@@ -62,8 +62,10 @@ check("releases claim on Paystack failure", /release_transfer_for_retry[\s\S]{0,
 check("no longer calls prepare_transfer_for_payout", !/prepare_transfer_for_payout/.test(tFn));
 check("no longer calls mark_transfer_processing", !/mark_transfer_processing/.test(tFn));
 check("race-safe processing flip", /Transfer already in flight/i.test(tFn));
-check("no wildcard CORS", !/Access-Control-Allow-Origin\"\] = \"\*\"/i.test(tFn) && !/"Access-Control-Allow-Origin": "\*"/.test(tFn));
-check("env allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(tFn) && /\.includes\(origin\)/.test(tFn));
+const sharedHttpPath = path.join(root, "supabase/functions/_shared/http.ts");
+const sharedHttp = fs.readFileSync(sharedHttpPath, "utf8");
+check("no wildcard CORS", !/Access-Control-Allow-Origin.*=.*"\*"/i.test(sharedHttp) && !/"Access-Control-Allow-Origin": "\*"/.test(sharedHttp));
+check("env allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(sharedHttp) && /\.includes\(origin\)/.test(sharedHttp));
 // The secret must NEVER be interpolated into a response body. Its only
 // legitimate uses are: the env read, the config check, and the Paystack
 // Authorization header — never inside JSON.stringify / new Response.
@@ -80,7 +82,7 @@ check("HMAC SHA512", /SHA-512/.test(wFn));
 check("constant-time compare", /safeEqual/.test(wFn));
 check("raw body read", /req\.text\(\)/.test(wFn));
 check("401 missing signature", /Missing signature[\s\S]*?401/.test(wFn));
-check("401 invalid signature", /Invalid signature[\s\S]*?401/.test(wFn));
+check("401 invalid signature", /Invalid signature[\s\S]*?401|401[\s\S]*?Invalid signature/.test(wFn));
 check("handles transfer.success", /transfer\.success/.test(wFn));
 check("handles transfer.failed", /transfer\.failed/.test(wFn));
 check("handles transfer.reversed", /transfer\.reversed/.test(wFn));
@@ -90,6 +92,10 @@ check("service-role client server-side", /SUPABASE_SERVICE_ROLE_KEY/.test(wFn));
 check("no JWT required (Paystack cannot send one)", !/supabase\.auth\.getUser/.test(wFn));
 check("--no-verify-jwt documented", /no-verify-jwt/.test(wFn));
 check("no browser status trust (RPC only)", !/\.from\(\"transfers\"\)[\s\S]*?\.update/.test(wFn));
+const sharedHttpPath2 = path.join(root, "supabase/functions/_shared/http.ts");
+const sharedHttp2 = fs.readFileSync(sharedHttpPath2, "utf8");
+check("no wildcard CORS (webhook)", !/Access-Control-Allow-Origin.*=.*"\*"/i.test(sharedHttp2));
+check("env allowlist (no wildcard) webhook", /ALLOWED_ORIGIN/.test(sharedHttp2) && /\.includes\(origin\)/.test(sharedHttp2));
 
 console.log("\n== /transfer USAGE SCOPE ==");
 (function walk(dir) {

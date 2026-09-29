@@ -50,6 +50,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -66,38 +67,10 @@ const REFERENCE_PATTERN = /^[A-Za-z0-9._=:+-]+$/;
 // The project settles in NGN only (payments.currency defaults to 'NGN').
 const EXPECTED_CURRENCY = "NGN";
 
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? "";
-  // Echo the origin only for allowlisted callers; otherwise omit the header
-  // entirely so the browser blocks the response. Never a wildcard.
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
-  return headers;
-}
-
-function json(req: Request, status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
+    return handleOptions(req);
+  }
     return new Response("ok", { headers: corsHeaders(req) });
   }
   if (req.method !== "POST") {
@@ -163,8 +136,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json(req, 404, { error: "Unknown payment reference" });
     }
 
-    // 'product' | 'vendor_delivery' — decides which success RPC settles it.
+    // 'product' | 'vendor_delivery' | 'replacement' — decides which success RPC settles it.
     const isVendorDelivery = payment.payment_type === "vendor_delivery";
+    const isReplacement = payment.payment_type === "replacement";
 
     // ---- 4. Only reconcile payments that can still be reconciled ----
     if (payment.status === "success") {
@@ -274,7 +248,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ) {
         return refuse(409, "order_not_vendor_rider_delivery");
       }
-    } else if (order.user_id !== user.id) {
+    } else if (isReplacement) {
+      // Replacement payments belong to the customer who created the order.
+      if (order.user_id !== user.id) {
+        return refuse(403, "not_order_owner");
+      }
+    } else if (isVendorDelivery) {
       // Product payments belong to the customer who created the order.
       return refuse(403, "not_order_owner");
     }
@@ -376,8 +355,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Route to the success RPC that owns this payment type:
     //   product          -> handle_paystack_payment_success
     //   vendor_delivery  -> handle_vendor_delivery_payment_success
+    //   replacement      -> handle_replacement_payment_success
     const { error: rpcErr } = isVendorDelivery
       ? await supabase.rpc("handle_vendor_delivery_payment_success", rpcParams)
+      : isReplacement
+      ? await supabase.rpc("handle_replacement_payment_success", rpcParams)
       : await supabase.rpc("handle_paystack_payment_success", rpcParams);
 
     if (rpcErr) {

@@ -13,13 +13,15 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
-const corsHeaders: Record<string, string> = {
+// Webhook CORS - Paystack doesn't send Origin, so we use a permissive config for OPTIONS only
+const webhookCorsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "x-paystack-signature, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -68,13 +70,10 @@ function paystackEventToStatus(event: string): "success" | "failed" | null {
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: webhookCorsHeaders });
   }
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json(req, 405, { error: "Method not allowed" });
   }
 
   const contentLength = Number(req.headers.get("content-length") ?? "0");
@@ -137,7 +136,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Look up the payment by reference (handles both product and delivery payments)
     const { data: payment, error: payErr } = await supabase
       .from("payments")
-      .select("id, order_id, status, payment_type")
+      .select("id, order_id, status, payment_type, amount")
       .eq("reference", reference)
       .single();
 

@@ -98,7 +98,7 @@ check("no 200 'processed' on apply failure", !/warning:.*local record update fai
 
 console.log("\n== admin.js CATALOG XSS ==");
 check("product form vendor option escaped", /<option value="\$\{escHtml\(v\.id\)\}"[^>]*>\$\{escHtml\(v\.name\)\}<\/option>/.test(adminJs));
-check("vendors table name escaped", /<td>\$\{v\.icon\}\s*<b>\$\{escHtml\(v\.name\)\}<\/b><\/td>/.test(adminJs));
+check("vendors table name escaped", /<td>\$\{escHtml\(v\.icon\)\}\s*<b>\$\{escHtml\(v\.name\)\}<\/b><\/td>/.test(adminJs));
 check("products table name escaped", /<b>\$\{escHtml\(p\.name\)\}<\/b>/.test(adminJs));
 check("products table vendor name escaped", /\$\{vendor \? escHtml\(vendor\.name\) : '—'\}/.test(adminJs));
 check("products table category escaped", /\$\{escHtml\(p\.category\)\}/.test(adminJs));

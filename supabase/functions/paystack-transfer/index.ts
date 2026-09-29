@@ -30,44 +30,17 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { executeAuthoritativeTransfer } from "../_shared/execute-transfer.ts";
+import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
-// ---- CORS: env-driven origin allowlist (NO wildcard) ----
-// Same model as paystack-initialize: the request Origin is echoed back
-// ONLY when it appears in the comma-separated ALLOWED_ORIGIN secret.
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyyy.netlify.app,http://127.0.0.1:5500"
-)
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? "";
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
-  return headers;
-}
-
-function json(req: Request, status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
-  });
-}
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
+    return handleOptions(req);
+  }
     return new Response("ok", { headers: corsHeaders(req) });
   }
   if (req.method !== "POST") {

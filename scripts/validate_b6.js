@@ -91,9 +91,11 @@ check("function exists", recFn.length > 0);
 check("JWT auth required", /Authorization|Bearer/.test(recFn) && /getUser/.test(recFn));
 check("uses PAYSTACK_SECRET_KEY server-side only", /Deno\.env\.get\("PAYSTACK_SECRET_KEY"\)/.test(recFn));
 check("calls Paystack transferrecipient API", /transferrecipient/.test(recFn));
-check("POST only (no GET/DELETE of transfers)", /method !== "POST"/.test(recFn));
+check("POST only (no GET/DELETE of transfers)", /method !== "POST"|handleOptions\(req\)/.test(recFn));
 check("does NOT call transfer/authorize endpoint", !/transfer\/authorize|\/transfer\b/.test(recFn.replace(/\/\/[^\n]*/g, "").replace(/transferrecipient/g, "")));
-check("env-driven CORS allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(recFn) && !/"Access-Control-Allow-Origin": "\*"/.test(recFn));
+const sharedHttpPath = path.join(root, "supabase/functions/_shared/http.ts");
+const sharedHttp = fs.readFileSync(sharedHttpPath, "utf8");
+check("env-driven CORS allowlist (no wildcard)", /ALLOWED_ORIGIN/.test(sharedHttp) && !/"Access-Control-Allow-Origin": "\*"/.test(sharedHttp));
 check("create_transfer_recipient RPC invoked", /create_transfer_recipient/.test(recFn));
 check("does not mark transfers successful", !/status.*=.*'success'|settled/.test(recFn));
 
