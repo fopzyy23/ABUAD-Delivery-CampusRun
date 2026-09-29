@@ -5,7 +5,7 @@ type RpcClient = {
 
 export type TransferExecutionResult =
   | { kind: "processing"; transfer_id: string; status: string }
-  | { kind: "completed"; transfer_id: string; status: "success" }
+  | { kind: "completed"; transfer_id: string; status: "success" | "failed" | "reversed" }
   | { kind: "rejected"; transfer_id: string; status: string; message: string }
   | { kind: "accepted"; transfer_id: string; status: "processing"; reference: string }
   | { kind: "error"; transfer_id: string; message: string; transient: boolean; stage: "database" | "paystack"; expected?: boolean };
@@ -17,8 +17,6 @@ const transientSqlStates = new Set(["40P01", "40001"]);
 const CONCLUSIVE_STATUSES = new Set(["success", "failed", "reversed"]);
 // Non-conclusive statuses that require reconciliation
 const NON_CONCLUSIVE_STATUSES = new Set(["pending", "processing", "otp", "received", "queued"]);
-
-const transientSqlStates = new Set(["40P01", "40001"]);
 
 export async function executeAuthoritativeTransfer(
   supabase: RpcClient,

@@ -1355,6 +1355,49 @@ function renderDashboardSection({ vendors, products, orders, riders, totalOrders
 // only reference statuses that already exist (admin.js ORDER_STATUS_OPTIONS =
 // the orders.status CHECK constraint in migration 20260901).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Homepage demo tracking control (migration 20261220_demo_tracking_sync.sql).
+// Flags AT MOST ONE order as the public demo order behind the homepage waybill
+// card. set_demo_tracking_order() is admin-only + AAL2-gated server-side, always
+// clears the previous flag first, and accepts NULL/blank to clear — which drops
+// the public card back into its explicitly labelled simulation mode. Only
+// privacy-safe fields ever leave the database (order_number, status,
+// delivery_method, rider_assigned, reported_at).
+// ---------------------------------------------------------------------------
+async function loadDemoTrackingStatusLine() {
+  const el = document.getElementById('demoTrackCurrent');
+  if (!el) return;
+  if (!supabaseAvailable()) { el.textContent = 'Supabase unavailable.'; return; }
+  try {
+    const { data, error } = await supabase.rpc('get_demo_tracking_status');
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : null;
+    el.textContent = row && row.order_number
+      ? `${row.order_number} — ${row.status}${row.rider_assigned ? ' (rider assigned)' : ''}`
+      : 'none — the homepage card is in labelled simulation mode.';
+  } catch (err) {
+    el.textContent = 'could not read it — is migration 20261220_demo_tracking_sync applied?';
+  }
+}
+
+async function setHomepageDemoOrder(orderNumber) {
+  if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return; }
+  const value = (orderNumber || '').trim();
+  try {
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { data, error } = await supabase.rpc('set_demo_tracking_order', {
+      p_order_number: value || null
+    });
+    if (error) throw error;
+    toast(value
+      ? `Homepage now follows ${data || value} (live rider status)`
+      : 'Homepage demo cleared — card falls back to simulation');
+    await loadDemoTrackingStatusLine();
+  } catch (err) {
+    toast(err.message || 'Could not update the homepage demo order', 'error');
+  }
+}
+
 function renderOrdersSection({ filteredOrders, orders }) {
   return `
     <div class="page-head">
@@ -1363,6 +1406,23 @@ function renderOrdersSection({ filteredOrders, orders }) {
         <h1 class="mt-1">Orders</h1>
         <p class="muted">All orders and status management.</p>
       </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card__head">
+        <h3>Homepage demo tracking</h3>
+        <span class="muted small">Mirrors ONE real order on the public waybill card</span>
+      </div>
+      <div class="admin-filters">
+        <div class="field" style="flex:1;min-width:200px;">
+          <label for="demoTrackOrderInput">Order number</label>
+          <input class="input input--sm" id="demoTrackOrderInput" placeholder="e.g. DZ-4417LG" autocomplete="off">
+        </div>
+        <button type="button" class="btn btn--sm" id="demoTrackSetBtn">Go live on homepage</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="demoTrackClearBtn">Clear (simulation)</button>
+      </div>
+      <p class="muted small mb-0">Currently live: <b id="demoTrackCurrent">Loading…</b></p>
+      <p class="muted small mb-0">The public card shows status stages only — never GPS, customer names, locations or totals. AAL2/MFA required.</p>
     </div>
 
     <div class="card mt-2">
@@ -1429,6 +1489,7 @@ function renderOrdersSection({ filteredOrders, orders }) {
                         ${ORDER_STATUS_OPTIONS.map(status => `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`).join('')}
                       </select>
                       <button class="link-btn" data-save-order-status="${order.id}">Save</button>
+                      <button class="link-btn" data-feature-demo-order="${escHtml(order.id)}" title="Show this order's live status on the homepage waybill card">Homepage demo</button>
                     </td>
                   </tr>
                 `).join('')
@@ -2234,6 +2295,24 @@ function attachAdminEventListeners() {
   // Order status filter tabs (All / Active / Completed / Cancelled)
   document.querySelectorAll('[data-order-filter]').forEach(tab => {
     tab.addEventListener('click', () => setOrderFilter('status', tab.dataset.orderFilter));
+  });
+
+  // Homepage demo tracking: show the currently-flagged order (if any) and wire
+  // the set/clear controls. All three are null outside the Orders section.
+  if (document.getElementById('demoTrackCurrent')) loadDemoTrackingStatusLine();
+  const demoTrackSetBtn = document.getElementById('demoTrackSetBtn');
+  if (demoTrackSetBtn) {
+    demoTrackSetBtn.addEventListener('click', () => {
+      const input = document.getElementById('demoTrackOrderInput');
+      const value = (input ? input.value : '').trim();
+      if (!value) { toast('Enter the order number to feature on the homepage', 'info'); return; }
+      setHomepageDemoOrder(value);
+    });
+  }
+  const demoTrackClearBtn = document.getElementById('demoTrackClearBtn');
+  if (demoTrackClearBtn) demoTrackClearBtn.addEventListener('click', () => setHomepageDemoOrder(''));
+  document.querySelectorAll('[data-feature-demo-order]').forEach(btn => {
+    btn.addEventListener('click', () => setHomepageDemoOrder(btn.dataset.featureDemoOrder));
   });
 
   // Order date filters

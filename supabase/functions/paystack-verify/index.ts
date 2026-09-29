@@ -71,8 +71,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return handleOptions(req);
   }
-    return new Response("ok", { headers: corsHeaders(req) });
-  }
   if (req.method !== "POST") {
     return json(req, 405, { error: "Method not allowed" });
   }
@@ -359,7 +357,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { error: rpcErr } = isVendorDelivery
       ? await supabase.rpc("handle_vendor_delivery_payment_success", rpcParams)
       : isReplacement
-      ? await supabase.rpc("handle_replacement_payment_success", rpcParams)
+      ? await supabase.rpc("handle_replacement_payment_success", {
+          p_reference: payment.reference,
+          p_transaction_id: String(paystackTransactionId),
+        })
       : await supabase.rpc("handle_paystack_payment_success", rpcParams);
 
     if (rpcErr) {

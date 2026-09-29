@@ -1852,3 +1852,137 @@ html[data-theme="dark"] .dropzyy-faq__item[open] summary { color: var(--brand); 
   clip: auto;
   overflow: visible;
 }
+
+/* ===========================================================================
+   Vendor product picture upload (app.js vendor product form)
+   Layout: square preview tile on the left, file input + hints on the right.
+   The preview always renders the icon layer FIRST and the <img> on top; a
+   failed picture is hidden by the global data-img-guard error listener and the
+   .is-broken class simply reveals the icon underneath.
+   =========================================================================== */
+.img-upload {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.img-upload__preview {
+  position: relative;
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.img-upload__preview.is-empty {
+  border-style: dashed;
+}
+
+.img-upload__placeholder {
+  font-size: 34px;
+  line-height: 1;
+  opacity: 0.75;
+  user-select: none;
+}
+
+/* The picture sits above the icon placeholder and fills the tile. */
+.img-upload__preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 11px;
+  z-index: 1;
+}
+
+/* Broken picture: the img is hidden by data-img-guard, this reveals the icon. */
+.img-upload__preview.is-broken .img-upload__placeholder { opacity: 1; }
+
+.img-upload__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Product-table thumbnail (vendor dashboard). Same icon-behind-image pattern
+   as .pcard__thumb so a broken URL degrades to the emoji icon. */
+.prod-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.prod-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.prod-thumb__fallback {
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.prod-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+}
+
+.prod-thumb.is-broken img { display: none; }
+
+/* ===========================================================================
+   Homepage waybill — live vs simulation states (renderDemoTracking()).
+   Default/absent class = simulation: the EXISTING sample look, orange stamp,
+   tag reading "Demo simulation". .is-live = a real flagged order is being
+   mirrored: green accents, stamp reading "Live", and the route pieces get a
+   transition so stage changes glide instead of jumping.
+   =========================================================================== */
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-tag { color: var(--success); }
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-tag::before { background: var(--success); }
+
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-stamp {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-eta-value { color: var(--success); }
+
+/* Stage changes arrive from status updates — glide to the new position. The
+   simulation animation sets inline styles every frame, so the transition only
+   applies in live mode where styles are written once per change. */
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-route-fill {
+  transition: width 0.6s ease;
+}
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-route-marker,
+.dropzyy-hero__waybill.is-live .dropzyy-hero__waybill-route-truck {
+  transition: left 0.6s ease;
+}
+
+/* Simulation keeps its original look; make the distinction explicit for
+   screen readers and styling hooks alike. */
+.dropzyy-hero__waybill.is-simulation .dropzyy-hero__waybill-stamp {
+  border-color: var(--dropzyy-tang);
+  color: #B83F00;
+}
+

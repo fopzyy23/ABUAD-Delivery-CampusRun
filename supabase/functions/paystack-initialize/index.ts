@@ -42,10 +42,12 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const DEFAULT_CALLBACK_URL =
   Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "https://dropzyy.com/orders";
 
-function resolveCallbackUrl(req: Request): string {
+function resolveCallbackUrl(req: Request, orderId: string): string {
   const origin = req.headers.get("Origin") ?? "";
-  if (ALLOWED_ORIGINS.includes(origin)) return `${origin}/orders`;
-  return DEFAULT_CALLBACK_URL;
+  const base = ALLOWED_ORIGINS.includes(origin) ? `${origin}/orders` : DEFAULT_CALLBACK_URL;
+  const url = new URL(base);
+  url.searchParams.set("order_id", orderId);
+  return url.toString();
 }
 
 // Paystack amounts are in kobo (1 Naira = 100 kobo).
@@ -235,7 +237,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ?trxref=/?reference= are appended by Paystack to this URL, so the return
     // lands on /orders where app.js can resolve the reference. The Netlify rule
     // for /orders is a 200 rewrite, which preserves the query string.
-    const callbackUrl = resolveCallbackUrl(req);
+    const callbackUrl = resolveCallbackUrl(req, order.id);
 
     // ---- Call Paystack transaction/initialize ----
     const amountKobo = nairaToKobo(Number(order.total));

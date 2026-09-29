@@ -728,11 +728,9 @@ async function requestWithdrawal(amount, bankDetails) {
 }
 
 // Handler for the track-page rating form: validates the star selection, then
-// delegates to submitRiderRating (which re-validates ownership/Delivered rider
-// through RLS), and finally transitions the order to 'Rated' using the
-// existing orders_update_own_rating workflow (WithCheck: user_id = auth.uid(),
-// status = 'Rated'). The UNIQUE(order_id, reviewer_id) constraint and the
-// state.ratingCompleteOrder flag both block duplicate submissions.
+// delegates to submit_rider_rating, which validates ownership, the assigned
+// rider and Delivered status, then inserts the rating and marks the order
+// Rated atomically. The database unique constraint blocks duplicates.
 async function submitRiderRatingForm(form) {
   const f = new FormData(form);
   const orderId = f.get('orderId');
@@ -751,28 +749,12 @@ async function submitRiderRatingForm(form) {
   const submitted = await submitRiderRating(orderId, riderId, rating, review);
   delete state.ratingSubmitting[orderId];
   if (!submitted) { if (submitButton) { submitButton.disabled = false; submitButton.textContent = 'Submit rating'; } return; }
-  // Mark as rated locally, then persist the Delivered → Rated transition via
-  // the permitted RLS path. On failure keep the order Delivered and show the
-  // form again so the user can retry.
+  // The server commits the rating and Delivered → Rated together.
   const order = state.orders.find(x => x.dbId === orderId);
-  const prevStatus = order ? order.status : null;
   if (order) order.status = 'Rated';
   if (order) order.rider_rating = { rating, review };
   state.ratingCompleteOrder = orderId;
   save();
-  if (typeof supabase !== 'undefined' && supabase) {
-    try {
-      const { error } = await supabase.from('orders').update({ status: 'Rated' }).eq('id', orderId);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Order mark-as-Rated failed:', err);
-      if (order) order.status = prevStatus;
-      if (state.ratingCompleteOrder === orderId) delete state.ratingCompleteOrder;
-      save();
-      toast('Rating saved, but marking the order as rated failed', 'error');
-      return;
-    }
-  }
   render();
 }
 
@@ -783,15 +765,9 @@ async function submitRiderRating(orderId, riderId, rating, review) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Please sign in to rate your rider', 'info'); return false; }
-    const { error } = await supabase
-      .from('rider_ratings')
-      .insert({
-        order_id: orderId,
-        rider_id: riderId,
-        reviewer_id: session.user.id,
-        rating: rating,
-        review: review || ''
-      });
+    const { error } = await supabase.rpc('submit_rider_rating', {
+      p_order_id: orderId, p_rating: rating, p_review: review || ''
+    });
     if (error) {
       if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
         toast('You have already rated this delivery', 'info');
@@ -801,7 +777,9 @@ async function submitRiderRating(orderId, riderId, rating, review) {
       }
       return false;
     }
-    await loadRiderFromSupabase();
+    try { await loadRiderFromSupabase(); } catch (refreshError) {
+      console.warn('Rating saved, but rider summary refresh failed:', refreshError);
+    }
     toast('Thanks for rating your rider!', 'success');
     return true;
   } catch (err) {
@@ -936,22 +914,36 @@ async function loadOrdersForUser(userId) {
       orderItemsData = itemsData || [];
     }
 
+    async function finalProductNames(rows) {
+      const ids = [...new Set(rows.filter(item => !item.final_removed && item.final_product_id && item.final_product_id !== item.product_id).map(item => item.final_product_id))];
+      if (!ids.length) return {};
+      const { data, error } = await supabase.from('products').select('id,name,icon').in('id', ids);
+      if (error) throw error;
+      return Object.fromEntries((data || []).map(p => [String(p.id), p]));
+    }
+    function resolvedItem(item, names) {
+      if (item.final_removed) return null;
+      const replacement = item.final_product_id && item.final_product_id !== item.product_id;
+      const p = replacement ? names[String(item.final_product_id)] : null;
+      return {
+        id: replacement ? item.final_product_id : item.product_id,
+        orderItemId: item.id, vendor: item.vendor_id,
+        name: replacement ? (p?.name || `Replacement product #${item.final_product_id}`) : item.name,
+        price: item.final_price != null ? item.final_price : item.price,
+        icon: replacement ? (p?.icon || '🛒') : item.icon,
+        desc: '', category: '', qty: item.qty,
+        availability_state: item.availability_state || 'unconfirmed',
+        final_resolution: item.final_resolution || null
+      };
+    }
+    const customerFinalProducts = await finalProductNames(orderItemsData);
+
     // 3. Group order_items by order_id
     const itemsByOrder = {};
     orderItemsData.forEach(item => {
       if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
-      itemsByOrder[item.order_id].push({
-        id: item.product_id,
-        orderItemId: item.id,
-        vendor: item.vendor_id,
-        name: item.name,
-        price: item.price,
-        icon: item.icon,
-        desc: '',
-        category: '',
-        qty: item.qty
-        ,availability_state: item.availability_state || 'unconfirmed'
-      });
+      const resolved = resolvedItem(item, customerFinalProducts);
+      if (resolved) itemsByOrder[item.order_id].push(resolved);
     });
 
         // 4. Map Supabase orders into the existing frontend order shape.
@@ -963,6 +955,7 @@ async function loadOrdersForUser(userId) {
       dbId: o.id,
       items: (itemsMap && itemsMap[o.id]) || [],
       total: o.total,
+      final_order_total: o.final_order_total,
       subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee != null ? o.fee : DELIVERY_FEE)),
       fee: o.fee != null ? o.fee : DELIVERY_FEE,
       status: o.status || 'Order confirmed',
@@ -981,6 +974,7 @@ async function loadOrdersForUser(userId) {
       purchase_funding_status: o.purchase_funding_status || 'not_required',
       cancellation_stage: o.cancellation_stage || 'none',
       additional_amount_due: o.additional_amount_due || 0,
+      final_financial_status: o.final_financial_status || null,
       rider_id: o.rider_id || null,
       rider_rating: ratingsByOrder[o.id] || null,
       rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
@@ -1064,20 +1058,11 @@ async function loadOrdersForUser(userId) {
         if (poolItemsError) throw poolItemsError;
 
         const poolItemsByOrder = {};
+        const riderFinalProducts = await finalProductNames(poolItems || []);
         (poolItems || []).forEach(item => {
           if (!poolItemsByOrder[item.order_id]) poolItemsByOrder[item.order_id] = [];
-          poolItemsByOrder[item.order_id].push({
-            id: item.product_id,
-            orderItemId: item.id,
-            vendor: item.vendor_id,
-            name: item.name,
-            price: item.price,
-            icon: item.icon,
-            desc: '',
-            category: '',
-            qty: item.qty
-            ,availability_state: item.availability_state || 'unconfirmed'
-          });
+          const resolved = resolvedItem(item, riderFinalProducts);
+          if (resolved) poolItemsByOrder[item.order_id].push(resolved);
         });
 
         poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames)));
@@ -3715,6 +3700,8 @@ async function vendorRequestsView() {
 let productsChannel = null;
 let trackChannel = null;
 let trackPollTimer = null;
+let trackReconnectTimer = null;
+let trackReconnectDelay = 0;
 let riderOrdersChannel = null;
 let riderOrdersSubscriptionStarting = false;
 let riderOrdersPollTimer = null;
@@ -3810,6 +3797,32 @@ function clearTrackSubscription() {
     trackChannel = null;
   }
   if (trackPollTimer) { clearTimeout(trackPollTimer); trackPollTimer = null; }
+  // A stale reconnect callback must never fire against a different order —
+  // and a fresh track page deserves a fresh backoff window.
+  if (trackReconnectTimer) { clearTimeout(trackReconnectTimer); trackReconnectTimer = null; }
+  trackReconnectDelay = 0;
+}
+
+// Stage ordering guard for status updates on the track page.
+// A DELAYED Realtime event (or a poll answer that raced a newer event) must
+// never move the customer's timeline backwards:
+//   * the status may only advance along TRACK_STAGES;
+//   * 'Cancelled' always applies (a terminal, deliberate outcome);
+//   * 'Rated' may only follow 'Delivered';
+//   * once 'Delivered'/'Rated'/'Cancelled' is shown, nothing moves it back.
+// Unknown statuses are accepted as-is so an admin-side addition can never be
+// silently swallowed.
+function trackStatusAcceptable(prevStatus, nextStatus) {
+  if (!nextStatus || nextStatus === prevStatus) return false;
+  const prev = TRACK_STAGE_INDEX[prevStatus];
+  const next = TRACK_STAGE_INDEX[nextStatus];
+  if (prevStatus === 'Cancelled') return false;
+  if (nextStatus === 'Cancelled') return true;
+  if (prevStatus === 'Rated') return false;
+  if (nextStatus === 'Rated') return prevStatus === 'Delivered';
+  if (typeof next !== 'number') return true;              // unknown → accept (forward compatibility)
+  if (typeof prev !== 'number') return true;
+  return next >= prev;                                    // never regress
 }
 
 async function refreshTrackedOrder(dbId) {
@@ -3823,7 +3836,9 @@ async function refreshTrackedOrder(dbId) {
   const idx = state.orders.findIndex(o => o.dbId === dbId);
   if (idx < 0) return false;
   const prev = state.orders[idx];
-  const ns = data.status || prev.status;
+  const candidate = data.status || prev.status;
+  // Stale answers are discarded instead of being applied unconditionally.
+  const ns = trackStatusAcceptable(prev.status, candidate) ? candidate : prev.status;
   const nps = data.payment_status || prev.payment_status;
   const nrider = data.rider_id != null ? data.rider_id : prev.rider_id;
   if (prev.status === ns && prev.payment_status === nps && prev.rider_id === nrider) return false;
@@ -3835,6 +3850,23 @@ async function refreshTrackedOrder(dbId) {
     createdAt: data.created_at || prev.createdAt,
   };
   return true;
+}
+
+// Reconnect handling: a dropped Realtime socket never replays the events that
+// happened while it was down, so on every (re)SUBSCRIBED we re-read the latest
+// PERSISTED status, then subscribe again on failure with backoff.
+function scheduleTrackReconnect(dbId) {
+  if (trackReconnectTimer) return;
+  const delay = Math.min(trackReconnectDelay ? trackReconnectDelay * 2 : 5000, 60000);
+  trackReconnectDelay = delay;
+  trackReconnectTimer = setTimeout(async () => {
+    trackReconnectTimer = null;
+    if (!location.hash.startsWith('#/track/')) return;
+    try {
+      if (await refreshTrackedOrder(dbId)) render();
+    } catch (e) { console.error('Track reconnect refresh failed:', e); }
+    startTrackSubscription(dbId);
+  }, delay);
 }
 
 function startTrackSubscription(dbId) {
@@ -3856,7 +3888,11 @@ function startTrackSubscription(dbId) {
         const prev = state.orders.find(o => o.dbId === dbId);
         if (!prev) return;
         const next = payload.new;
-        const ns = next.status || prev.status;
+        const candidate = next.status || prev.status;
+        // DELAYED EVENTS: only apply the status if it is not a regression —
+        // see trackStatusAcceptable(). A late event can otherwise flip the
+        // timeline backwards (e.g. 'On the Way' arriving after 'Delivered').
+        const ns = trackStatusAcceptable(prev.status, candidate) ? candidate : prev.status;
         const nps = next.payment_status || prev.payment_status;
         const nrider = next.rider_id != null ? next.rider_id : prev.rider_id;
         if (prev.status === ns && prev.payment_status === nps && prev.rider_id === nrider) return;
@@ -3874,7 +3910,16 @@ function startTrackSubscription(dbId) {
         await loadOrdersFromSupabase();
         if (location.hash.startsWith('#/track/')) render();
       })
-      .subscribe();
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') {
+          trackReconnectDelay = 0;
+          // Events fired while the socket was down are NOT replayed — re-read
+          // the latest PERSISTED status so the card catches up.
+          refreshTrackedOrder(dbId).then(changed => { if (changed) render(); }).catch(() => {});
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          scheduleTrackReconnect(dbId);
+        }
+      });
   } catch (e) {
     console.error('Track Realtime subscription failed:', e);
     trackChannel = null;
@@ -3896,8 +3941,8 @@ async function track(id) {
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
   if (!o) return notFound();
-  const stages = ['Order confirmed','Preparing','Ready for pickup','Rider assigned','Picked up','On the Way','Delivered'];
-  const stageIndex = { 'Order confirmed':0,'Preparing':1,'Ready for pickup':2,'Rider assigned':3,'Picked up':4,'On the Way':5,'Delivered':6 };
+  const stages = TRACK_STAGES;              // shared with the homepage demo card
+  const stageIndex = TRACK_STAGE_INDEX;
   const current = o.status==='Rated' ? 6 : (stageIndex[o.status] ?? 0);
   const cancelled = o.status === 'Cancelled';
   const vendorNames = orderVendorNames(o);
@@ -3967,7 +4012,7 @@ async function track(id) {
   // up automatically when the route leaves #/track/ (see the hashchange wrapper below).
   startTrackSubscription(o.dbId);
 
-  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
+  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':s==='Delivered'?'Delivery complete':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
 }
 // ============================================
 // Order details view (ACTION 9)
@@ -4081,6 +4126,7 @@ function reorder(orderId) {
 function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form>${login?'<p class="center small mt-2 mb-0"><a class="link-btn" href="#/forgot-password">Forgot password?</a></p>':''}<p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
 function passwordReset() {
+  if (!passwordRecoverySession) return `<section class="container"><div class="auth-wrap"><div class="card"><h1>Reset link required</h1><p>Open the password-reset link sent to your email, or request a new one.</p><a href="#/forgot-password">Request reset link</a></div></div></section>`;
   return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">Reset your password</h1><p class="muted">Choose a new password for your Dropzyy account.</p></div><form id="passwordResetForm" class="stack mt-2"><div class="field"><label for="resetPassword">New password</label><input required minlength="6" class="input" type="password" name="password" id="resetPassword" autocomplete="new-password"></div><div class="field"><label for="resetConfirmPassword">Confirm new password</label><input required minlength="6" class="input" type="password" name="confirmPassword" id="resetConfirmPassword" autocomplete="new-password"></div><button class="btn btn--block btn--lg" type="submit">Update password</button></form><p class="center small muted mt-2 mb-0"><a class="link-btn" href="#/login">Back to sign in</a></p></div></div></section>`;
 }
 
@@ -4174,15 +4220,22 @@ function riderOrderItemsHtml(o) {
   const items = Array.isArray(o.items) ? o.items : [];
   if (!items.length) return '';
   const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || '🛒')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">× ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
-  return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.total)}</b></div></div>`;
+  return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.final_order_total ?? o.total)}</b></div></div>`;
 }
 
 function riderAvailabilityHtml(o) {
   const items = Array.isArray(o.items) ? o.items : [];
   if (!items.length || !['Rider assigned','Picked up','On the Way'].includes(o.status)) return '';
   const stateLabel = o.product_availability_status === 'confirmed' ? 'All products confirmed' : o.product_availability_status === 'needs_customer_decision' ? 'Customer decision required' : o.product_availability_status === 'in_progress' ? 'Check in progress' : 'Check products';
-  const lines = items.map(it => `<div class="row row--between row--wrap availability-line" style="gap:8px"><span><b>${esc(it.name || 'Item')}</b> <span class="muted small">× ${it.qty || 0}</span></span><span class="badge badge--${it.availability_state === 'available' ? 'success' : it.availability_state === 'unavailable' ? 'danger' : 'warn'}">${it.availability_state === 'available' ? 'Available' : it.availability_state === 'unavailable' ? 'Unavailable' : 'Not checked'}</span></div>`).join('');
-  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div><div class="row row--wrap mt-1" style="gap:6px">${items.map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>${items.every(it => it.availability_state === 'available') && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">Confirm products</button>` : ''}</div>`;
+  const ready = items.every(it => ['available','replaced'].includes(it.availability_state))
+    && Number(o.additional_amount_due || 0) === 0
+    && !['additional_payment_required','overpaid_pending_resolution'].includes(o.final_financial_status);
+  const guidance = o.product_availability_status === 'confirmed'
+    ? '<p class="muted small">Products confirmed. Purchase funding is authorized; wait for confirmed transfer before buying.</p>'
+    : ready ? '<p class="muted small">Final products are resolved. Confirm them to request purchase funding.</p>'
+    : '<p class="muted small">Check every product. Wait for the customer to resolve unavailable items and complete any additional payment before confirming.</p>';
+  const lines = items.map(it => `<div class="row row--between row--wrap availability-line" style="gap:8px"><span><b>${esc(it.name || 'Item')}</b> <span class="muted small">× ${it.qty || 0}</span></span><span class="badge badge--${['available','replaced'].includes(it.availability_state) ? 'success' : it.availability_state === 'unavailable' ? 'danger' : 'warn'}">${it.availability_state === 'available' ? 'Available' : it.availability_state === 'replaced' ? 'Replacement confirmed' : it.availability_state === 'unavailable' ? 'Unavailable' : 'Not checked'}</span></div>`).join('');
+  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div>${guidance}${o.product_availability_status !== 'confirmed' ? `<div class="row row--wrap mt-1" style="gap:6px">${items.filter(it => !it.final_resolution || it.final_resolution === 'available').map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>` : ''}${ready && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">Confirm products & request funding</button>` : ''}</div>`;
 }
 
 function rider() {
@@ -4608,37 +4661,45 @@ async function pay(orderId) {
 // refresh fails), the order is never deleted or hidden — the user lands on
 // My Orders where it remains visible with its current status.
 async function handlePaystackReturn() {
-  let ref = '';
-  try {
-    const search = new URLSearchParams(location.search);
-    const qIndex = location.hash.indexOf('?');
-    const hashSearch = qIndex >= 0 ? new URLSearchParams(location.hash.slice(qIndex + 1)) : null;
-    ref = search.get('reference') || search.get('trxref')
-      || (hashSearch && (hashSearch.get('reference') || hashSearch.get('trxref'))) || '';
-    if (ref) {
-      // Strip the query so a manual refresh doesn't replay this flow
-      const cleanHash = qIndex >= 0 ? location.hash.slice(0, qIndex) : location.hash;
-      history.replaceState(null, '', location.pathname + (cleanHash || '#/'));
+  if (!state.user) return;
+  const search = new URLSearchParams(location.search);
+  const ref = search.get('reference') || search.get('trxref');
+  const orderId = search.get('order_id');
+  const delivery = search.get('payment_type') === 'vendor_delivery';
+  if (!ref || !orderId || !/^[0-9a-f-]{36}$/i.test(orderId)) return;
+  const order = (state.orders || []).find(o => o.dbId === orderId);
+  const route = delivery ? '#/vendor' : order ? `#/order/${encodeURIComponent(order.id)}` : '#/orders';
+  history.replaceState(null, '', location.pathname + route);
+  render();
+  toast('Checking payment status…', 'info');
+  // The Edge Function verifies ownership, amount and Paystack status. Only its
+  // success and a subsequent database read can confirm the browser's result.
+  await verifyPaymentWithPaystack(ref);
+  if (location.hash !== route) location.hash = route;
+  const check = async () => {
+    if (delivery) {
+      const { data, error } = await supabase.from('orders').select('delivery_payment_status').eq('id', orderId).maybeSingle();
+      return !error && data?.delivery_payment_status === 'success';
     }
-  } catch (e) { ref = ''; }
-  if (!ref || !state.user) return;
-  toast('Payment received — confirming your order…', 'info');
-  for (let attempt = 0; attempt < 5; attempt++) {
-    // Existing source-of-truth loader (RLS-scoped to the authenticated user)
-    await loadOrdersFromSupabase();
-    const order = (state.orders || []).find(o => o.payment_reference === ref);
-    if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your order…');
-      const orderRoute = `#/order/${encodeURIComponent(order.dbId || order.id)}`;
-      if (location.hash !== orderRoute) location.hash = orderRoute; else render();
+    const { data, error } = await supabase.from('payments').select('status,payment_type').eq('reference', ref).eq('order_id', orderId).maybeSingle();
+    return !error && data?.status === 'success';
+  };
+  for (let attempt = 0; attempt < 30; attempt++) {
+    if (await check()) {
+      if (delivery) { state.vendorLoaded = false; await ensureVendorLoaded(); }
+      else {
+        await loadOrdersFromSupabase();
+        const confirmedOrder = (state.orders || []).find(o => o.dbId === orderId);
+        if (confirmedOrder) location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
+      }
+      toast('Payment confirmed','success');
+      render();
       return;
     }
-    // Webhook may lag a moment behind the redirect — brief retry.
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(resolve => setTimeout(resolve, 4000));
   }
-  // Not confirmed yet: keep the order visible in My Orders (never hidden).
-  toast('Your payment is being confirmed. Track it in My Orders.', 'info');
-  if (location.hash !== '#/orders') location.hash = '#/orders'; else render();
+  toast('Payment is still being confirmed. Check this order again shortly.','info');
+  render();
 }
 
 // While a customer is on a pending Payment page, poll the Supabase source of
@@ -5762,22 +5823,28 @@ document.addEventListener('input', e => {
 document.addEventListener('submit', e=>{
   if(e.target.id==='passwordResetForm'){
     e.preventDefault();
+    if (!passwordRecoverySession) { toast('Open your password-reset email link first','error'); return; }
     const f=new FormData(e.target), password=String(f.get('password')||''), confirm=String(f.get('confirmPassword')||'');
     if(password.length<6){ toast('Password must be at least 6 characters','error'); return; }
     if(password!==confirm){ toast('Passwords do not match','error'); return; }
-    supabase.auth.updateUser({ password }).then(({ error })=>{
+    const button=e.target.querySelector('button[type="submit"]');
+    if(button) button.disabled=true;
+    supabase.auth.updateUser({ password }).then(async ({ error })=>{
       if(error){ toast(error.message,'error'); return; }
-      supabase.auth.signOut().catch(()=>{});
+      passwordRecoverySession=false;
+      await supabase.auth.signOut();
+      state.user=null; state.orders=[]; state.riderPool=[]; resetVendorSessionState();
+      history.replaceState(null,'',location.pathname+'#/login');
       toast('Password updated. Please sign in.','success');
-      location.hash='#/login';
-    });
+      render();
+    }).catch(err=>toast(err.message || 'Password reset failed','error')).finally(()=>{if(button)button.disabled=false;});
     return;
   }
   if(e.target.id==='forgotPasswordForm'){
     e.preventDefault();
     const email=String(new FormData(e.target).get('email')||'').trim();
-    const origin=window.location.origin;
-    supabase.auth.resetPasswordForEmail(email,{ redirectTo: `${origin}/?recovery=1` }).then(({ error })=>{
+    const redirectTo=new URL('/login',window.location.origin).href;
+    supabase.auth.resetPasswordForEmail(email,{ redirectTo }).then(({ error })=>{
       if(error){ toast(error.message,'error'); return; }
       toast('Check your email for a password reset link.','success');
     });
@@ -5815,7 +5882,7 @@ document.addEventListener('submit', e=>{
       const full_name=f.get('name')||'';
       const phone=f.get('phone')||'';
       const hostel=f.get('hostel')||'';
-      supabase.auth.signUp({ email, password, options: { data: { full_name, phone, hostel } } })
+      supabase.auth.signUp({ email, password, options: { emailRedirectTo: new URL('/login?auth_return=signup', location.origin).href, data: { full_name, phone, hostel } } })
         .then(async ({ data, error }) => {
           if(error){ toast(error.message,'error'); return; }
           if(data.user){
@@ -5857,6 +5924,7 @@ document.addEventListener('submit', e=>{
           }
         });
     } else {
+      signInInProgress = true;
       supabase.auth.signInWithPassword({ email, password })
         .then(async ({ data, error }) => {
           if(error){ toast(error.message,'error'); return; }
@@ -5897,6 +5965,7 @@ document.addEventListener('submit', e=>{
             }
           }
           state.user={name,email,role,vendor_id};
+          explicitLoginUserId=data.user?.id || null;
           save();
           // A NEW session is established: drop any previous account's vendor
           // dashboard/withdrawal state so ensureVendorLoaded() refetches for
@@ -5918,7 +5987,7 @@ document.addEventListener('submit', e=>{
             loadRiderFromSupabase(),
             loadOrdersFromSupabase()
           ]).catch(err => console.error('Background post-login data load failed:', err));
-        });
+        }).finally(() => { signInInProgress = false; });
     }
   }
   if(e.target.id==='checkoutForm'){
@@ -6216,6 +6285,9 @@ window.addEventListener('hashchange', () => {
   // If we're navigating away from a track page, tear down the live
   // channel + poll so neither leaks across route changes.
   if (!location.hash.startsWith('#/track/')) clearTrackSubscription();
+  // The demo-card subscription only exists on the home route: tear it down
+  // (channel + poll timer) as soon as the visitor navigates away.
+  if (!['', '#', '#/'].includes(location.hash)) stopDemoTracking();
   render().then(()=>{
     // #app keeps tabindex="-1" so it can receive programmatic focus without
     // turning up in the tab order. preventScroll avoids a focus-induced scroll
@@ -6270,17 +6342,40 @@ subscribeRiderOrdersRealtime();
 // restore instead.
 
 
+let passwordRecoverySession = false;
+let explicitLoginUserId = null;
+let authReturnHandled = false;
+let signInInProgress = false;
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'PASSWORD_RECOVERY' && session?.user) {
+    passwordRecoverySession = true;
+    queueMicrotask(() => { location.hash = '#/reset-password'; render(); });
+  }
+});
+
 function isPasswordRecoveryReturn() {
-  const query = new URLSearchParams(location.search);
-  return query.get('recovery') === '1' || new URLSearchParams(location.hash.replace(/^#/, '')).get('type') === 'recovery';
+  return passwordRecoverySession;
 }
 
 // Session persistence: restore the Supabase session on load so a page refresh
 // keeps the user signed in (and restores their profile name).
 supabase.auth.getSession().then(({ data: { session } }) => {
   if(session && session.user){
+    if (signInInProgress) return;
+    if (new URLSearchParams(location.search).get('auth_return') === 'signup' && !authReturnHandled) {
+      authReturnHandled = true;
+      supabase.auth.signOut().then(() => {
+        state.user=null;
+        history.replaceState(null,'',location.pathname+'#/login');
+        render();
+        toast('Email confirmed. Please sign in.','success');
+      });
+      return;
+    }
+    if (explicitLoginUserId === session.user.id) return;
     supabase.from('profiles').select('full_name, role, vendor_id').eq('id', session.user.id).single()
       .then(async ({ data: profile }) => {
+        if (explicitLoginUserId === session.user.id) return;
         const userRole = (profile && profile.role) || 'user';
         if(!profile){
           // No profiles row exists for this authenticated session — create a
@@ -6310,6 +6405,7 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         // (pool + assigned orders) from Supabase for THIS user before rendering..
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
+        if (explicitLoginUserId === session.user.id) return;
         subscribeRiderOrdersRealtime();
         if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
         render();
@@ -6319,10 +6415,12 @@ supabase.auth.getSession().then(({ data: { session } }) => {
         await handlePaystackReturn();
       })
       .catch(async ()=>{
+        if (explicitLoginUserId === session.user.id) return;
         state.user={name:session.user.email.split('@')[0],email:session.user.email,role:'user'};
         save();
         await loadRiderFromSupabase();
         await loadOrdersFromSupabase();
+        if (explicitLoginUserId === session.user.id) return;
         subscribeRiderOrdersRealtime();
         if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
         render();

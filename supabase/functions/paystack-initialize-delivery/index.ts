@@ -17,12 +17,22 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
+import { corsHeaders, json, handleOptions, ALLOWED_ORIGINS } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const DEFAULT_CALLBACK_URL = Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "https://dropzyy.com/vendor";
+
+function resolveCallbackUrl(req: Request, orderId: string): string {
+  const origin = req.headers.get("Origin") ?? "";
+  const base = ALLOWED_ORIGINS.includes(origin) ? `${origin}/vendor` : DEFAULT_CALLBACK_URL;
+  const url = new URL(base);
+  url.searchParams.set("order_id", orderId);
+  url.searchParams.set("payment_type", "vendor_delivery");
+  return url.toString();
+}
 
 function nairaToKobo(naira: number): number {
   return Math.round(naira * 100);
@@ -319,6 +329,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           email: vendorEmail,
           amount: amountKobo,
           reference,
+          callback_url: resolveCallbackUrl(req, order.id),
           metadata: {
             order_id: order.id,
             order_number: order.order_number,
