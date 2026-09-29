@@ -5,10 +5,10 @@
 // across all browser-invoked Edge Functions.
 // ============================================================
 
-// Production and development origins allowed to call browser-facing functions.
+// No implicit production/local origin defaults. Each deployment must provide
+// its own explicit ALLOWED_ORIGIN value.
 const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ??
-    "https://dropzyy.com,https://www.dropzyy.com,http://127.0.0.1:5500"
+  Deno.env.get("ALLOWED_ORIGIN") ?? ""
 )
   .split(",")
   .map((s) => s.trim())

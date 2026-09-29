@@ -8,7 +8,9 @@
 //   PAYSTACK_SECRET_KEY        Paystack secret key (starts with sk_live_ or sk_test_)
 //   SUPABASE_URL               Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY  Supabase service-role key (server-side ONLY)
-//   ALLOWED_ORIGIN             Comma-separated CORS origin allowlist
+//   ALLOWED_ORIGIN             Explicit comma-separated CORS origin allowlist
+//   PAYSTACK_CALLBACK_URL      Explicit trusted HTTPS /vendor callback
+//   DROPZYY_ENVIRONMENT        Explicit production, staging, or development label
 //
 // Deploy:  supabase functions deploy paystack-initialize-delivery
 // Invoke:  POST {SUPABASE_URL}/functions/v1/paystack-initialize-delivery
@@ -18,17 +20,23 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json, handleOptions, ALLOWED_ORIGINS } from "../_shared/http.ts";
+import { resolveTrustedCallbackUrl } from "../_shared/callback.mjs";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
-const DEFAULT_CALLBACK_URL = Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "https://dropzyy.com/vendor";
+const PAYSTACK_CALLBACK_URL = Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "";
+const DROPZYY_ENVIRONMENT = Deno.env.get("DROPZYY_ENVIRONMENT") ?? "";
 
 function resolveCallbackUrl(req: Request, orderId: string): string {
-  const origin = req.headers.get("Origin") ?? "";
-  const base = ALLOWED_ORIGINS.includes(origin) ? `${origin}/vendor` : DEFAULT_CALLBACK_URL;
-  const url = new URL(base);
+  const url = new URL(resolveTrustedCallbackUrl({
+    configuredCallback: PAYSTACK_CALLBACK_URL,
+    requestOrigin: req.headers.get("Origin") ?? "",
+    allowedOrigins: ALLOWED_ORIGINS,
+    requiredPath: "/vendor",
+    environment: DROPZYY_ENVIRONMENT,
+  }));
   url.searchParams.set("order_id", orderId);
   url.searchParams.set("payment_type", "vendor_delivery");
   return url.toString();
@@ -229,6 +237,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    let callbackUrl: string;
+    try {
+      callbackUrl = resolveCallbackUrl(req, order.id);
+    } catch {
+      console.error("paystack-initialize-delivery: callback/origin configuration is invalid");
+      return new Response(JSON.stringify({ error: "Payment is not configured for this environment" }), {
+        status: 500,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
     // Preserve safe retries of an already-created pending payment. New
     // payment creation/initialization attempts must pass all durable buckets.
     let existingPendingPayment = false;
@@ -329,7 +348,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           email: vendorEmail,
           amount: amountKobo,
           reference,
-          callback_url: resolveCallbackUrl(req, order.id),
+          callback_url: callbackUrl,
           metadata: {
             order_id: order.id,
             order_number: order.order_number,

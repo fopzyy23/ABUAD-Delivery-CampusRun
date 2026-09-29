@@ -13,14 +13,38 @@
 // Usage:
 //   npm install @supabase/supabase-js
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/seed_catalog.js
+// For production writes, also set SEED_ALLOW_PRODUCTION=1 explicitly.
 //
 // The service role key is required so the script can write to the tables
 // regardless of Row Level Security. Never commit the service role key.
 
 const { createClient } = require('@supabase/supabase-js');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://cmfohldnmytmwjynqfpz.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+if (!SUPABASE_URL) {
+  console.error('ERROR: SUPABASE_URL is required; refusing to choose a default project.');
+  process.exit(1);
+}
+
+let targetUrl;
+try {
+  targetUrl = new URL(SUPABASE_URL);
+} catch {
+  console.error('ERROR: SUPABASE_URL must be a valid project URL.');
+  process.exit(1);
+}
+const localTarget = ['localhost', '127.0.0.1', '[::1]'].includes(targetUrl.hostname);
+if ((targetUrl.protocol !== 'https:' && !(localTarget && targetUrl.protocol === 'http:')) ||
+    targetUrl.username || targetUrl.password || targetUrl.pathname !== '/' || targetUrl.search || targetUrl.hash) {
+  console.error('ERROR: SUPABASE_URL must be an HTTPS project origin (HTTP is allowed only for localhost).');
+  process.exit(1);
+}
+if (targetUrl.hostname === 'cmfohldnmytmwjynqfpz.supabase.co' && process.env.SEED_ALLOW_PRODUCTION !== '1') {
+  console.error('ERROR: Production catalog writes require explicit SEED_ALLOW_PRODUCTION=1 confirmation.');
+  process.exit(1);
+}
 
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('ERROR: Set the SUPABASE_SERVICE_ROLE_KEY environment variable and try again.');

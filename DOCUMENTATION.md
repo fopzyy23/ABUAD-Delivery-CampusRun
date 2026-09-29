@@ -373,7 +373,7 @@ Initializes a Paystack Transaction (Checkout) for a customer order. **The browse
 3. Verifies `payment_status = 'pending'` and the order has items
 4. Reads the authoritative `total` from the `orders` table (client-supplied amount is never trusted)
 5. Checks for an existing pending payment with an `authorization_url` — if found, **reuses it** (safe retry, no duplicate charge)
-6. Calls `POST https://api.paystack.co/transaction/initialize` server-side with `email` from the authenticated user, `amount` computed from `orders.total` (kobo), an explicit `callback_url` resolved from the request Origin (falls back to `https://dropzyy.com/orders`), and metadata `{ order_id, order_number, user_id }`
+6. Calls `POST https://api.paystack.co/transaction/initialize` server-side with `email` from the authenticated user, `amount` computed from `orders.total` (kobo), an explicit `callback_url` validated from `PAYSTACK_CALLBACK_URL` against the configured `ALLOWED_ORIGIN` and fixed `/orders` route, and metadata `{ order_id, order_number, user_id }`. Missing or inconsistent configuration fails closed.
 7. Creates a `payments` row via `create_pending_payment(p_order_id, p_reference, p_amount, 'NGN', authorization_url, access_code)`
 8. Stores `authorization_url` + `access_code` on the payment row for safe retry/reuse
 9. Returns `{ authorization_url, access_code, reference }`
@@ -423,7 +423,7 @@ Initializes a **₦1,500 vendor delivery payment** for rider deliveries. This is
    - `email` from the authenticated user (the vendor/customer paying the delivery fee)
    - `amount` = ₦1,500 (kobo: 150,000) — **fixed, never client-supplied**
    - `reference` = the existing payment reference
-   - `callback_url` resolved from the request Origin (falls back to `https://dropzyy.com/orders`)
+   - `callback_url` from required `PAYSTACK_CALLBACK_URL`, validated against explicit `ALLOWED_ORIGIN`; fixed to `/orders` or `/vendor` by the server function, with no production fallback
    - metadata `{ order_id, payment_id, user_id }`
 5. Return `{ authorization_url, access_code, reference }`
 

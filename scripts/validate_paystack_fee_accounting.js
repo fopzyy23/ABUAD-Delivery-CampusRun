@@ -1,16 +1,18 @@
 const fs = require('fs');
-const migration = fs.readFileSync('supabase/migrations/20261025_paystack_fee_accounting.sql', 'utf8');
+const schemaMigration = fs.readFileSync('supabase/migrations/20261025_paystack_fee_accounting.sql', 'utf8');
+const migration = fs.readFileSync('supabase/migrations/20261222_fix_paystack_fee_units.sql', 'utf8');
 const webhook = fs.readFileSync('supabase/functions/paystack-webhook/index.ts', 'utf8');
 const orderAdmission = fs.readFileSync('supabase/migrations/20261018_order_creation_admissions.sql', 'utf8');
 let failed = 0;
 function check(name, ok) { console.log(`${ok ? 'PASS' : 'FAIL'} — ${name}`); if (!ok) failed++; }
-check('paystack_fee column', /ADD COLUMN IF NOT EXISTS paystack_fee numeric/.test(migration));
-check('paystack_net_amount column', /ADD COLUMN IF NOT EXISTS paystack_net_amount numeric/.test(migration));
-check('paystack_channel column', /ADD COLUMN IF NOT EXISTS paystack_channel text/.test(migration));
-check('paystack_paid_at column', /ADD COLUMN IF NOT EXISTS paystack_paid_at timestamptz/.test(migration));
+check('paystack_fee column', /ADD COLUMN IF NOT EXISTS paystack_fee numeric/.test(schemaMigration));
+check('paystack_net_amount column', /ADD COLUMN IF NOT EXISTS paystack_net_amount numeric/.test(schemaMigration));
+check('paystack_channel column', /ADD COLUMN IF NOT EXISTS paystack_channel text/.test(schemaMigration));
+check('paystack_paid_at column', /ADD COLUMN IF NOT EXISTS paystack_paid_at timestamptz/.test(schemaMigration));
 check('webhook reads fees', /data\?\.fees/.test(webhook));
 check('webhook passes fee', /p_paystack_fee: paystackFeeKobo/.test(webhook));
-check('net uses ledger amount minus returned fee', /v_payment\.amount - p_paystack_fee/.test(migration));
+check('fee converts provider kobo to ledger naira', /paystack_fee=CASE WHEN p_paystack_fee IS NULL THEN NULL ELSE p_paystack_fee \/ 100 END/.test(migration));
+check('net subtracts converted naira fee', /v_payment\.amount - \(p_paystack_fee \/ 100\)/.test(migration));
 check('missing fee remains null', /p_paystack_fee IS NULL/.test(migration) && /: null/.test(webhook));
 check('no hard-coded fee formula', !/1\.5\s*%|0\.015|100\s*\+/.test(migration + webhook));
 check('rider share unchanged', /v_rider_share:=1000/.test(orderAdmission));

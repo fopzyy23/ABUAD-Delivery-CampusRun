@@ -44,34 +44,27 @@ serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return handleOptions(req);
   }
-    return json({ error: "Method not allowed" }, 405, origin);
-  }
+  if (req.method !== "POST") return json(req, 405, { error: "Method not allowed" });
 
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (contentLength > MAX_JSON_BODY_BYTES) {
-    return new Response(JSON.stringify({ error: "Request body too large" }), {
-      status: 413,
-      headers: { ...corsFor(origin), "Content-Type": "application/json" },
-    });
+    return json(req, 413, { error: "Request body too large" });
   }
   const contentType = req.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
-    return new Response(JSON.stringify({ error: "Content-Type must be application/json" }), {
-      status: 415,
-      headers: { ...corsFor(origin), "Content-Type": "application/json" },
-    });
+    return json(req, 415, { error: "Content-Type must be application/json" });
   }
 
   if (!PAYSTACK_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("paystack-transfer-recipient: missing required env var(s).");
-    return json({ error: "Server configuration error" }, 500, origin);
+    return json(req, 500, { error: "Server configuration error" });
   }
 
   try {
     // ---- Authenticate the caller from the Bearer JWT ----
     const authHeader = req.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return json({ error: "Missing or invalid Authorization header" }, 401, origin);
+      return json(req, 401, { error: "Missing or invalid Authorization header" });
     }
     const jwt = authHeader.replace("Bearer ", "");
 
@@ -79,7 +72,7 @@ serve(async (req: Request): Promise<Response> => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
     if (authErr || !user) {
-      return json({ error: "Invalid or expired token" }, 401, origin);
+      return json(req, 401, { error: "Invalid or expired token" });
     }
 
     // ---- Parse + validate the MINIMUM trusted inputs ----
@@ -87,14 +80,14 @@ serve(async (req: Request): Promise<Response> => {
     try {
       body = await req.json();
     } catch {
-      return json({ error: "Invalid JSON body" }, 400, origin);
+      return json(req, 400, { error: "Invalid JSON body" });
     }
     const mode = clean(body.mode, 10).toLowerCase();
     if (mode === "banks") {
       const banksRes = await fetch(PAYSTACK_BANK_LIST_URL, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
       const banks = await banksRes.json().catch(() => ({}));
-      if (!banksRes.ok || !banks.status || !Array.isArray(banks.data)) return json({ error: "Bank list unavailable" }, 502, origin);
-      return json({ banks: banks.data.filter((b: any) => b.currency === "NGN" && b.active !== false).map((b: any) => ({ name: clean(b.name, 120), code: clean(b.code, 20) })) }, 200, origin);
+      if (!banksRes.ok || !banks.status || !Array.isArray(banks.data)) return json(req, 502, { error: "Bank list unavailable" });
+      return json(req, 200, { banks: banks.data.filter((b: any) => b.currency === "NGN" && b.active !== false).map((b: any) => ({ name: clean(b.name, 120), code: clean(b.code, 20) })) });
     }
     const payeeType = clean(body.payee_type, 10).toLowerCase();
     const accountNumber = clean(body.account_number, 20);
@@ -102,24 +95,24 @@ serve(async (req: Request): Promise<Response> => {
     let accountName = clean(body.account_name, 120);
 
     if (payeeType !== "vendor" && payeeType !== "rider" && payeeType !== "customer") {
-      return json({ error: "invalid payee_type" }, 400, origin);
+      return json(req, 400, { error: "invalid payee_type" });
     }
-    if (payeeType === "customer" && !/^\d{10}$/.test(accountNumber)) return json({ error: "Nigerian account number must contain exactly 10 digits" }, 400, origin);
+    if (payeeType === "customer" && !/^\d{10}$/.test(accountNumber)) return json(req, 400, { error: "Nigerian account number must contain exactly 10 digits" });
     if (payeeType !== "customer" && (!/^\d{6,20}$/.test(accountNumber) || !/^[A-Za-z0-9]{2,10}$/.test(bankCode))) {
-      return json({ error: "Invalid account_number or bank_code" }, 400, origin);
+      return json(req, 400, { error: "Invalid account_number or bank_code" });
     }
 
     if (payeeType === "customer") {
       const banksRes = await fetch(PAYSTACK_BANK_LIST_URL, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
       const banks = await banksRes.json().catch(() => ({}));
       const bank = Array.isArray(banks.data) ? banks.data.find((b: any) => String(b.code) === bankCode && b.currency === "NGN" && b.active !== false) : null;
-      if (!banksRes.ok || !bank) return json({ error: "Selected bank is not valid for NGN" }, 400, origin);
+      if (!banksRes.ok || !bank) return json(req, 400, { error: "Selected bank is not valid for NGN" });
       const resolveUrl = `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`;
       const resolvedRes = await fetch(resolveUrl, { headers: { "Authorization": `Bearer ${PAYSTACK_SECRET_KEY}` } });
       const resolved = await resolvedRes.json().catch(() => ({}));
-      if (!resolvedRes.ok || !resolved.status || !resolved.data?.account_name) return json({ error: "Account could not be resolved" }, 422, origin);
+      if (!resolvedRes.ok || !resolved.status || !resolved.data?.account_name) return json(req, 422, { error: "Account could not be resolved" });
       accountName = clean(resolved.data.account_name, 120);
-      if (mode !== "confirm") return json({ resolved: true, account_name: accountName, account_number_last4: accountNumber.slice(-4), bank_name: clean(bank.name, 120), bank_code: bankCode, currency: "NGN" }, 200, origin);
+      if (mode !== "confirm") return json(req, 200, { resolved: true, account_name: accountName, account_number_last4: accountNumber.slice(-4), bank_name: clean(bank.name, 120), bank_code: bankCode, currency: "NGN" });
     }
 
     // ---- Derive the payee identity from the JWT (NEVER from the payload) ----
@@ -129,7 +122,7 @@ serve(async (req: Request): Promise<Response> => {
       .eq("id", user.id)
       .single();
     if (profErr || !profile) {
-      return json({ error: "Profile not found" }, 403, origin);
+      return json(req, 403, { error: "Profile not found" });
     }
 
     let vendorId: string | null = null;
@@ -142,7 +135,7 @@ serve(async (req: Request): Promise<Response> => {
       // RLS predicates used by every other vendor subsystem (orders,
       // products, settlements, transfers).
       if (!profile.vendor_id) {
-        return json({ error: "Authenticated user is not a vendor" }, 403, origin);
+        return json(req, 403, { error: "Authenticated user is not a vendor" });
       }
       vendorId = profile.vendor_id;
     } else if (payeeType === "rider") {
@@ -158,25 +151,29 @@ serve(async (req: Request): Promise<Response> => {
         .eq("user_id", profile.id)
         .maybeSingle();
       if (riderErr || !riderRow || riderRow.status !== "approved") {
-        return json({ error: "Authenticated user is not an approved rider" }, 403, origin);
+        return json(req, 403, { error: "Authenticated user is not an approved rider" });
       }
     }
 
     // ---- Idempotency pre-check (the RPC enforces this authoritatively) ----
-    const recipientSelect = "id, recipient_code, bank_name, account_name";
+    const accountFingerprint = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`${bankCode}:${accountNumber}`),
+    ).then((bytes) => Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, "0")).join(""));
+    const recipientSelect = "id, recipient_code, bank_name, account_name, bank_code, account_number_last4, account_fingerprint";
     const { data: existing } = payeeType === "vendor"
       ? await supabase.from("transfer_recipients").select(recipientSelect)
-          .eq("payee_type", "vendor").eq("vendor_id", vendorId).maybeSingle()
+          .eq("payee_type", "vendor").eq("vendor_id", vendorId).eq("is_active", true).eq("recipient_status", "verified").maybeSingle()
       : await supabase.from("transfer_recipients").select(recipientSelect)
-          .eq("payee_type", payeeType).eq("profile_id", profileId).eq("recipient_status", "verified").maybeSingle();
-    if (existing) {
-      // Already registered — a safe no-op (never create a second row).
-      return json({
+          .eq("payee_type", payeeType).eq("profile_id", profileId).eq("is_active", true).eq("recipient_status", "verified").maybeSingle();
+    if (existing && existing.account_fingerprint === accountFingerprint) {
+      // Same verified account: idempotent, without creating a new Paystack code.
+      return json(req, 200, {
         registered: true,
         already_registered: true,
         bank_name: existing.bank_name,
         account_name: existing.account_name,
-      }, 200, origin);
+      });
     }
 
     // ---- Call Paystack /transferrecipient server-side ----
@@ -199,7 +196,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error(
         `paystack-transfer-recipient: Paystack API HTTP ${psRes.status}`,
       );
-      return json({ error: "Payment provider error" }, 502, origin);
+      return json(req, 502, { error: "Payment provider error" });
     }
     const ps = await psRes.json();
     if (!ps.status || !ps.data || !ps.data.recipient_code) {
@@ -207,7 +204,7 @@ serve(async (req: Request): Promise<Response> => {
         "paystack-transfer-recipient: Paystack rejected:",
         ps.message ?? "unknown",
       );
-      return json({ error: "Recipient registration failed" }, 502, origin);
+      return json(req, 502, { error: "Recipient registration failed" });
     }
     const details = ps.data.details ?? {};
 
@@ -225,6 +222,7 @@ serve(async (req: Request): Promise<Response> => {
         p_bank_code: bankCode || null,
         p_account_number_last4: accountNumber.slice(-4) || null,
         p_currency: "NGN",
+        p_account_fingerprint: accountFingerprint,
       },
     );
     if (rpcErr || !recipientId) {
@@ -232,18 +230,18 @@ serve(async (req: Request): Promise<Response> => {
         "paystack-transfer-recipient: create_transfer_recipient failed:",
         rpcErr,
       );
-      return json({ error: "Failed to record recipient" }, 500, origin);
+      return json(req, 500, { error: "Failed to record recipient" });
     }
 
     // ---- Return ONLY safe fields ----
     // recipient_code stays server-side; the client never needs it.
-    return json({
+    return json(req, 200, {
       registered: true,
       bank_name: clean(details.bank_name, 120) || null,
       account_name: clean(details.account_name, 120) || accountName || null,
-    }, 200, origin);
+    });
   } catch (err) {
     console.error("paystack-transfer-recipient: unexpected error", err);
-    return json({ error: "Internal server error" }, 500, origin);
+    return json(req, 500, { error: "Internal server error" });
   }
 });

@@ -114,7 +114,9 @@ Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
 | `PAYSTACK_SECRET_KEY` | all six | Paystack secret key (`sk_live_xxx` / `sk_test_xxx`) — authorizes Paystack API calls + verifies webhook signatures |
 | `SUPABASE_URL` | all six | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | all six | Service-role key — server-side only; used to read/verify orders/payments before calling Paystack or applying results |
-| `ALLOWED_ORIGIN` | initialize, refund, transfer, transfer-recipient | Comma-separated CORS origin allowlist, e.g. `https://dropzyyy.netlify.app,http://127.0.0.1:5500`. The request `Origin` is echoed back only when allowlisted — never a wildcard `*`. These four functions default to exactly those two origins if unset. The two Paystack webhooks do **not** use `ALLOWED_ORIGIN` (server-to-server). |
+| `ALLOWED_ORIGIN` | browser-facing functions | Explicit comma-separated CORS origin allowlist for this deployment. There is no implicit production/local default; absent configuration does not approve browser origins. The two Paystack webhooks do **not** use `ALLOWED_ORIGIN` (server-to-server). |
+| `PAYSTACK_CALLBACK_URL` | `paystack-initialize`, `paystack-initialize-delivery` | Required explicit route on an origin in `ALLOWED_ORIGIN`; product/replacement uses `/orders`, vendor delivery uses `/vendor`. Invalid/missing configuration prevents initialization. |
+| `DROPZYY_ENVIRONMENT` | `paystack-initialize`, `paystack-initialize-delivery` | Required server-side label `production`, `staging`, or `development`; callback routes and origins are checked against it. |
 
 > **No secret value is stored in this repository.** The Edge Functions
 > read them from `Deno.env.get(...)`. The publishable/anon key in
@@ -215,6 +217,10 @@ SUPABASE_SERVICE_ROLE_KEY=<service-key> \
 npm run seed:catalog
 ```
 
+- `SUPABASE_URL` is required; the seeder has no default project. A production
+  project additionally requires `SEED_ALLOW_PRODUCTION=1`. Verify the target
+  project before using the service-role key. Never use production credentials
+  for staging/development.
 - The seeder **aborts by default** if any seed id already exists in the
   database (it would otherwise upsert over live rows). To intentionally
   refresh seeded rows, re-run with `SEED_ALLOW_OVERWRITE=1` (or
@@ -273,8 +279,8 @@ The checkout button IS wired to Paystack: customers are redirected to Paystack f
 
 ## Payment webhook recovery / ops utility
 
-`scripts/test_paystack_webhook.js` is a **manual, operator-run recovery
-utility** for a specific failure mode: a customer's Paystack payment
+`scripts/test_paystack_webhook.js` is a **manual, potentially mutating
+financial recovery utility** for a specific failure mode: a customer's Paystack payment
 succeeded, but the webhook never reached the backend, so the order is stuck
 in `payment_status = 'pending'`.
 
@@ -295,6 +301,8 @@ itself performs no database writes.
 | Variable | Meaning |
 |---|---|
 | `PAYSTACK_SECRET_KEY` | Paystack secret key (`sk_test_…`/`sk_live_…`). **Must never be committed, logged, or printed.** |
+| `PAYSTACK_WEBHOOK_URL` | Explicit staging/local or production webhook URL. No endpoint is selected by default. |
+| `PAYSTACK_ALLOW_PRODUCTION_WEBHOOK` | Must equal `1` to target the production project; use only for an approved genuine production recovery. |
 | `PAYSTACK_TXN_ID` | The **real** numeric Paystack transaction ID from the Dashboard — never invented. |
 | `PAYSTACK_REFERENCE` | The order payment reference being recovered. |
 | `PAYSTACK_AMOUNT_KOBO` | The actual paid amount in kobo (must match the real transaction; the webhook validates it). |
@@ -305,15 +313,18 @@ transactions**):
 
 ```bash
 set PAYSTACK_SECRET_KEY=sk_test_xxx
+set PAYSTACK_WEBHOOK_URL=https://<staging-project-ref>.supabase.co/functions/v1/paystack-webhook
 set PAYSTACK_TXN_ID=1234567890
 set PAYSTACK_REFERENCE=dropzyy_CR-EXAMPLE_0000000000000
 set PAYSTACK_AMOUNT_KOBO=100000
 node scripts\test_paystack_webhook.js
 ```
 
-The script aborts safely if the key format, transaction ID, reference, or
-amount is missing or malformed, and redacts any secret-shaped tokens from
-its output.
+The script refuses the production endpoint unless
+`PAYSTACK_ALLOW_PRODUCTION_WEBHOOK=1` is explicitly set, and the key mode must
+match the selected production/non-production target. It aborts if the endpoint,
+key, transaction ID, reference, or amount is missing or malformed, and redacts
+secret-shaped tokens from output. Never run it as part of staging setup.
 
 ## Testing / validation
 

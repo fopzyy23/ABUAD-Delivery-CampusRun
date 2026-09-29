@@ -34,35 +34,35 @@ Deno.serve(async (req) => {
       outcome,
       ...details,
     }));
-  });
+  };
   if (req.method === "OPTIONS") return handleOptions(req);
-  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
+  if (req.method !== "POST") return json(req, 405, { error: "Method not allowed" });
   const contentType = req.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return json(req, { error: "Content-Type must be application/json" }, 415);
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return json(req, 415, { error: "Content-Type must be application/json" });
   const declaredLength = Number(req.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_BODY_BYTES) return json(req, { error: "Request body too large" }, 413);
+  if (declaredLength > MAX_BODY_BYTES) return json(req, 413, { error: "Request body too large" });
 
   const auth = req.headers.get("authorization") ?? "";
-  if (!/^Bearer\s+\S+$/i.test(auth)) return json(req, { error: "Missing or invalid Authorization header" }, 401);
+  if (!/^Bearer\s+\S+$/i.test(auth)) return json(req, 401, { error: "Missing or invalid Authorization header" });
   const jwt = auth.replace(/^Bearer\s+/i, "").trim();
   const url = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !serviceKey) return json(req, { error: "Server configuration error" }, 500);
+  if (!url || !serviceKey) return json(req, 500, { error: "Server configuration error" });
 
   const admin = createClient(url, serviceKey);
   const { data: { user }, error: authError } = await admin.auth.getUser(jwt);
-  if (authError || !user) return json(req, { error: "Invalid or expired token" }, 401);
+  if (authError || !user) return json(req, 401, { error: "Invalid or expired token" });
 
   let body: { items?: unknown; spot?: unknown; vendor_request?: unknown; idempotency_key?: unknown };
   try {
     body = await req.json();
   } catch {
-    return json(req, { error: "Invalid JSON body" }, 400);
+    return json(req, 400, { error: "Invalid JSON body" });
   }
-  if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_BODY_BYTES) return json(req, { error: "Request body too large" }, 413);
-  if (!Array.isArray(body.items) || typeof body.spot !== "string") return json(req, { error: "items and spot are required" }, 400);
+  if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_BODY_BYTES) return json(req, 413, { error: "Request body too large" });
+  if (!Array.isArray(body.items) || typeof body.spot !== "string") return json(req, 400, { error: "items and spot are required" });
   const requestKey = typeof body.idempotency_key === "string" ? body.idempotency_key : "";
-  if (requestKey.length < 16 || requestKey.length > 256) return json(req, { error: "idempotency_key is required" }, 400);
+  if (requestKey.length < 16 || requestKey.length > 256) return json(req, 400, { error: "idempotency_key is required" });
 
   // The Authorization header is forwarded unchanged. The SQL function uses
   // auth.uid(), never a client-supplied user_id, to bind the admission.
@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
   try {
     requestFingerprint = await fingerprint(operation, body.items, body.spot);
   } catch {
-    return json(req, { error: "Invalid order request" }, 400);
+    return json(req, 400, { error: "Invalid order request" });
   }
   let attemptId: string | null = null;
   const userClient = createClient(url, serviceKey, {
@@ -85,10 +85,10 @@ Deno.serve(async (req) => {
   });
   if (existingError) {
     logStep("get_order_creation_attempt", "failure", existingError);
-    return json(req, { error: "Order admission temporarily unavailable" }, 503);
+    return json(req, 503, { error: "Order admission temporarily unavailable" });
   }
   logStep("get_order_creation_attempt", "success");
-  if (existingAttempt?.status === "conflict") return json(req, { error: "idempotency key already used for a different order request" }, 409);
+  if (existingAttempt?.status === "conflict") return json(req, 409, { error: "idempotency key already used for a different order request" });
   attemptId = existingAttempt?.status === "match" ? existingAttempt.attempt_id : crypto.randomUUID();
   if (existingAttempt?.status !== "match") {
     const { data, error } = await admin.rpc("create_order_admission", {
@@ -96,14 +96,14 @@ Deno.serve(async (req) => {
     });
     if (error) {
       logStep("create_order_admission", "failure", error);
-      return json(req, { error: "Order admission temporarily unavailable" }, 503);
+      return json(req, 503, { error: "Order admission temporarily unavailable" });
     }
     logStep("create_order_admission", "success");
     if (!data?.allowed) {
       const retry = Math.max(1, Number(data?.retry_after_seconds) || 1);
-      return json(req, { error: "Order creation rate limit exceeded" }, 429, { "retry-after": String(retry) });
+      return json(req, 429, { error: "Order creation rate limit exceeded", retry_after_seconds: retry });
     }
-    if (typeof data.admission_token !== "string") return json(req, { error: "Order admission temporarily unavailable" }, 503);
+    if (typeof data.admission_token !== "string") return json(req, 503, { error: "Order admission temporarily unavailable" });
     const { data: consumed, error: consumeError } = await admin.rpc("consume_order_admission", {
       p_user_id: user.id, p_operation: operation, p_admission_token: data.admission_token,
       p_attempt_id: attemptId, p_request_key: requestKey, p_request_fingerprint: requestFingerprint,
@@ -116,11 +116,11 @@ Deno.serve(async (req) => {
       });
       if (racedError) {
         logStep("race_recheck", "failure", racedError);
-        return json(req, { error: "Order admission temporarily unavailable" }, 503);
+        return json(req, 503, { error: "Order admission temporarily unavailable" });
       }
       logStep("race_recheck", "success");
-      if (racedAttempt?.status === "conflict") return json(req, { error: "idempotency key already used for a different order request" }, 409);
-      if (racedAttempt?.status !== "match") return json(req, { error: "Order admission temporarily unavailable" }, 503);
+      if (racedAttempt?.status === "conflict") return json(req, 409, { error: "idempotency key already used for a different order request" });
+      if (racedAttempt?.status !== "match") return json(req, 503, { error: "Order admission temporarily unavailable" });
       attemptId = racedAttempt.attempt_id;
     } else {
       logStep("consume_order_admission", "success");
@@ -138,8 +138,8 @@ Deno.serve(async (req) => {
   });
   if (orderError) {
     logStep(rpcName, "failure", orderError);
-    return json(req, { error: orderError.message }, 400);
+    return json(req, 400, { error: orderError.message });
   }
   logStep(rpcName, "success");
-  return json(req, { order });
+  return json(req, 200, { order });
 });

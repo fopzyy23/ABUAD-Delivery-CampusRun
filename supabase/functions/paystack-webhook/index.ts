@@ -13,19 +13,12 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
+import { json } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
-
-// Webhook CORS - Paystack doesn't send Origin, so we use a permissive config for OPTIONS only
-const webhookCorsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "x-paystack-signature, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 // Constant-time string comparison to avoid timing attacks.
 function safeEqual(a: string, b: string): boolean {
@@ -69,9 +62,6 @@ function paystackEventToStatus(event: string): "success" | "failed" | null {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: webhookCorsHeaders });
-  }
   if (req.method !== "POST") {
     return json(req, 405, { error: "Method not allowed" });
   }
@@ -121,6 +111,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const payload = JSON.parse(rawBody);
     const event: string = payload.event;
     const data = payload.data;
+    const refundEvents: Record<string, string> = {
+      "refund.pending": "pending",
+      "refund.processing": "processing",
+      "refund.processed": "processed",
+      "refund.failed": "failed",
+    };
+
+    // Refund events use the same signed endpoint. The database adapter owns
+    // identity, amount, state transitions and financial-resolution effects.
+    if (refundEvents[event]) {
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      const transaction = data?.transaction;
+      const { data: result, error } = await supabase.rpc("apply_provider_refund_event", {
+        p_provider_status: refundEvents[event],
+        p_provider_ref: data?.id != null ? String(data.id) : (data?.reference != null ? String(data.reference) : null),
+        p_transaction_ref: transaction == null ? null : String(typeof transaction === "object" ? transaction.id ?? transaction.reference : transaction),
+        p_amount_kobo: Number.isFinite(Number(data?.amount)) ? Number(data.amount) : null,
+        p_currency: data?.currency ?? null,
+      });
+      if (error) {
+        console.error("paystack-webhook: refund provider event rejected", error);
+        return json(req, 200, { received: true, refund: "ignored" });
+      }
+      return json(req, 200, { received: true, refund: result ?? "ignored" });
+    }
     const reference: string = data?.reference;
     const status = paystackEventToStatus(event);
 

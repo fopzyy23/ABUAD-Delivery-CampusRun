@@ -134,7 +134,9 @@ check("blocks non-approved status", /only 'approved' refunds can be executed/.te
 check("blocks failed status retry", /previously failed/.test(refundFn));
 
 console.log("\n== EDGE FUNCTION: APPLY_REFUND_RESULT ==");
-check("calls apply_refund_result on success", /apply_refund_result[\s\S]{0,300}p_success:\s*true/.test(refundFn));
+// Paystack acceptance is not provider-confirmed completion. The Edge Function
+// must preserve processing until a trusted terminal result is available.
+check("records provider acceptance as processing", /mark_refund_provider_pending[\s\S]{0,300}p_gateway_refund_id/.test(refundFn));
 check("calls apply_refund_result on failure", /apply_refund_result[\s\S]{0,300}p_success:\s*false/.test(refundFn));
 check("passes gateway_refund_id", /gateway_refund_id/.test(refundFn));
 

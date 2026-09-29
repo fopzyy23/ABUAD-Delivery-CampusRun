@@ -10,8 +10,9 @@
 //   PAYSTACK_SECRET_KEY        Paystack secret key (starts with sk_live_ or sk_test_)
 //   SUPABASE_URL               Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY  Supabase service-role key (server-side ONLY)
-//   ALLOWED_ORIGIN             Comma-separated CORS origin allowlist
-//                              (defaults to the production site + local dev)
+//   ALLOWED_ORIGIN             Explicit comma-separated CORS origin allowlist
+//   PAYSTACK_CALLBACK_URL      Explicit trusted HTTPS /orders callback
+//   DROPZYY_ENVIRONMENT        Explicit production, staging, or development label
 //
 // Deploy:  supabase functions deploy paystack-initialize
 // Invoke:  POST {SUPABASE_URL}/functions/v1/paystack-initialize
@@ -20,11 +21,14 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
+import { corsHeaders, json, handleOptions, ALLOWED_ORIGINS } from "../_shared/http.ts";
+import { resolveTrustedCallbackUrl } from "../_shared/callback.mjs";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const PAYSTACK_CALLBACK_URL = Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "";
+const DROPZYY_ENVIRONMENT = Deno.env.get("DROPZYY_ENVIRONMENT") ?? "";
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 // ---- Explicit Paystack callback (return) URL ----
@@ -35,17 +39,16 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 // pointed at the site root, where the old 0s meta-refresh redirect discarded
 // the query string and the reference was lost).
 //
-// The origin is taken from the request's own Origin header ONLY when it is
-// already on the CORS allowlist, so a preview deploy or local dev returns to
-// itself and anything else falls back to the production return route. No new
-// secret is required, and an unlisted origin can never steer the callback.
-const DEFAULT_CALLBACK_URL =
-  Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "https://dropzyy.com/orders";
-
+// The configured callback is mandatory and must match this request's trusted
+// environment/origin. The browser cannot choose a callback destination.
 function resolveCallbackUrl(req: Request, orderId: string): string {
-  const origin = req.headers.get("Origin") ?? "";
-  const base = ALLOWED_ORIGINS.includes(origin) ? `${origin}/orders` : DEFAULT_CALLBACK_URL;
-  const url = new URL(base);
+  const url = new URL(resolveTrustedCallbackUrl({
+    configuredCallback: PAYSTACK_CALLBACK_URL,
+    requestOrigin: req.headers.get("Origin") ?? "",
+    allowedOrigins: ALLOWED_ORIGINS,
+    requiredPath: "/orders",
+    environment: DROPZYY_ENVIRONMENT,
+  }));
   url.searchParams.set("order_id", orderId);
   return url.toString();
 }
@@ -168,6 +171,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const paymentType = body.payment_type === "replacement" || (order.payment_status === "success" && Number(order.additional_amount_due) > 0) ? "replacement" : "product";
+    let callbackUrl: string;
+    try {
+      callbackUrl = resolveCallbackUrl(req, order.id);
+    } catch {
+      console.error("paystack-initialize: callback/origin configuration is invalid");
+      return new Response(JSON.stringify({ error: "Payment is not configured for this environment" }), {
+        status: 500,
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
     if (paymentType === "replacement") {
       const userClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
       const { data: obligation, error: obligationErr } = await userClient.rpc("create_replacement_payment_obligation", { p_order_id: order.id });
@@ -237,8 +250,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ?trxref=/?reference= are appended by Paystack to this URL, so the return
     // lands on /orders where app.js can resolve the reference. The Netlify rule
     // for /orders is a 200 rewrite, which preserves the query string.
-    const callbackUrl = resolveCallbackUrl(req, order.id);
-
     // ---- Call Paystack transaction/initialize ----
     const amountKobo = nairaToKobo(Number(order.total));
 

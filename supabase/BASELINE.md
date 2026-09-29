@@ -52,7 +52,7 @@ and what is required to reproduce the current live database from scratch.
 | `paystack-transfer/` | B7: initiates a payout transfer (`POST /transfer`) for a pending transfer row. Admin JWT required; accepts only `transfer_id`; amount/recipient/reference loaded authoritatively via `prepare_transfer_for_payout` (never from the client); refuses already-processing/successful transfers and ineligible settlements; flips the ledger to `processing` only after Paystack accepts. |
 | `paystack-transfer-webhook/` | B7: transfer-event webhook. HMAC SHA512 signature validation over the raw body (401 on invalid), handles `transfer.success`/`transfer.failed`/`transfer.reversed` via `apply_transfer_webhook_event` (reference + transfer-code matched, idempotent, terminal states final). **Deploy with `supabase functions deploy paystack-transfer-webhook --no-verify-jwt`** - Paystack cannot send a Supabase JWT; the HMAC signature is the authentication. |
 
-Secrets (Dashboard â†’ Edge Functions â†’ Secrets, never hardcoded): `PAYSTACK_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGIN` (comma-separated CORS origin allowlist â€” no wildcard; requests from non-allowlisted origins get no `Access-Control-Allow-Origin` header).
+Secrets (Dashboard â†’ Edge Functions â†’ Secrets, never hardcoded): `PAYSTACK_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DROPZYY_ENVIRONMENT` (`production`, `staging`, or `development`), `ALLOWED_ORIGIN` (explicit comma-separated CORS origin allowlist â€” no implicit defaults; requests from non-allowlisted origins get no `Access-Control-Allow-Origin` header), and `PAYSTACK_CALLBACK_URL` (required explicit `/orders` or `/vendor` return route on an allowlisted origin in the same environment).
 
 ## 2. Pre-migration "base" tables (existed before 20260814)
 
@@ -99,25 +99,48 @@ the live schema via PostgREST probes):
 
 ### Fresh install
 
-1. Create an empty Supabase project; Supabase Auth must be available.
+1. Create an empty isolated Supabase project; Supabase Auth must be available.
+   Before any remote command, verify the local Supabase project-ref/link
+   metadata matches this staging project. This checkout currently links to
+   production; never run push/reset/migration-repair/remote SQL/function deploy
+   commands while that production link remains unintentionally active.
 2. Run `supabase/bootstrap/00000000_base_schema.sql` once in the SQL Editor.
    This is a fresh-install bootstrap, not a normal upgrade migration.
-3. Apply every file in `supabase/migrations/` in filename order.
-4. Deploy every directory under `supabase/functions/` and configure the
-   secrets listed in §7. Configure the Vault entry listed in §8 before
-   applying the scheduler migration.
-5. Seed optional development catalog data with `npm run seed:catalog` using
-   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-6. Run `node scripts/validate_all.js`; run `--live` only against staging.
+3. Configure the staging frontend/CSP and non-scheduler Edge environment,
+   including `DROPZYY_ENVIRONMENT=staging`, Paystack TEST, explicit
+   `ALLOWED_ORIGIN`, and `PAYSTACK_CALLBACK_URL`.
+4. Apply every file in `supabase/migrations/` in filename order while the
+   scheduler Vault values (`dropzyy_scheduler_base_url`,
+   `automatic_cutoff_worker_secret`, `cleanup_job_secret`) are absent. The
+   final scheduler migration will otherwise activate configured jobs during
+   replay.
+5. Deploy every directory under `supabase/functions/` and configure its
+   required Edge secrets.
+6. Provision the three scheduler Vault values with staging values and matching
+   worker-secret pairs, then run
+   `select public.configure_dropzyy_scheduled_workers();`. Verify exactly
+   three jobs target this staging project.
+7. Seed optional development catalog data only with an explicit
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; production additionally
+   requires `SEED_ALLOW_PRODUCTION=1`.
+8. Configure staging Auth URLs and Paystack TEST callback/webhooks, then run
+   `node scripts/validate_all.js`; run `--live` only against staging.
 
 ### Existing deployment
 
 1. Do not run the bootstrap file and do not recreate the five base tables.
-2. Confirm the existing migration history, then apply only pending files in
+2. Verify the linked project target before every remote operation; do not run
+   push/reset/repair/deploy against an unintended production link.
+3. Confirm the existing migration history, then apply only pending files in
    `supabase/migrations/` in filename order, including the three 20261218–20
    files when they are intentionally adopted.
-3. Deploy changed Edge Functions, configure secrets/Vault, and run offline
-   validators before any staging live checks.
+   Before applying `20270101_scheduler_environment_configuration.sql`, keep its
+   three scheduler Vault values absent unless worker functions are already
+   deployed and all values have been verified for this exact project; that
+   migration activates jobs immediately when all three values are present.
+4. Deploy changed Edge Functions, configure per-environment non-scheduler
+   secrets, then provision scheduler Vault values and explicitly reconcile the
+   jobs. Run offline validators before any staging live checks.
 
 ## 5. Live schema introspection (ACTION 13 finding)
 

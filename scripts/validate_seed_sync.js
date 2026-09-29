@@ -86,6 +86,10 @@ check('product name/price/vendor match across all three copies', pdrift.length =
 console.log('\n== SAFETY GUARDS ==');
 check('seed_catalog.js requires the service key from env (no hardcoded key)',
   /SUPABASE_SERVICE_ROLE_KEY = process\.env\.SUPABASE_SERVICE_ROLE_KEY \|\| ''/.test(seed));
+check('seed_catalog.js requires an explicit Supabase URL with no production default',
+  /SUPABASE_URL = process\.env\.SUPABASE_URL \|\| ''/.test(seed) && /SUPABASE_URL is required/.test(seed));
+check('seed_catalog.js requires explicit confirmation for the production project',
+  /SEED_ALLOW_PRODUCTION !== '1'/.test(seed));
 check('seed_catalog.js aborts on id clash unless SEED_ALLOW_OVERWRITE / --allow-overwrite',
   /SEED_ALLOW_OVERWRITE/.test(seed) && /--allow-overwrite/.test(seed) && /ABORT: /.test(seed));
 

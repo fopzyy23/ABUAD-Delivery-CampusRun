@@ -1,3 +1,18 @@
+[functions.order-admission]
+verify_jwt = true
+
+[functions.paystack-initialize]
+verify_jwt = true
+
+[functions.paystack-initialize-delivery]
+verify_jwt = true
+
+[functions.paystack-verify]
+verify_jwt = true
+
+[functions.paystack-refund]
+verify_jwt = true
+
 [functions.paystack-webhook]
 verify_jwt = false
 
@@ -5,6 +20,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.paystack-transfer]
+verify_jwt = true
+
+[functions.paystack-transfer-recipient]
 verify_jwt = true
 
 [functions.automatic-cutoff-transfer]
@@ -15,3 +33,18 @@ verify_jwt = false
 
 [functions.paystack-payout-cost-reconcile]
 verify_jwt = false
+
+[functions.paystack-refund-reconcile]
+verify_jwt = false
+
+[functions.paystack-transfer-reconcile]
+verify_jwt = false
+
+[functions.cleanup-rate-limits]
+verify_jwt = false
+
+[functions.cleanup-admissions]
+verify_jwt = false
+
+[functions.admin-financial-recovery]
+verify_jwt = true

@@ -19,19 +19,12 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
+import { json } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
-
-// Webhook CORS - Paystack doesn't send Origin, so we use a permissive config for OPTIONS only
-const webhookCorsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "x-paystack-signature, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 // Constant-time string comparison to avoid timing attacks.
 function safeEqual(a: string, b: string): boolean {
@@ -77,9 +70,6 @@ function transferEventStatus(event: string): string | null {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return handleOptions(req);
-  }
   if (req.method !== "POST") {
     return json(req, 405, { error: "Method not allowed" });
   }
@@ -147,6 +137,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Apply via the secure RPC (reference + transfer-code match,
     //      terminal-state protection, idempotent) ----
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const recipient = data.recipient as Record<string, unknown> | undefined;
+    const { data: identity, error: identityErr } = await supabase.rpc("validate_transfer_provider_event", {
+      p_reference: data.reference,
+      p_transfer_code: typeof data.transfer_code === "string" ? data.transfer_code : null,
+      p_amount_kobo: Number.isFinite(Number(data.amount)) ? Number(data.amount) : null,
+      p_currency: typeof data.currency === "string" ? data.currency : null,
+      p_recipient_code: typeof recipient?.recipient_code === "string" ? recipient.recipient_code : null,
+    });
+    if (identityErr || !identity?.valid) {
+      console.warn("paystack-transfer-webhook: provider identity mismatch", identityErr?.message ?? identity?.reason);
+      return json(req, 200, { received: true, ignored: "provider identity mismatch" });
+    }
     const { error: rpcErr } = await supabase.rpc("apply_transfer_webhook_event", {
       p_reference: data.reference,
       p_transfer_code: typeof data.transfer_code === "string" ? data.transfer_code : null,

@@ -172,9 +172,9 @@ const sharedHttpPath = path.join(root, "supabase/functions/_shared/http.ts");
 const sharedHttp = fs.readFileSync(sharedHttpPath, "utf8");
 check("shared http has CORS headers", /Access-Control-Allow-Origin/.test(sharedHttp));
 check("initialize has CORS headers", /corsHeaders\(req\)/.test(init));
-check("webhook has CORS headers", /Access-Control-Allow-Origin/.test(hook));
+check("webhook does not expose browser CORS", !/Access-Control-Allow-Origin/.test(hook));
 check("initialize handles OPTIONS preflight", /"OPTIONS"/.test(init));
-check("webhook handles OPTIONS preflight", /"OPTIONS"/.test(hook));
+check("webhook rejects browser OPTIONS preflight", !/"OPTIONS"/.test(hook));
 // Tightened (no-wildcard) checks — comments stripped so the doc comment
 // saying 'never "*"' cannot false-positive.
 const sharedHttpCode = sharedHttp.replace(/\/\/[^\n]*/g, "");
@@ -219,6 +219,38 @@ check(
   "no hardcoded service-role key value in public config.js",
   !/sb_secret_[A-Za-z0-9]+/.test(pubConfig),
 );
+
+console.log("\n== B3 OPERATIONAL CONFIGURATION ==");
+const deployment = fs.readFileSync(path.join(root, "DEPLOYMENT.md"), "utf8");
+const schedulerMigration = fs.readFileSync(path.join(root, "supabase/migrations/20270101_scheduler_environment_configuration.sql"), "utf8");
+for (const name of [
+  "automatic_cutoff_worker_secret", "cleanup_job_secret", "dropzyy_scheduler_base_url",
+  "AUTOMATIC_CUTOFF_WORKER_SECRET", "CLEANUP_JOB_SECRET",
+  "REFUND_RECONCILIATION_WORKER_SECRET", "TRANSFER_RECONCILIATION_WORKER_SECRET",
+  "PAYSTACK_RECONCILER_SECRET",
+]) check(`B3 documentation names ${name}`, deployment.includes(name));
+check("B3 documents cutoff Vault/Edge secret pairing", /automatic_cutoff_worker_secret[\s\S]{0,180}AUTOMATIC_CUTOFF_WORKER_SECRET/.test(deployment));
+check("B3 documents cleanup Vault/Edge secret pairing", /cleanup_job_secret[\s\S]{0,180}CLEANUP_JOB_SECRET/.test(deployment));
+check("B3 forward scheduler has no legacy project URL", !schedulerMigration.includes("cmfohldnmytmwjynqfpz.supabase.co"));
+check("B3 scheduler uses stable job names", ["dropzyy-automatic-cutoff-worker", "dropzyy-cleanup-rate-limits", "dropzyy-cleanup-admissions"].every((name) => schedulerMigration.includes(name)));
+check("B3 documents external refund and transfer reconciliation scheduling", deployment.includes("paystack-refund-reconcile") && deployment.includes("paystack-transfer-reconcile") && deployment.includes("External authenticated scheduler required"));
+check("B3 documents both Paystack webhook endpoints", deployment.includes("/functions/v1/paystack-webhook") && deployment.includes("/functions/v1/paystack-transfer-webhook"));
+for (const [name, route] of [["paystack-initialize", "/orders"], ["paystack-initialize-delivery", "/vendor"]]) {
+  const source = fs.readFileSync(path.join(root, "supabase/functions", name, "index.ts"), "utf8");
+  check(`B3 ${name} requires explicit callback configuration`, /Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)\s*\?\?\s*""/.test(source));
+  check(`B3 ${name} requires an explicit deployment environment label`, /Deno\.env\.get\("DROPZYY_ENVIRONMENT"\)\s*\?\?\s*""/.test(source));
+  check(`B3 ${name} uses shared isolated callback route ${route}`, source.includes("resolveTrustedCallbackUrl") && source.includes(`requiredPath: "${route}"`));
+  check(`B3 ${name} contains no implicit production callback`, !/https:\/\/(?:www\.)?dropzyy\.com\//.test(source));
+}
+check("B3 callback, origin, and deployment environment are explicit", deployment.includes("PAYSTACK_CALLBACK_URL") && deployment.includes("ALLOWED_ORIGIN") && deployment.includes("DROPZYY_ENVIRONMENT") && /environment\/callback\/origin\s+configuration returns a sanitized configuration error/i.test(deployment));
+check("B3 TEST/LIVE guidance binds TEST to staging and LIVE to production", /Staging \| TEST `PAYSTACK_SECRET_KEY` only/.test(deployment) && /Production \| LIVE `PAYSTACK_SECRET_KEY` only/.test(deployment));
+const callbackSharedHttp = fs.readFileSync(path.join(root, "supabase/functions/_shared/http.ts"), "utf8");
+check("B3 shared CORS has no production origin fallback", /Deno\.env\.get\("ALLOWED_ORIGIN"\)\s*\?\?\s*""/.test(callbackSharedHttp) && !/https:\/\/(?:www\.)?dropzyy\.com/.test(callbackSharedHttp));
+const seedUtility = fs.readFileSync(path.join(root, "scripts/seed_catalog.js"), "utf8");
+const webhookUtility = fs.readFileSync(path.join(root, "scripts/test_paystack_webhook.js"), "utf8");
+check("B3 catalog seed requires an explicit Supabase URL and production confirmation", /SUPABASE_URL = process\.env\.SUPABASE_URL \|\| ''/.test(seedUtility) && /SEED_ALLOW_PRODUCTION !== '1'/.test(seedUtility));
+check("B3 webhook recovery requires an explicit endpoint and production confirmation", /PAYSTACK_WEBHOOK_URL \|\| ""/.test(webhookUtility) && /PAYSTACK_ALLOW_PRODUCTION_WEBHOOK !== "1"/.test(webhookUtility));
+check("B3 keeps Paystack secret out of frontend assets", !leaked);
 
 console.log("\n" + (fail === 0 ? "ALL CHECKS PASSED" : fail + " CHECK(S) FAILED"));
 process.exit(fail === 0 ? 0 : 1);

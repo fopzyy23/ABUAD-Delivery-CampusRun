@@ -138,41 +138,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const isVendorDelivery = payment.payment_type === "vendor_delivery";
     const isReplacement = payment.payment_type === "replacement";
 
-    // ---- 4. Only reconcile payments that can still be reconciled ----
-    if (payment.status === "success") {
-      // Idempotent: already settled (webhook or an earlier verification). The
-      // success RPC returns immediately for this state, so it is not re-called.
-      console.log(
-        `paystack-verify: ${payment.payment_type} payment ${payment.reference} already settled`,
-      );
-      return json(req, 200, {
-        ok: true,
-        verified: true,
-        reference: payment.reference,
-        status: "success",
-        order_id: payment.order_id,
-        payment_type: payment.payment_type,
-        already_settled: true,
-      });
-    }
-    if (payment.status !== "pending") {
-      // failed / refunded — a terminal non-successful ledger state must never
-      // be converted into a success by this endpoint.
-      console.warn(
-        `paystack-verify: payment ${payment.reference} is ${payment.status} — not reconcilable`,
-      );
-      return json(req, 409, {
-        ok: false,
-        verified: false,
-        reference: payment.reference,
-        status: payment.status,
-        order_id: payment.order_id,
-        payment_type: payment.payment_type,
-        reason: "payment_not_reconcilable",
-      });
-    }
-
-    // ---- 5. Resolve the order and prove the caller is entitled to it ----
+    // ---- 4. Resolve the order and prove the caller is entitled to it ----
+    // This must precede every settled/terminal response: knowing a reference
+    // must not disclose another user's payment as verified.
     const { data: order, error: orderErr } = await supabase
       .from("orders")
       .select("id, user_id, request_type, delivery_method")
@@ -251,9 +219,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (order.user_id !== user.id) {
         return refuse(403, "not_order_owner");
       }
-    } else if (isVendorDelivery) {
+    } else {
       // Product payments belong to the customer who created the order.
-      return refuse(403, "not_order_owner");
+      if (order.user_id !== user.id) {
+        return refuse(403, "not_order_owner");
+      }
+    }
+
+    // ---- 5. Only reconcile payments that can still be reconciled ----
+    if (payment.status === "success") {
+      // Idempotent: already settled (webhook or an earlier verification). The
+      // success RPC returns immediately for this state, so it is not re-called.
+      console.log(
+        `paystack-verify: ${payment.payment_type} payment ${payment.reference} already settled`,
+      );
+      return json(req, 200, {
+        ok: true,
+        verified: true,
+        reference: payment.reference,
+        status: "success",
+        order_id: payment.order_id,
+        payment_type: payment.payment_type,
+        already_settled: true,
+      });
+    }
+    if (payment.status !== "pending") {
+      // failed / refunded — a terminal non-successful ledger state must never
+      // be converted into a success by this endpoint.
+      console.warn(
+        `paystack-verify: payment ${payment.reference} is ${payment.status} — not reconcilable`,
+      );
+      return refuse(409, "payment_not_reconcilable");
     }
 
     // ---- 6. Independent Paystack verification (server-to-server) ----

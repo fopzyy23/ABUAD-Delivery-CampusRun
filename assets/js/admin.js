@@ -71,6 +71,31 @@ const CANCELLED_STATUS = 'Cancelled';
 // Supabase authentication tracking
 let supabaseAdminUser = null;
 let lastVendorSyncError = null;
+const initialAdminState = structuredClone(state);
+function currentAdminState() { return state; }
+function clearAuthState() {
+  state = structuredClone(initialAdminState);
+  supabaseAdminUser = null;
+  orderStatusSaving.clear();
+}
+if (supabaseAvailable()) supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT' || (session?.user && supabaseAdminUser && session.user.id !== supabaseAdminUser.id)) {
+    clearAuthState();
+    setTimeout(() => {
+      if (document.querySelector('[data-admin-nav]') || /admin/.test(location.pathname + location.hash)) {
+        if (session?.user) void init();
+        else renderLogin();
+      }
+    }, 0);
+  } else if (event === 'USER_UPDATED' || event === 'SIGNED_IN') {
+    setTimeout(() => {
+      if (/admin/.test(location.pathname + location.hash)) void init();
+    }, 0);
+  } else if (event === 'MFA_CHALLENGE_VERIFIED') {
+    // The challenge/enrollment submitter already owns navigation and init().
+    setTimeout(() => { void refreshAdminMfa(); }, 0);
+  }
+});
 
 function adminMfaMessage(message) {
   const text = String(message || '');
@@ -87,6 +112,7 @@ function jwtPayloadMetadata(accessToken) {
 }
 
 async function logAdminMfaSessionMetadata(stage) {
+  const state = currentAdminState();
   const [{ data: aal }, { data: { session } }] = await Promise.all([
     supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
     supabase.auth.getSession()
@@ -105,6 +131,7 @@ async function logAdminMfaSessionMetadata(stage) {
 }
 
 async function ensureAdminAal2() {
+  const state = currentAdminState();
   if (!supabaseAvailable() || !state.isAuthenticated) return false;
   let { aal, session, jwt } = await logAdminMfaSessionMetadata('before-admin-write');
   if (aal?.currentLevel !== 'aal2' || jwt.aal !== 'aal2') {
@@ -116,6 +143,7 @@ async function ensureAdminAal2() {
 }
 
 async function refreshAdminMfa() {
+  const state = currentAdminState();
   if (!supabaseAvailable() || !supabaseAdminUser || !state.isAuthenticated) return;
   state.mfa.loading = true;
   try {
@@ -137,6 +165,7 @@ async function refreshAdminMfa() {
 }
 
 async function prepareAdminMfaChallenge() {
+  const state = currentAdminState();
   const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (aalError) throw aalError;
   state.mfa.aal = aal || null;
@@ -156,6 +185,7 @@ async function prepareAdminMfaChallenge() {
 }
 
 async function verifyAdminMfaChallenge(form) {
+  const state = currentAdminState();
   const code = String(new FormData(form).get('code') || '').trim();
   if (!/^\d{6}$/.test(code) || !state.mfa.factorId) { toast('Enter the 6-digit authenticator code.', 'error'); return; }
   state.mfa.loading = true; state.mfa.error = null; renderAdminMfaChallenge();
@@ -189,6 +219,7 @@ function renderAdminMfaChallenge() {
 }
 
 async function beginAdminMfaEnrollment() {
+  const state = currentAdminState();
   const verified = state.mfa.factors.find(f => f.status === 'verified');
   if (verified) { toast('An authenticator is already enrolled.', 'info'); return; }
   const pending = state.mfa.factors.find(f => f.status !== 'verified');
@@ -205,6 +236,7 @@ async function beginAdminMfaEnrollment() {
 }
 
 async function verifyAdminMfaEnrollment(form) {
+  const state = currentAdminState();
   const code = String(new FormData(form).get('code') || '').trim();
   const enrollment = state.mfa.enrollment;
   if (!/^\d{6}$/.test(code) || !enrollment?.id) { toast('Enter the 6-digit authenticator code.', 'error'); return; }
@@ -305,6 +337,7 @@ function productToRow(p) {
 
 // Upsert a vendor into Supabase. Returns true on success, false on failure.
 async function syncVendorToSupabase(vendor) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   lastVendorSyncError = null;
   try {
@@ -329,6 +362,7 @@ async function syncVendorToSupabase(vendor) {
 
 // Upsert a product into Supabase. Returns true on success, false on failure.
 async function syncProductToSupabase(product) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
     const { error } = await supabase
@@ -345,6 +379,7 @@ async function syncProductToSupabase(product) {
 // Deactivate a vendor and all its products in Supabase. Historical rows are
 // retained so product/order foreign keys and order history remain intact.
 async function deleteVendorFromSupabase(vendorId) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
     const { error: productError } = await supabase
@@ -397,6 +432,7 @@ async function deleteVendorFromSupabase(vendorId) {
 
 // Deactivate a product in Supabase (set active = false) instead of hard-deleting.
 async function deactivateProductInSupabase(productId) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
     const { error } = await supabase
@@ -413,6 +449,7 @@ async function deactivateProductInSupabase(productId) {
 
 // Load the catalog from Supabase. Returns the catalog object or null on failure.
 async function loadCatalogFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return null;
   try {
     const [vendorsRes, productsRes] = await Promise.all([
@@ -632,6 +669,7 @@ function adminNav() {
 // Fetch the authenticated user's profile using their auth.uid() (user id).
 // Returns the profile row or null. Never defaults a missing/unknown role.
 async function fetchAdminProfile() {
+  const state = currentAdminState();
   if (!supabaseAvailable() || !supabaseAdminUser) return null;
   try {
     const { data, error } = await supabase
@@ -640,6 +678,7 @@ async function fetchAdminProfile() {
       .eq('id', supabaseAdminUser.id)
       .maybeSingle();
     if (error) throw error;
+    if (state !== currentAdminState()) return null;
     if (!data) return null;
     state.user = {
       id: data.id,
@@ -658,6 +697,7 @@ async function fetchAdminProfile() {
 // exactly 'admin'. Returns true only when the session is valid AND the role
 // check passes. A forged localStorage value can never grant admin access.
 async function checkAuth() {
+  const state = currentAdminState();
   // Admin access requires Supabase. If it is unavailable, deny access.
   if (!supabaseAvailable()) {
     console.error('Admin auth denied: Supabase is not available.');
@@ -665,23 +705,29 @@ async function checkAuth() {
   }
   try {
     const { data: { session } } = await supabase.auth.getSession();
+    if (state !== currentAdminState()) return false;
     if (!session || !session.user) {
       console.error('Admin auth denied: no valid Supabase session.');
+      clearAuthState();
+      renderLogin();
       return false;
     }
     supabaseAdminUser = session.user;
     const profile = await fetchAdminProfile();
+    if (state !== currentAdminState()) return false;
     if (!profile || profile.role !== 'admin') {
       console.error('Admin auth denied: profile role is not exactly "admin".');
-      state.isAuthenticated = false;
-      supabaseAdminUser = null;
+      clearAuthState();
+      renderLogin();
       return false;
     }
     state.isAuthenticated = true;
     await prepareAdminMfaChallenge();
+    if (state !== currentAdminState()) return false;
     return true;
   } catch (err) {
     console.error('Supabase session check failed:', err);
+    if (state !== currentAdminState()) return false;
     state.isAuthenticated = false;
     supabaseAdminUser = null;
     return false;
@@ -691,6 +737,7 @@ async function checkAuth() {
 // Sign in via Supabase Auth only. If Supabase is unavailable or signInWithPassword
 // fails, admin login is denied — there is no fallback.
 async function login(email, password) {
+  const state = currentAdminState();
   // Admin login requires Supabase. If it is unavailable, deny login.
   if (!supabaseAvailable()) {
     toast('Admin login unavailable: Supabase authentication is not configured.', 'error');
@@ -699,11 +746,13 @@ async function login(email, password) {
 
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (state !== currentAdminState()) return false;
     if (error) throw error;
     if (!data.user) throw new Error('No user returned from Supabase authentication.');
 
     supabaseAdminUser = data.user;
     const profile = await fetchAdminProfile();
+    if (state !== currentAdminState()) return false;
     if (!profile || profile.role !== 'admin') {
       // The user authenticated with Supabase but is not an admin — deny access.
       await supabase.auth.signOut().catch(() => {});
@@ -722,8 +771,8 @@ async function login(email, password) {
 }
 
 function logout() {
-  state.isAuthenticated = false;
-  supabaseAdminUser = null;
+  clearAuthState();
+  renderLogin();
   // Clear Supabase session and redirect to the admin login screen.
   if (supabaseAvailable()) {
     supabase.auth.signOut().finally(() => {
@@ -755,6 +804,7 @@ function mergeSeedIntoStored(cat) {
 }
 
 async function loadCatalog() {
+  const state = currentAdminState();
   // Try to load from Supabase first (source of truth)
   const supabaseCatalog = await loadCatalogFromSupabase();
   if (supabaseCatalog) {
@@ -777,6 +827,7 @@ function saveCatalog() {
 // Vendor Management
 // ============================================
 async function addVendor(formData) {
+  const state = currentAdminState();
   const vendor = {
     id: formData.get('id') || `${formData.get('name').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`,
     name: formData.get('name').trim(),
@@ -814,6 +865,7 @@ async function addVendor(formData) {
 }
 
 async function deleteVendor(vendorId) {
+  const state = currentAdminState();
   if (await DropzyyModal.confirm({ title:'Deactivate vendor', message:'Deactivate this vendor and all its products? Historical orders will be preserved.', confirmText:'Deactivate vendor', danger:true })) {
     const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
     // Sync to Supabase
@@ -837,6 +889,7 @@ async function deleteVendor(vendorId) {
 }
 
 async function toggleVendor(vendorId) {
+  const state = currentAdminState();
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   if (vendor) {
     vendor.open = !vendor.open;
@@ -860,6 +913,7 @@ async function toggleVendor(vendorId) {
 // Product Management
 // ============================================
 async function addProduct(formData) {
+  const state = currentAdminState();
   const product = {
     id: formData.get('id') ? Number(formData.get('id')) : Math.max(0, ...state.catalog.products.map(p => p.id)) + 1,
     vendor: formData.get('vendor'),
@@ -893,6 +947,7 @@ async function addProduct(formData) {
 }
 
 async function deleteProduct(productId) {
+  const state = currentAdminState();
   if (await DropzyyModal.confirm({ title:'Delete product', message:'Delete this product?', confirmText:'Delete product', danger:true })) {
     state.catalog.products = state.catalog.products.filter(p => p.id !== Number(productId));
     // Remove any cart entries that referenced the deleted product
@@ -920,7 +975,9 @@ async function deleteProduct(productId) {
 // Called by app.js (index.html) when the user navigates to an admin route.
 // Also called automatically when admin.html is loaded directly (legacy).
 async function init() {
+  const state = currentAdminState();
   const authed = await checkAuth();
+  if (state !== currentAdminState()) return false;
   if (!authed) {
     // Not authenticated — render the login screen so the user can sign in.
     renderLogin();
@@ -931,6 +988,7 @@ async function init() {
     return true;
   }
   await refreshAdminMfa();
+  if (state !== currentAdminState()) return false;
   // Load catalog, orders, riders, and assignable users only once (lazy load on
   // first admin entry). loadAssignableUsers requires admin auth, which
   // checkAuth() already enforced above.
@@ -945,26 +1003,38 @@ async function init() {
         `<div class="card"><div class="muted center" style="padding:32px">Loading admin dashboard…</div></div>` +
       `</section>`;
     await loadCatalog();
+    if (state !== currentAdminState()) return false;
     await loadOrders();
+    if (state !== currentAdminState()) return false;
     await loadRiders();
+    if (state !== currentAdminState()) return false;
     await loadAssignableUsers();
+    if (state !== currentAdminState()) return false;
   }
   // Withdrawal requests are always refreshed on admin entry so newly
   // submitted rider requests appear even after the first lazy load.
   await loadWithdrawalsFromSupabase();
+  if (state !== currentAdminState()) return false;
   // Refund requests are always refreshed on admin entry.
   await loadRefundsFromSupabase();
+  if (state !== currentAdminState()) return false;
   await loadSettlementsFromSupabase();
+  if (state !== currentAdminState()) return false;
   // Issue reports are always refreshed on admin entry so new reports from
   // customers (homepage "Report an Issue") appear.
   await loadReportsFromSupabase();
+  if (state !== currentAdminState()) return false;
   // Automatic cutoff claims are refreshed on entry so failed claims are retried.
   await loadAutomaticCutoffClaimsFromSupabase();
+  if (state !== currentAdminState()) return false;
   // Vendor applications are refreshed on entry so new "Become a Vendor"
   // submissions appear for review.
   await loadVendorApplicationsFromSupabase();
+  if (state !== currentAdminState()) return false;
   await loadSiteSettingsFromSupabase();
+  if (state !== currentAdminState()) return false;
   // If orders failed to load, the error banner renders here.
+  if (state !== currentAdminState()) return false;
   renderAdminWorkspace();
   return true;
 }
@@ -972,6 +1042,7 @@ async function init() {
 // Load the global settings from Supabase. The database row is the source of
 // truth; this is intentionally not backed by localStorage.
 async function loadSiteSettingsFromSupabase() {
+  const state = currentAdminState();
   state.siteSettingsLoading = true;
   state.siteSettingsError = null;
   if (!supabaseAvailable()) {
@@ -1000,6 +1071,7 @@ async function loadSiteSettingsFromSupabase() {
 }
 
 async function updateMaintenanceMode(enabled) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     toast('Maintenance mode unavailable: Supabase is not configured.', 'error');
     return false;
@@ -1158,6 +1230,7 @@ function adminSidebar() {
 }
 
 function renderAdminWorkspace() {
+  if (!state.isAuthenticated) { renderLogin(); return; }
   const vendors = state.catalog ? state.catalog.vendors : [];
   const products = state.catalog ? state.catalog.products : [];
   const orders = state.orders;
@@ -1365,6 +1438,7 @@ function renderDashboardSection({ vendors, products, orders, riders, totalOrders
 // delivery_method, rider_assigned, reported_at).
 // ---------------------------------------------------------------------------
 async function loadDemoTrackingStatusLine() {
+  const state = currentAdminState();
   const el = document.getElementById('demoTrackCurrent');
   if (!el) return;
   if (!supabaseAvailable()) { el.textContent = 'Supabase unavailable.'; return; }
@@ -1381,6 +1455,7 @@ async function loadDemoTrackingStatusLine() {
 }
 
 async function setHomepageDemoOrder(orderNumber) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return; }
   const value = (orderNumber || '').trim();
   try {
@@ -1958,6 +2033,7 @@ function renderPaymentsSection() {
 }
 
 async function loadSettlementsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return null;
   state.settlementsLoading = true; state.settlementsError = null;
   try {
@@ -2457,8 +2533,7 @@ function attachAdminEventListeners() {
       if (!c) return;
       const o = state.orders.find(o => o.id === c.order_id);
       const customer = o ? (o.user || 'Unknown') : 'Unknown';
-      const message = `Cancellation ${cancellationId.slice(0,8)}...\nCustomer: ${customer}\nStage: ${c.stage}\nAmount: ${money(c.reimbursement_amount || 0)}\nFailure: ${c.reimbursement_failure_reason || '—'}\n\nResolve by manually updating the cancellation stage or creating a transfer.`;
-      alert(message);
+      toast(`Cancellation ${cancellationId.slice(0,8)} · ${customer} · ${money(c.reimbursement_amount || 0)} · ${c.stage}. ${c.reimbursement_failure_reason || 'Manual provider review required.'}`, 'info');
     });
   });
 
@@ -2468,9 +2543,10 @@ function attachAdminEventListeners() {
       const claimId = btn.dataset.retryCutoff;
       if (!supabaseAvailable()) return;
       try {
-        const { data, error } = await supabase.rpc('retry_automatic_8pm_cutoff_reimbursement', { p_claim_id: claimId });
+        const { data, error } = await supabase.functions.invoke('admin-financial-recovery', { body: { action: 'retry_cutoff_reimbursement', claim_id: claimId } });
         if (error) throw error;
-        toast(data?.status === 'completed' ? 'Reimbursement completed' : data?.status === 'processing' ? 'Reimbursement processing' : `Retry attempted: ${data?.status}`);
+        const recovery = data?.recovery;
+        toast(recovery?.status === 'completed' ? 'Reimbursement completed' : recovery?.status === 'processing' ? 'Reimbursement processing' : `Recovery status: ${recovery?.status || 'unknown'}`);
         await loadReportsFromSupabase(); // reload cutoff claims
         renderAdminWorkspace();
       } catch (err) {
@@ -2526,6 +2602,7 @@ function editProduct(productId) {
 // profiles via the profiles_select_admin policy; we filter to role='user' so
 // admins/vendors are not assignable here.
 async function loadAssignableUsers() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     state.users = [];
     return;
@@ -2551,6 +2628,7 @@ async function loadAssignableUsers() {
 // updates profiles.vendor_id (or profiles.role) directly — the server-side RPC
 // assign_user_to_vendor() (admin-gated via is_admin()) performs the UPDATE.
 async function assignUserToVendor(userId, vendorId) {
+  const state = currentAdminState();
   if (!userId) return false;
   if (!supabaseAvailable()) {
     toast('Assignment unavailable: Supabase is not configured.', 'error');
@@ -2584,6 +2662,7 @@ async function assignUserToVendor(userId, vendorId) {
 // approve/reject/pay their own request. The rider-supplied amount is kept
 // verbatim; it is never recomputed or trusted as an earnings figure here.
 async function loadWithdrawalsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return null;
   try {
     state.withdrawalsLoading = true;
@@ -2618,6 +2697,7 @@ async function loadWithdrawalsFromSupabase() {
 }
 
 async function loadWithdrawals() {
+  const state = currentAdminState();
   await loadWithdrawalsFromSupabase();
 }
 
@@ -2626,6 +2706,7 @@ async function loadWithdrawals() {
 // the authenticated admin's own auth.uid(), set on the client but gated by the
 // admin-only UPDATE policy server-side.
 async function reviewWithdrawal(requestId, newStatus, note) {
+  const state = currentAdminState();
   if (!requestId) return false;
   if (!['pending', 'approved', 'rejected', 'paid'].includes(newStatus)) {
     toast('Invalid review status', 'error');
@@ -2725,6 +2806,7 @@ if (!state.withdrawalsLoading && state.withdrawalsError) {
 // ============================================
 // Load refunds from Supabase. Admins read all refunds via RLS.
 async function loadRefundsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     state.refundsLoading = false;
     state.refundsError = 'Supabase unavailable';
@@ -2752,6 +2834,7 @@ async function loadRefundsFromSupabase() {
 
 // Approve a refund request (admin only).
 async function approveRefund(refundId) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
   try {
     const { error } = await supabase.rpc('approve_refund', { p_refund_id: refundId });
@@ -2769,6 +2852,7 @@ async function approveRefund(refundId) {
 
 // Reject a refund request with reason (admin only).
 async function rejectRefund(refundId, reason) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
   try {
     const { error } = await supabase.rpc('reject_refund', { p_refund_id: refundId, p_reason: (reason || '').trim() || null });
@@ -2786,6 +2870,7 @@ async function rejectRefund(refundId, reason) {
 
 // Execute an approved refund via the Paystack Edge Function.
 async function executeRefund(refundId) {
+  const state = currentAdminState();
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -2864,6 +2949,7 @@ if (!state.refundsLoading && state.refundsError) {
 const REPORT_STATUS_OPTIONS = ['Open', 'In Review', 'Resolved', 'Closed'];
 
 async function loadReportsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     state.reportsLoading = false;
     state.reportsError = 'Supabase unavailable';
@@ -2930,6 +3016,7 @@ async function loadReportsFromSupabase() {
 
 // Save a status change + optional admin response (admin only — RLS enforced).
 async function updateReportReview(reportId, newStatus, adminResponse) {
+  const state = currentAdminState();
   if (!reportId) return false;
   if (!REPORT_STATUS_OPTIONS.includes(newStatus)) {
     toast('Invalid report status', 'error');
@@ -3003,6 +3090,7 @@ if (!state.reportsLoading && state.reportsError) {
 
 // Load automatic cutoff claims from Supabase
 async function loadAutomaticCutoffClaimsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     state.automaticCutoffClaimsLoading = false;
     state.automaticCutoffClaimsError = 'Supabase unavailable';
@@ -3041,6 +3129,7 @@ async function loadAutomaticCutoffClaimsFromSupabase() {
 const VENDOR_APP_STATUS_OPTIONS = ['Pending', 'Approved', 'Rejected'];
 
 async function loadVendorApplicationsFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) {
     state.vendorApplicationsLoading = false;
     state.vendorApplicationsError = 'Supabase unavailable';
@@ -3089,6 +3178,7 @@ async function loadVendorApplicationsFromSupabase() {
 // Rejected applications are PRESERVED (the Rejected status path never deletes
 // the row, mirroring the rider approval workflow).
 async function approveVendorApplication(appId) {
+  const state = currentAdminState();
   const app = state.vendorApplications.find(a => a.id === appId);
   if (!app) return false;
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
@@ -3146,6 +3236,7 @@ async function approveVendorApplication(appId) {
 // admin reason) and PRESERVES the row — nothing is deleted, mirroring the
 // rider reject workflow.
 async function rejectVendorApplication(appId) {
+  const state = currentAdminState();
   const app = state.vendorApplications.find(a => a.id === appId);
   if (!app) return false;
   if (!supabaseAvailable()) { toast('Supabase unavailable', 'error'); return false; }
@@ -3178,6 +3269,7 @@ async function rejectVendorApplication(appId) {
 // Save a status change + optional admin response (admin only — RLS-enforced
 // by vendor_applications_update_admin). Also used to re-open / re-approve.
 async function updateVendorApplicationReview(appId, newStatus, adminResponse) {
+  const state = currentAdminState();
   if (!appId) return false;
   if (!VENDOR_APP_STATUS_OPTIONS.includes(newStatus)) {
     toast('Invalid application status', 'error');
@@ -3267,6 +3359,7 @@ if (!state.vendorApplicationsLoading && state.vendorApplicationsError) {
 // admin route.
 
 window.AdminHub = {
+  clearAuthState,
   init,
   checkAuth,
   login,
@@ -3433,6 +3526,7 @@ function formatDate(dateStr) {
 // Load all orders and their items for the admin workspace. The public order
 // number is kept for display, while the database id is retained for updates.
 async function loadOrdersFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return null;
   try {
     const { data: ordersData, error: ordersError } = await supabase
@@ -3491,6 +3585,7 @@ async function loadOrdersFromSupabase() {
 // data. Admin access itself requires Supabase auth, so the unavailable case
 // only occurs transiently.
 async function loadOrders() {
+  const state = currentAdminState();
   state.ordersLoading = true;
   state.ordersError = null;
 
@@ -3510,6 +3605,7 @@ async function loadOrders() {
 }
 
 async function updateOrderStatus(orderId, status) {
+  const state = currentAdminState();
   const order = state.orders.find(item => item.id === orderId);
   if (!order) return;
 
@@ -3553,6 +3649,7 @@ async function updateOrderStatus(orderId, status) {
 
 // Load all rider applications from Supabase.
 async function loadRidersFromSupabase() {
+  const state = currentAdminState();
   if (!supabaseAvailable()) return null;
   try {
     const { data: ridersData, error: ridersError } = await supabase
@@ -3576,6 +3673,7 @@ async function loadRidersFromSupabase() {
 }
 
 async function loadRiders() {
+  const state = currentAdminState();
   const localRiders = load('riders', []);
   const supabaseRiders = await loadRidersFromSupabase();
   if (!supabaseRiders) {
@@ -3589,6 +3687,7 @@ async function loadRiders() {
 }
 
 async function approveRider(riderId) {
+  const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
 
@@ -3618,6 +3717,7 @@ async function approveRider(riderId) {
 }
 
 async function rejectRider(riderId) {
+  const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
 
@@ -3650,6 +3750,7 @@ async function rejectRider(riderId) {
 // so the rider is no longer treated as an approved/active rider. Mirrors the
 // existing approve/reject flow (local state + Supabase + re-render + toast).
 async function suspendRider(riderId) {
+  const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
 
@@ -3685,6 +3786,7 @@ async function suspendRider(riderId) {
 // server-side mechanism as approve/suspend (riders_update_admin RLS +
 // prevent_rider_status_escalation trigger allow admins to set rider status).
 async function unsuspendRider(riderId) {
+  const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
  

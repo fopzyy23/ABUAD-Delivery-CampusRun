@@ -167,7 +167,9 @@ function allowedCatalog() {
   if (removed && stored) store('catalog_v3', catalog);
   return catalog;
 }
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false };
+let state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false };
+const initialPrivateState = structuredClone({ ...state, notifications: [] });
+function currentAppState() { return state; }
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
@@ -181,6 +183,7 @@ async function isCurrentAuthenticatedUser(userId) {
 }
 
 async function loadRefundRecipient() {
+  const state = currentAppState();
   if (state.refundRecipientLoaded || typeof supabase === 'undefined' || !supabase || !state.user) return;
   const { data } = await supabase.from('transfer_recipients').select('bank_name,account_name,account_number_last4,recipient_status').eq('payee_type','customer').eq('profile_id',state.user.id).eq('recipient_status','verified').maybeSingle();
   state.refundRecipient = data || null; state.refundRecipientLoaded = true; render();
@@ -192,6 +195,7 @@ async function loadRefundBanks() {
 }
 
 async function submitRefundRecipientForm(form) {
+  const state = currentAppState();
   const f = new FormData(form); const bank_code=String(f.get('bank_code')||''); const account_number=String(f.get('account_number')||'').replace(/\s+/g,'');
   if (!/^\d{10}$/.test(account_number) || !bank_code) { toast('Select a bank and enter a valid 10-digit account number.','error'); return; }
   const resolved=await window['supabase'+'EdgeFunctionRequest']('paystack-transfer-recipient',{payee_type:'customer',mode:'resolve',account_number,bank_code});
@@ -424,9 +428,11 @@ const HOSTELS = [
 // Rider Hub: load rider application status from Supabase
 // ============================================
 async function loadRiderFromSupabase() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) return;
   try {
     const { data: { session } } = await supabase.auth.getSession();
+    if (state !== currentAppState()) return;
     if (!session || !session.user) {
       state.riderLoaded = true;
       return;
@@ -506,6 +512,7 @@ async function loadRiderFromSupabase() {
 
 // Submit a rider application to Supabase (with duplicate prevention).
 async function submitRiderApplication(formData) {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to apply as a rider', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — application could not be saved', 'error'); return; }
   if (state.rider && ['pending','approved'].includes(state.rider.status)) {
@@ -596,6 +603,7 @@ function riderPendingRequestsTotal() {
 // RLS (withdrawal_requests_select_own) restricts rows to the caller's own
 // rider_id, so only the rider's own requests are ever returned.
 async function loadWithdrawalsFromSupabase() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     state.withdrawalsLoaded = true;
     return false;
@@ -664,6 +672,7 @@ const RIDER_PAYOUT_BANKS = [
 // mirrored in paystack-transfer-recipient). The server RPC is the sole
 // authority for withdrawal availability; direct table INSERT is revoked.
 async function requestWithdrawal(amount, bankDetails) {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to request a withdrawal', 'info'); return false; }
   if (!state.rider || state.rider.status !== 'approved') { toast('Only approved riders can request withdrawals', 'error'); return false; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — request could not be saved', 'error'); return false; }
@@ -732,6 +741,7 @@ async function requestWithdrawal(amount, bankDetails) {
 // rider and Delivered status, then inserts the rating and marks the order
 // Rated atomically. The database unique constraint blocks duplicates.
 async function submitRiderRatingForm(form) {
+  const state = currentAppState();
   const f = new FormData(form);
   const orderId = f.get('orderId');
   const riderId = f.get('riderId');
@@ -760,6 +770,7 @@ async function submitRiderRatingForm(form) {
 
 // Rate and review the rider assigned to a delivered order.
 async function submitRiderRating(orderId, riderId, rating, review) {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to rate your rider', 'info'); return false; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — rating could not be saved', 'error'); return false; }
   try {
@@ -840,6 +851,7 @@ function sortOrdersNewestFirst(arr) {
 // source of truth for order data (Rider Hub included); there is no restore
 // from localStorage for order history or the rider pool.
 async function loadOrdersFromSupabase() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing — using localStorage orders fallback');
     state.ordersLoadError = true;
@@ -848,6 +860,7 @@ async function loadOrdersFromSupabase() {
   }
   try {
     const { data: { session } } = await supabase.auth.getSession();
+    if (state !== currentAppState()) return false;
     if (!session || !session.user) {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (currentSession && currentSession.user) return false;
@@ -873,6 +886,7 @@ async function loadOrdersFromSupabase() {
 }
 
 async function loadOrdersForUser(userId) {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing — using localStorage orders fallback');
     state.ordersLoadError = true;
@@ -1096,6 +1110,7 @@ async function loadOrdersForUser(userId) {
 
 // Ensure orders have been loaded from Supabase at least once before rendering.
 async function ensureOrdersLoaded() {
+  const state = currentAppState();
   if (!state.ordersLoadedFromSupabase) {
     await loadOrdersFromSupabase();
   }
@@ -1107,6 +1122,7 @@ async function ensureOrdersLoaded() {
 // Refunds are loaded per-user from Supabase. RLS (customers_read_own_refunds)
 // restricts rows to the caller's own orders only.
 async function loadRefundsFromSupabase() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     state.refundsLoaded = true;
     return false;
@@ -1160,6 +1176,7 @@ function refundStatusLabel(status) {
 // a refund already exists for the order, false on failure. Does not re-render;
 // the caller decides (the dedicated Refund Request page owns navigation).
 async function requestRefund(orderDbId, reason, paymentType) {
+  const state = currentAppState();
   if (!state.user) {
     toast('Please sign in to request a refund', 'info');
     redirectToLoginWithReturnRoute();
@@ -1216,6 +1233,7 @@ const REFUND_REASON_MIN = 10;
 const REFUND_REASON_MAX = 500;
 
 async function refundRequestView(orderDbId) {
+  const state = currentAppState();
   if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>Request a Refund</h1><p class="muted">Loading your order…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
@@ -1300,6 +1318,7 @@ const REPORT_DESC_MIN = 10;
 const REPORT_DESC_MAX = 1000;
 
 async function reportView(mode = '') {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>${mode === 'vendor' ? 'Become a Vendor' : 'Report an Issue'}</h1><p class="muted">Loading…</p></div></div><div class="card"><div class="muted center" style="padding:24px">Loading…</div></div></section>`;
@@ -1365,6 +1384,7 @@ async function reportView(mode = '') {
 // fetched from the authenticated session (never typed in), and the server
 // enforces ownership via the issue_reports_insert_own RLS policy.
 async function submitIssueReport(formData) {
+  const state = currentAppState();
   if (state.reportSubmitting) return;
   const mode = (formData.get('mode') || '').trim() === 'vendor' ? 'vendor' : '';
   const isVendor = mode === 'vendor';
@@ -1411,6 +1431,7 @@ async function submitIssueReport(formData) {
 // user's profiles.vendor_id server-side). RLS guarantees the applicant only
 // ever inserts/reads their OWN row (user_id = auth.uid()).
 async function vendorApplyView() {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
   const userId = await getSupabaseUserId();
   if (!userId) { toast('Please sign in to continue', 'info'); redirectToLoginWithReturnRoute(); return ''; }
@@ -1495,6 +1516,7 @@ return `<section class="section container">${back}
 // optional note. The user_id is taken from the authenticated session (never
 // typed in), and the server enforces ownership + one application per user.
 async function submitVendorApplication(formData) {
+  const state = currentAppState();
   if (state.reportSubmitting) return;
   const g = (k) => (formData.get(k) || '').trim();
   const full_name = g('full_name');
@@ -1580,6 +1602,7 @@ function mapNotificationRow(n) {
 // Pull-based load (works regardless of Realtime availability). Also the
 // fallback used when the Realtime channel is unavailable.
 async function loadNotificationsFromSupabase() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) return false;
   state.notificationsLoading = true;
   state.notificationsError = false;
@@ -1629,6 +1652,7 @@ function upsertNotificationFromRow(row, isNew) {
 // unavailable (or the notifications table/Realtime is not published yet), the
 // pull-based fallback above continues to work.
 function subscribeNotificationsRealtime() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) return;
   try {
     if (state.notificationsChannel) {
@@ -1636,6 +1660,7 @@ function subscribeNotificationsRealtime() {
       state.notificationsChannel = null;
     }
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (state !== currentAppState()) return;
       if (!session || !session.user) return;
       const channel = supabase
         .channel('notifications-live')
@@ -1643,6 +1668,7 @@ function subscribeNotificationsRealtime() {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
           payload => {
+            if (state !== currentAppState()) return;
             if (payload && payload.new) {
               upsertNotificationFromRow(payload.new, true);
               handleVendorNewOrderNotification(payload.new);
@@ -1653,6 +1679,7 @@ function subscribeNotificationsRealtime() {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${session.user.id}` },
           payload => {
+            if (state !== currentAppState()) return;
             if (payload && payload.new) upsertNotificationFromRow(payload.new, false);
           }
         )
@@ -1692,6 +1719,7 @@ function vendorDashboardIsCurrent() {
 let vendorLiveBusy = false;
 
 async function handleVendorNewOrderNotification(row) {
+  const state = currentAppState();
   if (!row || row.type !== 'order_placed') return;
   if (!state.user || !state.user.vendor_id) return;
   if (!vendorDashboardIsCurrent() || vendorLiveBusy) return;
@@ -1745,6 +1773,7 @@ function subscribeProductsRealtime() {
 // session; the recipient is ALWAYS the session user (never taken from the
 // DOM) and RLS (notifications_update_own) remains the final boundary.
 async function markNotificationRead(notificationId) {
+  const state = currentAppState();
   const id = String(notificationId || '').trim();
   if (!/^[0-9a-fA-F-]{10,}$/.test(id)) return; // ignore malformed/local ids
   try {
@@ -2456,6 +2485,7 @@ async function getSupabaseUserId() {
 // number server-side and inserts the order + items atomically.
 // Returns the authoritative order row, or null on failure.
 async function saveOrderToSupabase(order) {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing in saveOrderToSupabase — cannot place order.');
     return null;
@@ -2518,6 +2548,7 @@ async function saveOrderToSupabase(order) {
 // Vendor Order Request: save to Supabase
 // ============================================
 async function requestOrderAdmission(order, lines, operation) {
+  const state = currentAppState();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session || !session.access_token) {
     state.lastOrderError = 'Please sign in again before placing this order';
@@ -2575,6 +2606,7 @@ async function requestOrderAdmission(order, lines, operation) {
 // Calls create_vendor_order_request RPC (not place_order).
 // No payment, no fee, no Paystack redirect.
 async function saveVendorOrderRequestToSupabase(order) {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client missing — cannot create vendor order request.');
     return null;
@@ -2664,6 +2696,7 @@ function resetVendorSessionState() {
 }
 
 async function loadVendorDataFromSupabase() {
+  const state = currentAppState();
   state.vendorLoadError = null;
   if (!state.user || !state.user.vendor_id) return false; // vendor capability = linked vendor_id (multi-role)
   if (typeof supabase === 'undefined' || !supabase) return false;
@@ -2761,6 +2794,7 @@ async function loadVendorDataFromSupabase() {
 }
 
 async function ensureVendorLoaded() {
+  const state = currentAppState();
   if (!state.vendorLoaded) {
     await loadVendorDataFromSupabase();
   }
@@ -2844,6 +2878,7 @@ function productImageUploadMessage(error) {
 
 // Upload one picture for the given vendor account. Throws a friendly Error.
 async function uploadProductImage(file, vendorId) {
+  const state = currentAppState();
   const bucket = productImageBucket();
   if (!bucket) throw new Error('Image storage is unavailable — the picture was not uploaded.');
   const problem = productImageFileError(file);
@@ -2867,6 +2902,7 @@ async function uploadProductImage(file, vendorId) {
 //     its picture, and historical rows are never touched.
 // Never throws: cleanup is hygiene, not part of the save.
 async function deleteProductImageIfOrphaned(url, vendorId) {
+  const state = currentAppState();
   const path = productImagePathFromUrl(url);
   if (!path) return false;
   const folder = String(vendorId || '').trim();
@@ -2884,6 +2920,7 @@ async function deleteProductImageIfOrphaned(url, vendorId) {
 }
 
 async function refreshVendorProducts() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) return false;
   if (!state.user || !state.user.vendor_id) return false; // vendor capability = linked vendor_id (multi-role)
   try {
@@ -2924,6 +2961,7 @@ async function refreshVendorProducts() {
 // SELECT (e.g. an inactive product of another vendor, or the deactivated
 // Bookshop rows).
 async function nextVendorProductId(after) {
+  const state = currentAppState();
   try {
     const { data, error } = await supabase
       .from('products')
@@ -2945,6 +2983,7 @@ async function nextVendorProductId(after) {
 // Handle the vendor Add/Edit product form. A hidden "id" field decides
 // between INSERT (new product) and UPDATE (own product only).
 async function submitVendorProductForm(form) {
+  const state = currentAppState();
   if (!state.user || !state.user.vendor_id) return; // vendor capability = linked vendor_id (multi-role)
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
   if (state.vendorProductSubmitting) return; // duplicate-submission guard
@@ -3040,6 +3079,7 @@ async function submitVendorProductForm(form) {
 
 // Save vendor pickup location
 async function submitVendorPickupLocationForm(form) {
+  const state = currentAppState();
   if (!state.user || !state.user.vendor_id) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — pickup location could not be saved', 'error'); return; }
   const f = new FormData(form);
@@ -3063,6 +3103,7 @@ async function submitVendorPickupLocationForm(form) {
 
 // Save vendor bank account for payouts
 async function submitVendorBankAccountForm(form) {
+  const state = currentAppState();
   if (!state.user || !state.user.vendor_id) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — bank account could not be saved', 'error'); return; }
   const f = new FormData(form);
@@ -3188,6 +3229,7 @@ function dropVendorProductImageSelection() {
 // Resolve the picture stored by this save. Throws when an upload fails — the
 // caller then aborts before writing any row.
 async function resolveVendorProductImage() {
+  const state = currentAppState();
   const st = vendorProductImageState;
   if (st.file) {
     const res = await uploadProductImage(st.file, state.user.vendor_id);
@@ -3250,6 +3292,7 @@ function initVendorProductImageUi() {
 
 // Toggle availability: flips products.active for the vendor's OWN product.
 async function toggleVendorProductActive(productId) {
+  const state = currentAppState();
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — availability could not be updated', 'error'); return; }
@@ -3275,6 +3318,7 @@ async function toggleVendorProductActive(productId) {
 // have no products DELETE RLS policy, so the row is kept for order_items
 // foreign-key integrity and simply hidden from the customer catalog.
 async function deleteVendorProduct(productId) {
+  const state = currentAppState();
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
@@ -3362,6 +3406,7 @@ function vendorOrderCard(o, activeTab) {
         </div>
       </div>`;
   } else if (o.status === 'Order confirmed') {
+    const restaurantPaymentPending = o.request_type === 'restaurant' && o.payment_status !== 'success';
     if (o.delivery_method === 'both') {
       // Vendor must pick rider vs vendor_self before progressing.
       actions = `
@@ -3373,7 +3418,7 @@ function vendorOrderCard(o, activeTab) {
       // Accept or reject.
       actions = `
         <div class="row mt-1">
-          <button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Preparing">Accept & prepare</button>
+          ${restaurantPaymentPending ? '<button class="btn btn--sm" disabled title="Payment must succeed before preparation">Awaiting payment</button>' : `<button class="btn btn--sm" data-vendor-status="${o.id}" data-to="Preparing">Accept & prepare</button>`}
           <button class="btn btn--ghost btn--sm" data-vendor-status="${o.id}" data-to="Cancelled">Reject</button>
         </div>`;
     }
@@ -3574,6 +3619,7 @@ function skeletonCard(rows) {
 }
 
 async function orders() {
+  const state = currentAppState();
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Loading your orders…</p></div></div>${skeletonCard()}</section>`;
   }
@@ -3621,6 +3667,7 @@ async function orders() {
 // Vendor Requests View (Customer)
 // ============================================
 async function vendorRequestsView() {
+  const state = currentAppState();
   if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>My Vendor Requests</h1><p>Loading your requests...</p></div></div>${skeletonCard()}</section>`;
@@ -3722,9 +3769,11 @@ function clearRiderOrdersSubscription() {
 // items, so no stale localStorage merge or client-side financial mutation is
 // involved.
 function subscribeRiderOrdersRealtime() {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase || riderOrdersChannel || riderOrdersSubscriptionStarting) return;
   riderOrdersSubscriptionStarting = true;
   supabase.auth.getSession().then(({ data: { session } }) => {
+    if (state !== currentAppState()) return;
     if (!session || riderOrdersChannel) { riderOrdersSubscriptionStarting = false; return; }
     const channel = supabase
       .channel('rider-orders-live')
@@ -3826,6 +3875,7 @@ function trackStatusAcceptable(prevStatus, nextStatus) {
 }
 
 async function refreshTrackedOrder(dbId) {
+  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) return false;
   let data, error;
   try {
@@ -3938,6 +3988,7 @@ function startTrackSubscription(dbId) {
 }
 
 async function track(id) {
+  const state = currentAppState();
   await ensureOrdersLoaded();
   const o = state.orders.find(x=>x.id===id);
   if (!o) return notFound();
@@ -4023,6 +4074,7 @@ async function track(id) {
 // method, vendor(s) and the placed-at timestamp. Loading / not-found / empty
 // states mirror the orders() view.
 async function orderView(id) {
+  const state = currentAppState();
   if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
   if (!state.ordersLoadedFromSupabase) {
     return `<section class="section container"><div class="page-head"><div><h1>Order details</h1><p>Loading your order…</p></div></div>${skeletonCard()}</section>`;
@@ -4126,7 +4178,7 @@ function reorder(orderId) {
 function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form>${login?'<p class="center small mt-2 mb-0"><a class="link-btn" href="#/forgot-password">Forgot password?</a></p>':''}<p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
 function passwordReset() {
-  if (!passwordRecoverySession) return `<section class="container"><div class="auth-wrap"><div class="card"><h1>Reset link required</h1><p>Open the password-reset link sent to your email, or request a new one.</p><a href="#/forgot-password">Request reset link</a></div></div></section>`;
+  if (!canAccessPasswordRecovery()) return `<section class="container"><div class="auth-wrap"><div class="card"><h1>Reset link required</h1><p>Open the password-reset link sent to your email, or request a new one.</p><a href="#/forgot-password">Request reset link</a></div></div></section>`;
   return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">Reset your password</h1><p class="muted">Choose a new password for your Dropzyy account.</p></div><form id="passwordResetForm" class="stack mt-2"><div class="field"><label for="resetPassword">New password</label><input required minlength="6" class="input" type="password" name="password" id="resetPassword" autocomplete="new-password"></div><div class="field"><label for="resetConfirmPassword">Confirm new password</label><input required minlength="6" class="input" type="password" name="confirmPassword" id="resetConfirmPassword" autocomplete="new-password"></div><button class="btn btn--block btn--lg" type="submit">Update password</button></form><p class="center small muted mt-2 mb-0"><a class="link-btn" href="#/login">Back to sign in</a></p></div></div></section>`;
 }
 
@@ -4176,6 +4228,7 @@ function profile() {
 // is updated (RLS profiles_update_own + the role-escalation trigger keep
 // role/vendor_id/id untouched). state.user is refreshed from the returned row.
 async function submitProfileForm(form) {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to edit your profile', 'info'); redirectToLoginWithReturnRoute(); return; }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — profile could not be saved', 'error'); return; }
   const f = new FormData(form);
@@ -4416,6 +4469,7 @@ function updateChrome() { const count = state.cart.reduce((n,x)=>n+x.qty,0); $('
 
 
 async function supabaseEdgeFunctionRequest(functionName, body) {
+  const state = currentAppState();
   // Call a Supabase Edge Function with the user's JWT.
   // Used for Paystack initialization — secret never leaves the server.
   const { data: { session } } = await supabase.auth.getSession();
@@ -4445,6 +4499,7 @@ async function supabaseEdgeFunctionRequest(functionName, body) {
 // Verify a payment with Paystack when the webhook may have been delayed.
 // Calls the paystack-verify Edge Function (idempotent, server-authoritative).
 async function verifyPaymentWithPaystack(reference) {
+  const state = currentAppState();
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) {
@@ -4558,6 +4613,7 @@ const PAY_ERROR_BANNER_HTML =
 // vendor delivery payments (₦1,500 rider delivery fee)
 // ============================================
 async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'product') {
+  const state = currentAppState();
   const banner = document.getElementById('payErrorBanner');
   const tryAgainBtn = document.getElementById('payTryAgain');
   const originalLabel = payBtn.dataset.payLabel || payBtn.textContent;
@@ -4595,6 +4651,7 @@ async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'prod
 }
 
 async function pay(orderId) {
+  const state = currentAppState();
   if (!state.user) { toast('Please sign in to view payment','info'); redirectToLoginWithReturnRoute(); return ''; }
   await ensureOrdersLoaded();
   const order = state.orders.find(x => x.dbId === orderId) || state.orders.find(x => x.id === orderId);
@@ -4661,6 +4718,7 @@ async function pay(orderId) {
 // refresh fails), the order is never deleted or hidden — the user lands on
 // My Orders where it remains visible with its current status.
 async function handlePaystackReturn() {
+  const state = currentAppState();
   if (!state.user) return;
   const search = new URLSearchParams(location.search);
   const ref = search.get('reference') || search.get('trxref');
@@ -4675,6 +4733,7 @@ async function handlePaystackReturn() {
   // The Edge Function verifies ownership, amount and Paystack status. Only its
   // success and a subsequent database read can confirm the browser's result.
   await verifyPaymentWithPaystack(ref);
+  if (state !== currentAppState()) return;
   if (location.hash !== route) location.hash = route;
   const check = async () => {
     if (delivery) {
@@ -4685,19 +4744,24 @@ async function handlePaystackReturn() {
     return !error && data?.status === 'success';
   };
   for (let attempt = 0; attempt < 30; attempt++) {
-    if (await check()) {
+    const confirmed = await check();
+    if (state !== currentAppState()) return;
+    if (confirmed) {
       if (delivery) { state.vendorLoaded = false; await ensureVendorLoaded(); }
       else {
         await loadOrdersFromSupabase();
+        if (state !== currentAppState()) return;
         const confirmedOrder = (state.orders || []).find(o => o.dbId === orderId);
         if (confirmedOrder) location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
       }
+      if (state !== currentAppState()) return;
       toast('Payment confirmed','success');
       render();
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 4000));
   }
+  if (state !== currentAppState()) return;
   toast('Payment is still being confirmed. Check this order again shortly.','info');
   render();
 }
@@ -5072,6 +5136,7 @@ const maintenanceRealtimeChannel = supabase
   });
 
 async function loadMaintenanceGate() {
+  const requestState = currentAppState();
   if (maintenanceGate.checked) return maintenanceGate;
   let isAdmin = false;
   try {
@@ -5091,6 +5156,7 @@ async function loadMaintenanceGate() {
     }
     if (settingsError) throw settingsError;
     const publicSettings = Array.isArray(settings) ? settings[0] : settings;
+    if (requestState !== currentAppState()) return { enabled: true, isAdmin: false, checkFailed: true };
     maintenanceGate = {
       checked: true,
       enabled: Boolean(publicSettings && publicSettings.maintenance_mode),
@@ -5100,6 +5166,7 @@ async function loadMaintenanceGate() {
     deliverySettings = publicSettings || null;
   } catch (err) {
     // A settings read failure must not grant normal site access.
+    if (requestState !== currentAppState()) return { enabled: true, isAdmin: false, checkFailed: true };
     // Server-side order/request enforcement is handled separately.
     console.error('Maintenance mode check failed:', err);
     maintenanceGate = { checked: true, enabled: false, isAdmin, checkFailed: true };
@@ -5117,6 +5184,7 @@ function invalidateMaintenanceGate() {
 }
 
 async function getDeliverySettings(forceRefresh = false) {
+  const state = currentAppState();
   if (!forceRefresh && deliverySettings) return deliverySettings;
   if (!forceRefresh && deliverySettingsPromise) return deliverySettingsPromise;
   deliverySettingsPromise = supabase.rpc('get_public_site_settings').then(({ data, error }) => {
@@ -5132,6 +5200,7 @@ function deliveryHoursMessage() {
 }
 
 async function isDeliveryOpen(forceRefresh = false) {
+  const state = currentAppState();
   const settings = await getDeliverySettings(forceRefresh);
   if (!settings) throw new Error('Delivery hours are currently unavailable. Please try again.');
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: settings.timezone || 'Africa/Lagos' }));
@@ -5145,6 +5214,7 @@ async function isDeliveryOpen(forceRefresh = false) {
 }
 
 async function ensureDeliveryOpenForOrdering() {
+  const state = currentAppState();
   try {
     if (await isDeliveryOpen(true)) return true;
     toast(deliveryHoursMessage(), 'info');
@@ -5213,7 +5283,18 @@ function setDocumentTitle(parts) {
 }
 
 async function render() {
+  const state = currentAppState();
+  const renderGeneration = authLifecycle.generation;
+  if (!initialAuthReady) {
+    $('#app').innerHTML = '<section class="container"><p role="status">Restoring your session…</p></section>';
+    return;
+  }
   const [path] = location.hash.slice(1).split('?');
+  if (authProfileError) {
+    $('#app').innerHTML = '<section class="container"><h1>Account unavailable</h1><p>Your profile could not be loaded. Reload to retry, or sign out.</p><button id="logoutBtn" class="btn">Sign out</button></section>';
+    updateChrome();
+    return;
+  }
   const parts = path.split('/').filter(Boolean);
   const isLoginRoute = parts[0] === 'login';
   const isRecoveryRoute = parts[0] === 'reset-password';
@@ -5234,6 +5315,7 @@ async function render() {
     return;
   }
   const gate = await loadMaintenanceGate();
+  if (renderGeneration !== authLifecycle.generation) return;
   if ((gate.enabled || gate.checkFailed) && !gate.isAdmin && !isLoginRoute) {
     setMaintenanceChrome(true);
     $('#app').innerHTML = gate.checkFailed ? maintenanceUnavailableView() : maintenanceView();
@@ -5303,8 +5385,10 @@ async function render() {
     // F12: load admin.js lazily (and only once) before touching AdminHub.
     try {
       await ensureAdminJs();
+      if (renderGeneration !== authLifecycle.generation) return;
     } catch (err) {
       // Loading failed — show a small user-friendly error and stop.
+      if (renderGeneration !== authLifecycle.generation) return;
       console.error('Admin module failed to load:', err);
       $('#app').innerHTML = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center"><h1>⚠️ Admin panel unavailable</h1><p class="muted">The admin panel could not be loaded. This is probably a network problem — please try again.</p><a class="btn mt-2" href="#/">Back to home</a></div></div></section>`;
       updateChrome();
@@ -5315,6 +5399,7 @@ async function render() {
       if (window.AdminHub) window.AdminHub.renderLogin();
     } else {
       const authed = window.AdminHub ? await AdminHub.init() : false;
+      if (renderGeneration !== authLifecycle.generation) return;
       if (!authed) { location.hash = '#/admin/login'; return; }
     }
     updateChrome();
@@ -5322,6 +5407,7 @@ async function render() {
     return;
   }
   else view = notFound();
+  if (renderGeneration !== authLifecycle.generation) return;
   $('#app').innerHTML = view;
   initReplacementDecisionUi(parts);
   initVendorProductImageUi();
@@ -5376,6 +5462,7 @@ function riderStatusLabel(status) {
 // another rider claimed it), 'other' (server shows some other state) or
 // 'unknown' (the refresh itself failed).
 async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
+  const state = currentAppState();
   try {
     await loadOrdersFromSupabase();
   } catch (err) {
@@ -5396,6 +5483,7 @@ async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
 // confirms. On final failure the local state is reconciled with the server and
 // a persistent Retry banner is shown in the Rider hub.
 async function runRiderStatusUpdate(order, nextStatus, opts) {
+  const state = currentAppState();
   const dbId = order.dbId;
   const orderId = order.id;
   opts = opts || {};
@@ -5471,6 +5559,7 @@ document.addEventListener('error', e => {
 }, true);
 
 document.addEventListener('click', async e=>{
+  const state = currentAppState();
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
   // Rider rating: star selection (visual only — submit is the only mutation)
@@ -5800,17 +5889,12 @@ document.addEventListener('click', async e=>{
     render();
   }
   if(e.target.id==='logoutBtn'){
-    // Clear ONLY this account's in-memory/session UI state. Supabase orders are
-    // never deleted/overwritten — they are reloaded fresh for the next sign-in..
-    state.user=null; state.rider=null; state.orders=[]; state.riderPool=[]; resetVendorSessionState(); save();
-    // Tear down any realtime channel bound to the previous user's session (recreated
-    // for the next sign-in by subscribeNotificationsRealtime()).
-    if(typeof supabase!=='undefined' && supabase){
-      if(state.notificationsChannel){ supabase.removeChannel(state.notificationsChannel).catch(()=>{}); state.notificationsChannel=null; }
-      clearRiderOrdersSubscription();
-      supabase.auth.signOut().catch(()=>{});
-    }
-    location.hash='#/'; toast('Signed out','info');
+    loginRoutePending = false;
+    void authLifecycle.receive('SIGNED_OUT', null);
+    supabase.auth.signOut().then(({ error }) => {
+      if (error) throw error;
+      location.hash = '#/'; toast('Signed out', 'info');
+    }).catch(() => toast('Server sign-out failed. Retry before leaving this device.', 'error'));
   }
 });
 
@@ -5821,21 +5905,18 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('submit', e=>{
+  const state = currentAppState();
   if(e.target.id==='passwordResetForm'){
     e.preventDefault();
-    if (!passwordRecoverySession) { toast('Open your password-reset email link first','error'); return; }
+    if (!canAccessPasswordRecovery()) { toast('Open your password-reset email link first','error'); return; }
     const f=new FormData(e.target), password=String(f.get('password')||''), confirm=String(f.get('confirmPassword')||'');
     if(password.length<6){ toast('Password must be at least 6 characters','error'); return; }
     if(password!==confirm){ toast('Passwords do not match','error'); return; }
     const button=e.target.querySelector('button[type="submit"]');
     if(button) button.disabled=true;
-    supabase.auth.updateUser({ password }).then(async ({ error })=>{
-      if(error){ toast(error.message,'error'); return; }
-      passwordRecoverySession=false;
-      await supabase.auth.signOut();
-      state.user=null; state.orders=[]; state.riderPool=[]; resetVendorSessionState();
-      history.replaceState(null,'',location.pathname+'#/login');
-      toast('Password updated. Please sign in.','success');
+    authLifecycle.updatePassword(password).then(()=>{
+      history.replaceState(null,'','/login#/profile');
+      toast('Password updated.','success');
       render();
     }).catch(err=>toast(err.message || 'Password reset failed','error')).finally(()=>{if(button)button.disabled=false;});
     return;
@@ -5882,112 +5963,25 @@ document.addEventListener('submit', e=>{
       const full_name=f.get('name')||'';
       const phone=f.get('phone')||'';
       const hostel=f.get('hostel')||'';
-      supabase.auth.signUp({ email, password, options: { emailRedirectTo: new URL('/login?auth_return=signup', location.origin).href, data: { full_name, phone, hostel } } })
-        .then(async ({ data, error }) => {
-          if(error){ toast(error.message,'error'); return; }
-          if(data.user){
-            if(data.session){
-              // Email confirmation is DISABLED: signUp returned an authenticated
-              // session, so auth.uid() is set and the profiles_insert_own RLS
-              // policy (WITH CHECK id = auth.uid()) permits the INSERT.
-              // Create the profile now with the default role ('user').
-              const { error: profileError } = await supabase
-                .from('profiles')
-                .insert({ id: data.user.id, email, full_name, phone, hostel, role: 'user' });
-              if(profileError){ console.error('Profile insert error:', profileError); toast('Could not create your profile: ' + profileError.message,'error'); }
-            } else {
-              // Email confirmation is REQUIRED: signUp returned a user but no
-              // session, so the client is unauthenticated and auth.uid() is NULL.
-              // The profiles_insert_own RLS policy (WITH CHECK id = auth.uid())
-              // would reject the INSERT, so we must NOT attempt it here. The
-              // signup metadata (full_name/phone/hostel) was already persisted by
-              // Supabase in auth.users.user_metadata via signUp's options.data,
-              // and the profile row is created safely on the next sign-in (login
-              // handler below) once a session — and therefore auth.uid() — exists.
-            }
-          }
-          if(data.session){
-            // Email confirmation is disabled — sign the user in immediately.
-            state.user={name:full_name||email.split('@')[0],email,role:'user'};
-            save();
-            resetVendorSessionState();
-            await loadRiderFromSupabase();
-            await loadOrdersFromSupabase();
-            addNotification('You\'re signed in','Start exploring what\'s available around campus.');
-            location.hash='#/';
-            toast('Welcome to Dropzyy!');
-          } else {
-            // Email confirmation is required — the account is created but not
-            // yet active, so ask the user to confirm before signing in.
-            toast('Account created! Check your email to confirm your account.','info');
-            location.hash='#/login';
-          }
-        });
+      supabase.auth.signUp({ email, password, options: {
+        emailRedirectTo: new URL('/login?auth_return=signup', location.origin).href,
+        data: { full_name, phone, hostel }
+      } }).then(({ data, error }) => {
+        if (error) throw error;
+        if (!data.session) {
+          toast('Check your email for the next step, or sign in if you already have an account.', 'info');
+          location.hash = '#/login';
+        } else {
+          location.hash = '#/';
+          // SIGNED_IN performs the single profile synchronization.
+        }
+      }).catch(error => toast(error.message || 'Signup unavailable', 'error'));
     } else {
-      signInInProgress = true;
-      supabase.auth.signInWithPassword({ email, password })
-        .then(async ({ data, error }) => {
-          if(error){ toast(error.message,'error'); return; }
-          let name=email.split('@')[0];
-          let role='user';
-          let vendor_id=null;
-          if(data.user){
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name, role, vendor_id')
-              .eq('id', data.user.id)
-              .single();
-            if(profile && profile.full_name) name=profile.full_name;
-            if(profile && profile.role) role=profile.role;
-            if(profile && profile.vendor_id) vendor_id=profile.vendor_id;
-            if(!profile && data.session){
-              // Deferred profile creation: the user signed up with email
-              // confirmation enabled (signUp returned no session, so no profile
-              // could be inserted at signup). signInWithPassword has now
-              // established a session, so auth.uid() is set and the
-              // profiles_insert_own RLS policy permits the INSERT. Build the
-              // row from user_metadata (set by signUp's options.data) with the
-              // default role ('user'). The INSERT runs only when a session
-              // exists; any error is surfaced via toast (not silently logged).
-              const md = (data.user.user_metadata) || {};
-              const { error: profileError } = await supabase
-                .from('profiles')
-                .insert({
-                  id: data.user.id,
-                  email: data.user.email || email,
-                  full_name: md.full_name || '',
-                  phone: md.phone || '',
-                  hostel: md.hostel || '',
-                  role: 'user'
-                });
-              if(profileError){ console.error('Profile insert error:', profileError); toast('Could not create your profile: ' + profileError.message,'error'); }
-              if(md.full_name) name = md.full_name;
-            }
-          }
-          state.user={name,email,role,vendor_id};
-          explicitLoginUserId=data.user?.id || null;
-          save();
-          // A NEW session is established: drop any previous account's vendor
-          // dashboard/withdrawal state so ensureVendorLoaded() refetches for
-          // THIS user (never reuse a prior vendor's vendorLoaded === true).
-          resetVendorSessionState();
-          // Rider and order data load in the background below for THIS session;
-          // never reuse a prior user's stale cached pool.
-          addNotification('You\'re signed in','Start exploring what\'s available around campus.');
-          // A session now exists: load this user's notifications and start the
-          // realtime subscription for them (no-op-safe, re-uses the channel).
-          loadNotificationsFromSupabase();
-          subscribeNotificationsRealtime();
-          subscribeRiderOrdersRealtime();
-           location.hash=consumeLoginReturnRoute();
-          toast('Welcome to Dropzyy!');
-          // Load rider and order data after navigation starts so authentication
-          // and the basic profile are not blocked by order history or rider data.
-          Promise.all([
-            loadRiderFromSupabase(),
-            loadOrdersFromSupabase()
-          ]).catch(err => console.error('Background post-login data load failed:', err));
-        }).finally(() => { signInInProgress = false; });
+      loginRoutePending = true;
+      supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
+        if (error) { loginRoutePending = false; throw error; }
+        // SIGNED_IN owns profile, routing and payment-return resumption.
+      }).catch(error => toast(error.message || 'Sign in failed', 'error'));
     }
   }
   if(e.target.id==='checkoutForm'){
@@ -6177,6 +6171,7 @@ document.addEventListener('visibilitychange', () => {
 // Refund Request page: form submit handling (delegated — the page is
 // re-rendered on every route change, so listeners live at document level).
 document.addEventListener('submit', async (e) => {
+  const state = currentAppState();
   const form = e.target;
   if (!form || form.id !== 'refundRequestForm') return;
   e.preventDefault();
@@ -6279,6 +6274,98 @@ function applyPathRouteBootstrap() {
   if (!route) return;                               // leave "" for the fallback
   history.replaceState(null, '', location.pathname + location.search + route);
 }
+// One readiness authority: the lifecycle controller owns session/profile restoration.
+let initialAuthReady = false;
+let authProfileError = null;
+let loginRoutePending = false;
+function clearPrivateAuthState() {
+  // Detach the old object: in-flight loaders retain only their old account's state.
+  const previous = state;
+  state = { ...structuredClone(initialPrivateState), cart: previous.cart, catalog: previous.catalog };
+  riderLoadPromises.clear(); ordersLoadPromises.clear();
+  invalidateMaintenanceGate();
+  state.user = null;
+  state.orders = []; state.rider = null; state.riderPool = [];
+  state.notifications = []; state.refunds = []; state.refundsLoaded = false;
+  state.refundRecipient = null; state.refundRecipientLoaded = false;
+  state.riderLoaded = false; state.ratingCompleteOrder = null;
+  state.riderErrors = {}; state.riderSubmitting = {}; state.ratingSubmitting = {};
+  state.refundSuccessNotice = null; state.reportSuccess = null;
+  resetVendorSessionState();
+  clearRiderOrdersSubscription(); clearTrackSubscription();
+  if (previous.notificationsChannel) {
+    supabase.removeChannel(previous.notificationsChannel).catch(() => {});
+    state.notificationsChannel = null;
+  }
+  if (window.AdminHub?.clearAuthState) window.AdminHub.clearAuthState();
+  save();
+}
+async function syncAuthenticatedUser(session) {
+  const user = session.user;
+  let { data: profile, error } = await supabase.from('profiles')
+    .select('full_name, role, vendor_id').eq('id', user.id).maybeSingle();
+  if (error) throw error; // Never mistake a failed query for a missing profile.
+  if (!profile) {
+    const md = user.user_metadata || {};
+    const result = await supabase.from('profiles').insert({
+      id: user.id, email: user.email, full_name: md.full_name || '',
+      phone: md.phone || '', hostel: md.hostel || '', role: 'user'
+    });
+    if (result.error && result.error.code !== '23505') throw result.error;
+    const fetched = await supabase.from('profiles').select('full_name, role, vendor_id').eq('id', user.id).single();
+    if (fetched.error) throw fetched.error;
+    profile = fetched.data;
+  }
+  if (!profile) throw new Error('Profile unavailable');
+  return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
+    email: user.email, role: profile.role, vendor_id: profile.vendor_id || null };
+}
+const authLifecycle = createAuthLifecycle({
+  auth: supabase.auth,
+  storage: {
+    getItem: key => sessionStorage.getItem(key),
+    setItem: (key, value) => sessionStorage.setItem(key, value),
+    removeItem: key => sessionStorage.removeItem(key)
+  },
+  fetchProfile: syncAuthenticatedUser,
+  clearPrivate: clearPrivateAuthState,
+  publish(result) {
+    initialAuthReady = result.ready;
+    authProfileError = result.error || null;
+    state.user = result.profile;
+    if (result.recovery) location.hash = '#/reset-password';
+    else if (result.ready && result.profile && loginRoutePending) {
+      loginRoutePending = false;
+      location.hash = consumeLoginReturnRoute();
+    }
+    render();
+    if (!result.ready || !result.profile) return;
+    const ticket = result.generation;
+    Promise.all([loadRiderFromSupabase(), loadOrdersFromSupabase(),
+      loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
+      if (ticket !== authLifecycle.generation) return;
+      subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime();
+      render();
+      handlePaystackReturn().catch(() => {
+        if (ticket === authLifecycle.generation) toast('Payment verification is temporarily unavailable.', 'error');
+      });
+    }).catch(() => {
+      if (ticket === authLifecycle.generation) toast('Some account data could not be loaded.', 'error');
+    });
+  }
+});
+function canAccessPasswordRecovery() { return authLifecycle.canAccessPasswordRecovery(); }
+supabase.auth.onAuthStateChange((event, session) => {
+  // receive() invalidates stale work synchronously; SDK/database calls run on a timer.
+  void authLifecycle.receive(event, session);
+});
+// A destination query is not proof of confirmation, and never signs anyone out.
+if (new URLSearchParams(location.search).get('auth_return') === 'signup') {
+  const clean = new URL(location.href);
+  clean.searchParams.delete('auth_return');
+  history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+}
+
 applyPathRouteBootstrap();
 
 window.addEventListener('hashchange', () => {
@@ -6305,7 +6392,9 @@ window.addEventListener('dropzyy:maintenance-changed', event => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   invalidateMaintenanceGate();
-  render();
+  // Re-entry refreshes the database role; TOKEN_REFRESHED itself stays lightweight.
+  if (authLifecycle.session) void authLifecycle.receive('SIGNED_IN', authLifecycle.session);
+  else render();
 });
 
 // Load the catalog from Supabase (falls back to localStorage on failure).
@@ -6316,117 +6405,4 @@ loadCatalogFromSupabase();
 // subscribeProductsRealtime), so the channel is created exactly once.
 subscribeProductsRealtime();
 
-// Load the authenticated user's orders from Supabase (falls back to localStorage).
-loadOrdersFromSupabase();
-
-// Load the authenticated user's rider status from Supabase.
-loadRiderFromSupabase();
-
-// Load the authenticated rider's own withdrawal requests from Supabase
-// (RLS: own rows only). No-op for non-riders.
-loadWithdrawalsFromSupabase();
-
-// Load the signed-in user's notifications from Supabase (RLS: own rows only).
-loadNotificationsFromSupabase();
-
-// Realtime (push): subscribe to this user's notifications so the unread badge
-// and list update without a manual refresh. Falls back to the pull-based
-// loader above (panel open / login / boot) when Realtime is unavailable.
-subscribeNotificationsRealtime();
-subscribeRiderOrdersRealtime();
-// NOTE: handlePaystackReturn() is deliberately NOT called here. It requires
-// state.user (it can only confirm a payment against the signed-in user's own
-// orders) and state.user is populated by the async session restore below, so
-// calling it at this point always returned immediately and the whole
-// payment-return flow was dead. It is invoked at the end of the session
-// restore instead.
-
-
-let passwordRecoverySession = false;
-let explicitLoginUserId = null;
-let authReturnHandled = false;
-let signInInProgress = false;
-supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'PASSWORD_RECOVERY' && session?.user) {
-    passwordRecoverySession = true;
-    queueMicrotask(() => { location.hash = '#/reset-password'; render(); });
-  }
-});
-
-function isPasswordRecoveryReturn() {
-  return passwordRecoverySession;
-}
-
-// Session persistence: restore the Supabase session on load so a page refresh
-// keeps the user signed in (and restores their profile name).
-supabase.auth.getSession().then(({ data: { session } }) => {
-  if(session && session.user){
-    if (signInInProgress) return;
-    if (new URLSearchParams(location.search).get('auth_return') === 'signup' && !authReturnHandled) {
-      authReturnHandled = true;
-      supabase.auth.signOut().then(() => {
-        state.user=null;
-        history.replaceState(null,'',location.pathname+'#/login');
-        render();
-        toast('Email confirmed. Please sign in.','success');
-      });
-      return;
-    }
-    if (explicitLoginUserId === session.user.id) return;
-    supabase.from('profiles').select('full_name, role, vendor_id').eq('id', session.user.id).single()
-      .then(async ({ data: profile }) => {
-        if (explicitLoginUserId === session.user.id) return;
-        const userRole = (profile && profile.role) || 'user';
-        if(!profile){
-          // No profiles row exists for this authenticated session — create a
-          // default customer profile from the signup metadata stored in
-          // user_metadata. A session exists (getSession) so auth.uid() is set
-          // and the profiles_insert_own RLS policy permits the INSERT. role is
-          // strictly 'user'; an existing profile is never modified.
-          const md = (session.user.user_metadata) || {};
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert({
-              id: session.user.id,
-              email: session.user.email,
-              full_name: md.full_name || '',
-              phone: md.phone || '',
-              hostel: md.hostel || '',
-              role: 'user'
-            });
-          if(insertError){
-            console.error('Profile insert error:', insertError);
-            toast('Could not create your profile: ' + insertError.message,'error');
-          }
-        }
-        state.user={name:(profile && profile.full_name) || session.user.email.split('@')[0],email:session.user.email,role:userRole,vendor_id:(profile && profile.vendor_id) || null};
-        save();
-        // Session restored: explicitly reload the rider record and the Rider Hub orders
-        // (pool + assigned orders) from Supabase for THIS user before rendering..
-        await loadRiderFromSupabase();
-        await loadOrdersFromSupabase();
-        if (explicitLoginUserId === session.user.id) return;
-        subscribeRiderOrdersRealtime();
-        if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
-        render();
-        // Paystack return: state.user and this user's orders are finally
-        // available, so a ?reference= / ?trxref= left in the URL can be
-        // resolved and confirmed. No-op when the URL has no reference.
-        await handlePaystackReturn();
-      })
-      .catch(async ()=>{
-        if (explicitLoginUserId === session.user.id) return;
-        state.user={name:session.user.email.split('@')[0],email:session.user.email,role:'user'};
-        save();
-        await loadRiderFromSupabase();
-        await loadOrdersFromSupabase();
-        if (explicitLoginUserId === session.user.id) return;
-        subscribeRiderOrdersRealtime();
-        if (isPasswordRecoveryReturn()) location.hash = '#/reset-password';
-        render();
-        // Same as the branch above: only now is there an authenticated user to
-        // match the returned payment reference against.
-        await handlePaystackReturn();
-      });
-  }
-});
+// INITIAL_SESSION is the only bootstrap path; private loaders run after profile resolution.

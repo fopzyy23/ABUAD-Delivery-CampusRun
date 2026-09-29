@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================
-// test_paystack_webhook.js — manual payment-recovery / diagnostic utility
+// test_paystack_webhook.js — potentially mutating financial recovery utility
 // ============================================================
 // PURPOSE:
 //   Replays a genuine Paystack `charge.success` webhook POST so the deployed
@@ -48,8 +48,34 @@
 const https = require("https");
 const crypto = require("crypto");
 
-const WEBHOOK_URL =
-  "https://cmfohldnmytmwjynqfpz.supabase.co/functions/v1/paystack-webhook";
+const WEBHOOK_URL = process.env.PAYSTACK_WEBHOOK_URL || "";
+const PRODUCTION_PROJECT_HOST = "cmfohldnmytmwjynqfpz.supabase.co";
+
+if (!WEBHOOK_URL) {
+  console.error("ERROR: PAYSTACK_WEBHOOK_URL is required; no endpoint is selected by default.");
+  process.exit(1);
+}
+
+let webhookUrl;
+try {
+  webhookUrl = new URL(WEBHOOK_URL);
+} catch {
+  console.error("ERROR: PAYSTACK_WEBHOOK_URL must be a valid function endpoint URL.");
+  process.exit(1);
+}
+const localTarget = ["localhost", "127.0.0.1", "[::1]"].includes(webhookUrl.hostname);
+if ((webhookUrl.protocol !== "https:" && !(localTarget && webhookUrl.protocol === "http:")) ||
+    !webhookUrl.hostname.endsWith(".supabase.co") && !localTarget ||
+    webhookUrl.username || webhookUrl.password || webhookUrl.pathname !== "/functions/v1/paystack-webhook" ||
+    webhookUrl.search || webhookUrl.hash) {
+  console.error("ERROR: target must be the exact Paystack webhook function on HTTPS Supabase (or local HTTP Supabase).");
+  process.exit(1);
+}
+const productionTarget = webhookUrl.hostname === PRODUCTION_PROJECT_HOST;
+if (productionTarget && process.env.PAYSTACK_ALLOW_PRODUCTION_WEBHOOK !== "1") {
+  console.error("ERROR: Production webhook replay requires PAYSTACK_ALLOW_PRODUCTION_WEBHOOK=1 confirmation.");
+  process.exit(1);
+}
 
 // ---- Payment values come from the environment (no incident-specific data) ----
 const REFERENCE = process.env.PAYSTACK_REFERENCE;
@@ -68,6 +94,10 @@ if (!SECRET) {
 }
 if (!/^sk_(test|live)_[A-Za-z0-9]+$/.test(SECRET)) {
   console.error("ERROR: PAYSTACK_SECRET_KEY does not look like a Paystack secret key (expected sk_test_... or sk_live_...). Aborting for safety.");
+  process.exit(1);
+}
+if ((productionTarget && !SECRET.startsWith("sk_live_")) || (!productionTarget && SECRET.startsWith("sk_live_"))) {
+  console.error("ERROR: Paystack key mode does not match the explicitly selected webhook target.");
   process.exit(1);
 }
 if (!REFERENCE) {

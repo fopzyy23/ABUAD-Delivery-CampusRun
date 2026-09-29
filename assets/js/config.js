@@ -12,7 +12,7 @@
 //   * To point the app at a different Supabase project, replace the two
 //     constants below with that project's URL + publishable/anon key
 //     (Dashboard → Project Settings → API). This is a static Netlify site:
-//     there is no build step, so values are read from this file directly.
+//     these values are copied unchanged by the static publish build.
 //
 // This script must be loaded AFTER the Supabase CDN script:
 //   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -20,6 +20,21 @@
 // Supabase credentials
 const supabaseUrl = 'https://cmfohldnmytmwjynqfpz.supabase.co';
 const supabaseKey = 'sb_publishable_B1Akr8vzkzZvAZdTaxqgDA_BalvZXHi';
+// Change ALL four settings for a staging/development artifact, and align CSP.
+// Unknown origins (including deploy previews/local development) fail closed.
+const browserEnvironment = 'production';
+const frontendOrigins = ['https://dropzyy.com', 'https://www.dropzyy.com'];
+const productionProjectUrl = 'https://cmfohldnmytmwjynqfpz.supabase.co';
+if (!frontendOrigins.includes(window.location.origin) ||
+    !['production', 'staging', 'development'].includes(browserEnvironment) ||
+    (browserEnvironment !== 'production' && supabaseUrl === productionProjectUrl)) {
+  window.supabase = null;
+  document.addEventListener('DOMContentLoaded', () => {
+    const target = document.getElementById('app');
+    if (target) target.textContent = 'This deployment needs explicit environment configuration. Contact the site operator.';
+  });
+  throw new Error('Dropzyy browser environment is not configured for this origin.');
+}
 
 // Initialize Supabase client globally
 // Make sure the Supabase CDN script is included before this file

@@ -47,6 +47,7 @@ const REQUIRED_FILES = [
   'assets/css/styles.css',
   'assets/css/admin.css',
   'assets/js/app.js',
+  'assets/js/auth-lifecycle.js',
   'assets/js/admin.js',
   'assets/js/config.js',
   'assets/js/modal.js',

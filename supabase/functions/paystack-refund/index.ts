@@ -230,13 +230,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
         paystack_message: paystackBody?.message ?? "unknown error",
       });
     }
-    // ---- Paystack accepted the refund ----
+    // ---- Paystack accepted the request (not final completion) ----
     const gatewayRefundId = paystackBody?.data?.id
       ? String(paystackBody.data.id)
       : (paystackBody?.data?.reference ?? null);
-    const { error: resultErr } = await supabase.rpc("apply_refund_result", {
+    const { error: resultErr } = await supabase.rpc("mark_refund_provider_pending", {
       p_refund_id: refundId,
-      p_success: true,
       p_reason: refund.reason ?? (isVendorDelivery ? "Vendor delivery fee refund" : "Refund processed successfully"),
       p_gateway_refund_id: gatewayRefundId,
     });
@@ -245,17 +244,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json(req, 500, {
         refund_id: refundId,
         status: "processing",
-        error: "Paystack accepted refund but local record update failed",
+        error: "Paystack accepted refund request but local processing state update failed",
         details: resultErr.message,
         gateway_refund_id: gatewayRefundId,
       });
     }
     return json(req, 200, {
       refund_id: refundId,
-      status: "processed",
+      status: "processing",
       gateway_refund_id: gatewayRefundId,
       amount: refund.amount,
-      message: isVendorDelivery ? "Vendor delivery fee refund processed" : "Refund processed successfully",
+      message: isVendorDelivery ? "Vendor delivery fee refund accepted and awaiting confirmation" : "Refund accepted and awaiting provider confirmation",
     });
   } catch (err) {
     console.error("paystack-refund: unexpected error", err);
