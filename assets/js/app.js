@@ -167,7 +167,7 @@ function allowedCatalog() {
   if (removed && stored) store('catalog_v3', catalog);
   return catalog;
 }
-const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [] };
+const state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false };
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
@@ -1934,7 +1934,7 @@ function productCard(p) {
     <a class="pcard__link" href="#/product/${p.id}">
       <div class="pcard__thumb">
         <span class="pcard__thumb-fallback">${esc(p.icon)}</span>
-        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy">` : ''}
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" data-img-guard>` : ''}
       </div>
       <div class="pcard__name">${esc(p.name)}</div>
     </a>
@@ -2249,11 +2249,11 @@ function home() {
         <circle class="art-helmet" cx="198" cy="52" r="18"/>
         <path class="art-visor" d="M210 46a11 11 0 0 1 5 10"/>
       </svg>
-      <div class="dropzyy-hero__waybill" aria-label="Tracking demonstration">
+      <div class="dropzyy-hero__waybill" id="waybillCard" aria-label="Delivery tracking">
       <div class="dropzyy-hero__waybill-inner">
         <div class="dropzyy-hero__waybill-head">
-          <span class="dropzyy-hero__waybill-tag">Demo tracking</span>
-          <span class="dropzyy-hero__waybill-code" data-tracking>DZ-4417LG</span>
+          <span class="dropzyy-hero__waybill-tag" id="waybillTag">Demo tracking</span>
+          <span class="dropzyy-hero__waybill-code" data-tracking id="waybillCode">DZ-4417LG</span>
         </div>
         <div class="dropzyy-hero__waybill-route" id="waybillRoute">
           <div class="dropzyy-hero__waybill-route-track"></div>
@@ -2262,17 +2262,17 @@ function home() {
             <div class="dropzyy-hero__waybill-route-marker-inner"></div>
           </div>
           <div class="dropzyy-hero__waybill-route-truck" id="waybillTruck" aria-hidden="true">🚚</div>
-          <div class="dropzyy-hero__waybill-route-runner" aria-hidden="true"></div>
+          <div class="dropzyy-hero__waybill-route-runner" id="waybillRunner" aria-hidden="true"></div>
           <div class="dropzyy-hero__waybill-route-origin" aria-label="Origin">Caf 2</div>
           <div class="dropzyy-hero__waybill-route-dest" aria-label="Destination">Your hostel</div>
         </div>
         <div class="dropzyy-hero__waybill-eta" id="waybillEta">
           <span class="dropzyy-hero__waybill-status-live-dot" aria-hidden="true"></span>
-          <span class="dropzyy-hero__waybill-status-text">Sample estimate —</span>
+          <span class="dropzyy-hero__waybill-status-text" id="waybillStatusText">Demo simulation —</span>
           <span class="dropzyy-hero__waybill-eta-value" id="waybillEtaValue">—</span>
         </div>
       </div>
-      <div class="dropzyy-hero__waybill-stamp" aria-label="On time">On time</div>
+      <div class="dropzyy-hero__waybill-stamp" id="waybillStamp" aria-label="Sample">Sample</div>
     </div>
     </div>
   </div>
@@ -2398,7 +2398,7 @@ function productView(id) {
     <div class="card product-detail mt-1">
       <div class="product-detail__media">
         <span class="product-detail__fallback">${esc(p.icon)}</span>
-        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy">` : ''}
+        ${img ? `<img src="${esc(img)}" alt="${esc(p.name)}" loading="lazy" data-img-guard>` : ''}
       </div>
       <div class="product-detail__body">
         <div class="row row--between row--wrap">
@@ -2792,6 +2792,112 @@ async function ensureVendorLoaded() {
 // admin panel's deactivateProductInSupabase() pattern and keeps order_items
 // foreign keys intact. Supabase is always the source of truth; the
 // localStorage vendor_products copy is only a cache/fallback.
+// ============================================
+// Product pictures — Supabase Storage bucket 'product-images'
+// ============================================
+// Vendors (and admins) upload product pictures here; the resulting PUBLIC
+// object URL is stored in products.image (the existing column), so every
+// existing render path keeps working unchanged.
+//
+// * Objects live at  <vendor_id>/<timestamp>-<random>.<ext>. The folder is the
+//   caller's profiles.vendor_id — exactly what the Storage RLS policies
+//   (20261219_product_images_storage.sql) verify — so one vendor can never
+//   write into another vendor's folder. That check is enforced SERVER-side; the
+//   client never sends a folder it chose itself.
+// * Only JPG/JPEG/PNG/WebP up to 5 MB are accepted: checked in the browser
+//   BEFORE any upload and again by the bucket (allowed_mime_types /
+//   file_size_limit), so an invalid file can never create a product row.
+// * No service-role key is involved: the upload runs as the signed-in user.
+const PRODUCT_IMAGE_BUCKET = 'product-images';
+const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024; // keep in sync with the bucket
+const PRODUCT_IMAGE_MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const PRODUCT_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp';
+
+function productImageBucket() {
+  if (typeof supabase === 'undefined' || !supabase || !supabase.storage) return null;
+  try { return supabase.storage.from(PRODUCT_IMAGE_BUCKET); } catch (err) { console.error('Storage client unavailable:', err); return null; }
+}
+
+// '' when the file is acceptable, otherwise a user-facing reason.
+function productImageFileError(file) {
+  if (!file) return 'Choose a picture first.';
+  if (!file.size) return 'That picture appears to be empty.';
+  const type = String(file.type || '').toLowerCase();
+  if (!PRODUCT_IMAGE_MIME_EXT[type]) return 'Only JPG, JPEG, PNG or WebP pictures are supported.';
+  if (file.size > PRODUCT_IMAGE_MAX_BYTES) return `That picture is ${(file.size / 1024 / 1024).toFixed(1)} MB — the maximum is 5 MB.`;
+  return '';
+}
+
+// Public URL for an uploaded object (used for both upload and display).
+function productImageUrlFor(path) {
+  const bucket = productImageBucket();
+  if (!bucket || !path) return '';
+  try { return (bucket.getPublicUrl(path).data || {}).publicUrl || ''; } catch (err) { console.error('Could not build the image address:', err); return ''; }
+}
+
+// Object path (inside our bucket) for a stored public URL, or '' when the URL
+// is not one of our uploads (e.g. a legacy external image URL).
+function productImagePathFromUrl(url) {
+  const raw = String(url || '');
+  const marker = `/storage/v1/object/public/${PRODUCT_IMAGE_BUCKET}/`;
+  const at = raw.indexOf(marker);
+  if (at < 0) return '';
+  const path = raw.slice(at + marker.length).split('?')[0];
+  if (!path) return '';
+  try { return decodeURIComponent(path); } catch (_) { return path; }
+}
+
+function productImageUploadMessage(error) {
+  const message = String((error && error.message) || '');
+  const status = Number((error && error.statusCode) || 0);
+  if (/bucket not found/i.test(message)) return 'Image storage is not configured yet (the "product-images" bucket is missing). Ask an administrator to apply the latest migration.';
+  if (/row-level security|violation of row-level security|not allowed|policy/i.test(message)) return 'You are not allowed to upload pictures for this vendor account.';
+  if (/exceeded the maximum allowed size|too large|payload too large/i.test(message) || status === 413) return 'That picture is larger than the 5 MB limit.';
+  if (/mime type|not supported|invalid file/i.test(message)) return 'Only JPG, JPEG, PNG or WebP pictures are supported.';
+  return 'The picture could not be uploaded' + (message ? `: ${message}` : '. Please try again.');
+}
+
+// Upload one picture for the given vendor account. Throws a friendly Error.
+async function uploadProductImage(file, vendorId) {
+  const bucket = productImageBucket();
+  if (!bucket) throw new Error('Image storage is unavailable — the picture was not uploaded.');
+  const problem = productImageFileError(file);
+  if (problem) throw new Error(problem);
+  const folder = String(vendorId || '').trim();
+  if (!folder) throw new Error('Your account is not linked to a vendor yet.');
+  const ext = PRODUCT_IMAGE_MIME_EXT[String(file.type || '').toLowerCase()] || 'jpg';
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await bucket.upload(path, file, { cacheControl: '31536000', upsert: false, contentType: file.type });
+  if (error) throw new Error(productImageUploadMessage(error));
+  const url = productImageUrlFor(path);
+  if (!url) throw new Error('The picture uploaded but its address could not be resolved. Please try again.');
+  return { path, url };
+}
+
+// Best-effort orphan cleanup. A superseded upload is removed ONLY when ALL of
+// these hold:
+//   * it is an object in our OWN bucket (external/legacy URLs are left alone);
+//   * it sits in THIS vendor's folder (so the Storage RLS policy allows it);
+//   * NO product row still references it. A merely DEACTIVATED product keeps
+//     its picture, and historical rows are never touched.
+// Never throws: cleanup is hygiene, not part of the save.
+async function deleteProductImageIfOrphaned(url, vendorId) {
+  const path = productImagePathFromUrl(url);
+  if (!path) return false;
+  const folder = String(vendorId || '').trim();
+  if (!folder || !path.startsWith(folder + '/')) return false;   // not ours to delete
+  const bucket = productImageBucket();
+  if (!bucket || typeof supabase === 'undefined' || !supabase) return false;
+  try {
+    const { data, error } = await supabase.from('products').select('id').eq('image', url).limit(1);
+    if (error) { console.error('Image cleanup check failed:', error); return false; }
+    if (data && data.length) return false;                        // still referenced — keep it
+    const { error: removeError } = await bucket.remove([path]);
+    if (removeError) { console.error('Superseded image could not be removed:', removeError); return false; }
+    return true;
+  } catch (err) { console.error('Image cleanup failed:', err); return false; }
+}
+
 async function refreshVendorProducts() {
   if (typeof supabase === 'undefined' || !supabase) return false;
   if (!state.user || !state.user.vendor_id) return false; // vendor capability = linked vendor_id (multi-role)
@@ -2821,11 +2927,18 @@ async function refreshVendorProducts() {
   }
 }
 
-// New product ids: products.id is numeric with no client-usable server
-// default, so mirror the admin panel's max-id + 1 approach. The public
-// products SELECT policy (active = true) plus products_select_vendor let the
-// vendor read existing product ids to compute the next one.
-async function nextVendorProductId() {
+// Vendor product ids are assigned by the DATABASE now (products.id defaults to
+// public.products_id_seq — see 20261218_fix_vendor_product_creation.sql), so
+// creation no longer depends on which rows this vendor is allowed to read.
+//
+// The legacy client-side max+1 fallback below is kept ONLY for a database where
+// that migration has not been applied yet (the INSERT then fails with a NOT NULL
+// violation on id). Its original defect is fixed: the retry no longer recomputes
+// the same value from the same invisible maximum — it ESCALATES past the
+// conflicting id, which is the only way to get past a row this vendor cannot
+// SELECT (e.g. an inactive product of another vendor, or the deactivated
+// Bookshop rows).
+async function nextVendorProductId(after) {
   try {
     const { data, error } = await supabase
       .from('products')
@@ -2834,7 +2947,10 @@ async function nextVendorProductId() {
       .limit(1);
     if (error) throw error;
     const maxId = data && data.length ? Number(data[0].id) : 0;
-    return maxId + 1;
+    const visibleMax = Number.isFinite(maxId) ? maxId : 0;
+    const afterId = Number(after);
+    const floor = Number.isFinite(afterId) && afterId > 0 ? afterId + 1 : 0;
+    return Math.max(visibleMax + 1, floor);
   } catch (err) {
     console.error('Could not determine the next product id:', err);
     return null;
@@ -2846,6 +2962,7 @@ async function nextVendorProductId() {
 async function submitVendorProductForm(form) {
   if (!state.user || !state.user.vendor_id) return; // vendor capability = linked vendor_id (multi-role)
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
+  if (state.vendorProductSubmitting) return; // duplicate-submission guard
   const f = new FormData(form);
   const editId = (f.get('id') || '').toString().trim();
   const name = (f.get('name') || '').trim();
@@ -2853,15 +2970,23 @@ async function submitVendorProductForm(form) {
   const category = (f.get('category') || '').trim();
   const icon = (f.get('icon') || '').trim() || '🍽️';
   const desc = (f.get('desc') || '').trim();
-  const image = safeImageUrl(f.get('image')); // empty string when blank/invalid
 
-  // Validation: non-blank name/category, non-negative numeric price.
+  // Validation runs BEFORE the upload and BEFORE any write, so an invalid form
+  // can never upload a file or create a product row.
   if (!name) { toast('Product name cannot be blank', 'error'); return; }
   const price = Number(priceRaw);
   if (priceRaw === '' || !Number.isFinite(price) || price < 0) { toast('Price must be a non-negative number', 'error'); return; }
   if (!category) { toast('Category cannot be blank', 'error'); return; }
 
+  state.vendorProductSubmitting = true;
+  let uploaded = null; // { url, previousUrl } when this save uploaded a new file
   try {
+    // 1. Picture: upload/replace/remove. A failed upload ABORTS the save, so no
+    //    invalid product record is ever created from a broken image.
+    const picture = await resolveVendorProductImage();
+    if (picture.uploadedPath) uploaded = { url: picture.url, previousUrl: picture.previousUrl };
+    const image = picture.url;
+
     if (editId) {
       // UPDATE: .eq('vendor_id', ...) guarantees we only ever touch this
       // vendor's own row (RLS products_update_vendor enforces the same).
@@ -2873,37 +2998,58 @@ async function submitVendorProductForm(form) {
       if (error) throw error;
       toast('Product updated');
     } else {
-      // INSERT with a client-assigned id. nextVendorProductId() can collide when
-      // the highest id belongs to a hidden product (public catalog RLS hides it)
-      // or when two vendors add products concurrently — so a unique primary-key
-      // violation (Postgres 23505) is retried exactly ONCE with a freshly fetched
-      // id. Any other error — and any second failure — surfaces as before.
-      // No upsert; an existing product is never overwritten.
-      const insertProduct = (newId) => supabase
-        .from('products')
-        .insert({ id: newId, vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true });
-      const isDuplicateKey = (e) => e && (e.code === '23505' || /duplicate key|unique constraint/i.test(e.message || ''));
-      let id = await nextVendorProductId();
-      if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
-      let inserted = await insertProduct(id);
-      if (inserted.error && isDuplicateKey(inserted.error)) {
-        id = await nextVendorProductId(); // fresh max id before the single retry
-        if (id == null) { toast('Could not create the product — please try again', 'error'); return; }
-        inserted = await insertProduct(id);
+      // INSERT — products.id is assigned by the DATABASE (products_id_seq), so
+      // the id can never collide with a row this vendor is not allowed to see.
+      // No upsert: an existing product is never overwritten.
+      const row = { vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true };
+      const insertOnce = payload => supabase.from('products').insert(payload).select('id');
+      const isDuplicateKey = e => e && (e.code === '23505' || /duplicate key|unique constraint/i.test(e.message || ''));
+      const idHasNoDefault = e => e && (e.code === '23502'
+        || /null value in column "id"|not-null constraint/i.test(e.message || ''));
+
+      let result = await insertOnce(row);
+      if (result.error && idHasNoDefault(result.error)) {
+        // Legacy database without the sequence default — fall back to
+        // client-assigned ids, escalating past every conflicting value.
+        let candidate = null;
+        for (let attempt = 0; attempt < 25 && result.error; attempt++) {
+          candidate = await nextVendorProductId(candidate);
+          if (candidate == null) break;
+          result = await insertOnce({ ...row, id: candidate });
+          if (result.error && !isDuplicateKey(result.error)) break;
+        }
+      } else {
+        // A concurrent insert could still consume an id; each retry asks the
+        // server for a fresh one, so this cannot loop on the same value.
+        for (let attempt = 0; attempt < 3 && result.error && isDuplicateKey(result.error); attempt++) {
+          result = await insertOnce(row);
+        }
       }
-      if (inserted.error) throw inserted.error;
+      if (result.error) throw result.error;
       toast('Product added');
     }
+
+    // 2. The previous picture is now unreferenced → best-effort cleanup (never
+    //    awaited for correctness, never fatal, historical rows untouched).
+    if (uploaded && uploaded.previousUrl && uploaded.previousUrl !== uploaded.url) {
+      deleteProductImageIfOrphaned(uploaded.previousUrl, state.user.vendor_id);
+    }
+
     form.reset();
     form.querySelector('input[name="id"]').value = '';
     const title = document.getElementById('vendorProductFormTitle');
     if (title) title.textContent = 'Add Product';
+    resetVendorProductImage(form);
     await refreshVendorProducts();
     await loadCatalogFromSupabase(); // refresh the shared customer catalog cache
     render();
   } catch (err) {
+    // The row was never written — remove the orphan this attempt uploaded.
+    if (uploaded && uploaded.url) deleteProductImageIfOrphaned(uploaded.url, state.user.vendor_id);
     console.error('Vendor product save failed:', err);
     toast('Product save failed: ' + (err.message || 'unknown error'), 'error');
+  } finally {
+    state.vendorProductSubmitting = false;
   }
 }
 
@@ -2969,6 +3115,103 @@ async function submitVendorBankAccountForm(form) {
   }
 }
 
+// ---- Vendor product form picture UI --------------------------------------
+// One module-level record drives the upload widget: at most ONE new file is
+// pending per save, decided on submit (upload first, then write the row), so a
+// failed upload can never leave a product without a picture or with a broken
+// one.
+let vendorProductImageState = { file: null, previewDataUrl: '', existingUrl: '', remove: false, error: '' };
+
+function vendorProductFormIcon() {
+  const form = document.getElementById('vendorProductForm');
+  const input = form && form.querySelector('input[name="icon"]');
+  return (input && input.value.trim()) || '🍽️';
+}
+
+// Repaint the preview (FileReader data: URL for a pending file — the CSP allows
+// data: images but not blob:, so no object URLs are used).
+function renderVendorProductImagePreview() {
+  const box = document.getElementById('vendorProductImagePreview');
+  const status = document.getElementById('vendorProductImageStatus');
+  const removeBtn = document.getElementById('vendorProductImageRemove');
+  if (!box) return;
+  const st = vendorProductImageState;
+  const shown = st.file ? st.previewDataUrl : (st.remove ? '' : st.existingUrl);
+  const icon = vendorProductFormIcon();
+  box.classList.toggle('is-empty', !shown);
+  box.innerHTML = `<span class="img-upload__placeholder">${esc(icon)}</span>`
+    + (shown ? `<img src="${esc(shown)}" alt="Product picture preview" data-img-guard>` : '');
+  if (removeBtn) removeBtn.hidden = !(shown || st.existingUrl);
+  if (status) {
+    if (st.error) status.textContent = st.error;
+    else if (st.file) status.textContent = 'New picture selected — it will be uploaded when you save.';
+    else if (st.remove) status.textContent = 'The picture will be removed when you save.';
+    else if (st.existingUrl) status.textContent = 'Current picture. Choose another file to replace it.';
+    else status.textContent = 'No picture yet — the icon is shown to customers.';
+  }
+}
+
+function resetVendorProductImage(form) {
+  vendorProductImageState = { file: null, previewDataUrl: '', existingUrl: '', remove: false, error: '' };
+  const input = (form || document.getElementById('vendorProductForm'));
+  const file = input && input.querySelector ? input.querySelector('input[name="image_file"]') : null;
+  if (file) file.value = '';
+  renderVendorProductImagePreview();
+}
+
+function setVendorProductImageFromForm(form) {
+  const fileInput = form && form.querySelector('input[name="image_file"]');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) return;
+  const problem = productImageFileError(file);
+  if (problem) {
+    vendorProductImageState.file = null;
+    vendorProductImageState.previewDataUrl = '';
+    vendorProductImageState.error = problem;
+    if (fileInput) fileInput.value = '';
+    renderVendorProductImagePreview();
+    toast(problem, 'error');
+    return;
+  }
+  vendorProductImageState.file = file;
+  vendorProductImageState.remove = false;
+  vendorProductImageState.error = '';
+  const st = vendorProductImageState;
+  try {
+    const reader = new FileReader();
+    reader.onload = () => { st.previewDataUrl = String(reader.result || ''); renderVendorProductImagePreview(); };
+    reader.onerror = () => { st.previewDataUrl = ''; renderVendorProductImagePreview(); };
+    reader.readAsDataURL(file);
+  } catch (err) {
+    console.error('Could not preview the selected picture:', err);
+    st.previewDataUrl = '';
+  }
+  renderVendorProductImagePreview();
+}
+
+function dropVendorProductImageSelection() {
+  vendorProductImageState.file = null;
+  vendorProductImageState.previewDataUrl = '';
+  vendorProductImageState.remove = true;
+  vendorProductImageState.error = '';
+  const input = document.getElementById('vendorProductForm');
+  const file = input && input.querySelector('input[name="image_file"]');
+  if (file) file.value = '';
+  renderVendorProductImagePreview();
+}
+
+// Resolve the picture stored by this save. Throws when an upload fails — the
+// caller then aborts before writing any row.
+async function resolveVendorProductImage() {
+  const st = vendorProductImageState;
+  if (st.file) {
+    const res = await uploadProductImage(st.file, state.user.vendor_id);
+    return { url: res.url, uploadedPath: res.path, previousUrl: st.existingUrl || '' };
+  }
+  if (st.remove) return { url: '', uploadedPath: '', previousUrl: st.existingUrl || '' };
+  return { url: st.existingUrl || '', uploadedPath: '', previousUrl: '' };
+}
+
 function editVendorProduct(productId) {
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
@@ -2979,7 +3222,12 @@ function editVendorProduct(productId) {
   form.querySelector('input[name="price"]').value = p.price;
   form.querySelector('input[name="category"]').value = p.category;
   form.querySelector('input[name="icon"]').value = p.icon;
-  form.querySelector('input[name="image"]').value = p.image || '';
+  // Picture: the file input is the source of truth now; the current upload is
+  // remembered so a save that does not touch it keeps the existing image.
+  const fileInput = form.querySelector('input[name="image_file"]');
+  if (fileInput) fileInput.value = '';
+  vendorProductImageState = { file: null, previewDataUrl: '', existingUrl: p.image || '', remove: false, error: '' };
+  renderVendorProductImagePreview();
   form.querySelector('textarea[name="desc"]').value = p.desc || '';
   const title = document.getElementById('vendorProductFormTitle');
   if (title) title.textContent = 'Edit Product';
@@ -2991,8 +3239,28 @@ function resetVendorProductForm() {
   if (!form) return;
   form.reset();
   form.querySelector('input[name="id"]').value = '';
+  resetVendorProductImage(form);
   const title = document.getElementById('vendorProductFormTitle');
   if (title) title.textContent = 'Add Product';
+}
+
+// Paint the picture widget whenever the vendor dashboard is rendered (the form
+// element is recreated by every render, so the listener is re-attached then).
+function initVendorProductImageUi() {
+  const form = document.getElementById('vendorProductForm');
+  if (!form) return;
+  const editing = Boolean((form.querySelector('input[name="id"]') || {}).value);
+  if (!editing && vendorProductImageState.file) {
+    // A re-render rebuilt the form, so the pending <input type="file"> is gone:
+    // drop the stale selection rather than uploading a file the vendor can no
+    // longer see in the form.
+    vendorProductImageState = { file: null, previewDataUrl: '', existingUrl: '', remove: false, error: '' };
+  }
+  form.addEventListener('change', e => {
+    if (e.target && e.target.name === 'image_file') setVendorProductImageFromForm(form);
+    else if (e.target && e.target.name === 'icon') renderVendorProductImagePreview();
+  });
+  renderVendorProductImagePreview();
 }
 
 // Toggle availability: flips products.active for the vendor's OWN product.
@@ -3202,7 +3470,7 @@ function vendorDashboard() {
     : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
 
   const productsHtml = products.length
-    ? products.map(p => `<tr><td>${esc(p.icon)} <b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    ? products.map(p => `<tr><td><div class="prod-cell"><span class="prod-thumb">${safeImageUrl(p.image) ? `<img src="${esc(safeImageUrl(p.image))}" alt="" loading="lazy" data-img-guard>` : ''}<span class="prod-thumb__fallback">${esc(p.icon)}</span></span><span><b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</span></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
     : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
 
   return `<section class="section container">
@@ -3256,7 +3524,22 @@ function vendorDashboard() {
           <div class="field"><label for="vpPrice">Price (₦)</label><input class="input" name="price" id="vpPrice" type="number" min="0" step="0.01" required placeholder="1000"></div>
           <div class="field"><label for="vpCategory">Category</label><input class="input" name="category" id="vpCategory" required placeholder="Food"></div>
           <div class="field"><label for="vpIcon">Icon</label><input class="input" name="icon" id="vpIcon" value="🍽️" maxlength="8"></div>
-          <div class="field col-2"><label for="vpImage">Image URL (optional)</label><input class="input" name="image" id="vpImage" placeholder="https://… (shown when available, else the icon)"></div>
+          <div class="field col-2">
+            <label for="vpImageFile">Product picture</label>
+            <div class="img-upload" id="vendorProductImageUpload">
+              <div class="img-upload__preview" id="vendorProductImagePreview" aria-live="polite">
+                <span class="img-upload__placeholder">${esc(vendorProductFormIcon())}</span>
+              </div>
+              <div class="img-upload__body">
+                <input class="input" type="file" name="image_file" id="vpImageFile" accept="${PRODUCT_IMAGE_ACCEPT}">
+                <p class="muted xs mt-1 mb-0">JPG, JPEG, PNG or WebP · up to 5 MB. You can pick a different file before saving; without a picture the icon is shown instead.</p>
+                <div class="row row--wrap mt-1" style="gap:6px">
+                  <button class="btn btn--ghost btn--sm" type="button" id="vendorProductImageRemove" hidden>Remove picture</button>
+                </div>
+                <p class="muted xs mb-0" id="vendorProductImageStatus"></p>
+              </div>
+            </div>
+          </div>
           <div class="field col-2"><label for="vpDesc">Description</label><textarea class="textarea" name="desc" id="vpDesc" placeholder="A short description for customers."></textarea></div>
         </div>
         <button class="btn btn--block" type="submit">Save Product</button>
@@ -4379,25 +4662,294 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
   setTimeout(tick, interval);
 }
 
-/* ---- Presentation-only: hero waybill route animation ----------------------
-   Fills the route line and moves the truck marker along it once on page
-   load. Respects prefers-reduced-motion and pauses while the stub is
-   scrolled out of view. Visual only — no app logic. */
-let waybillAnim = null;
-function playWaybill() {
-  if (waybillAnim) { waybillAnim.stopped = true; if (waybillAnim.raf) cancelAnimationFrame(waybillAnim.raf); waybillAnim = null; }
+// ============================================
+// Homepage demo tracking — mirrors REAL rider progress
+// ============================================
+// The hero "Demo tracking" waybill used to advance purely on its own: it filled
+// the route, moved the truck and printed a fabricated ETA ("18 min") with no
+// connection to any delivery. It now mirrors the persisted delivery progress of
+// ONE explicitly flagged order:
+//
+//   * the authoritative field is public.orders.status (written by the rider hub
+//     in runRiderStatusUpdate, and by the vendor/admin flows through the
+//     existing enforce_order_status_transitions() trigger) plus orders.rider_id;
+//   * orders.demo_tracking_enabled (admin-only, at most one order) opts an order
+//     into public display — see 20261220_demo_tracking_sync.sql;
+//   * get_demo_tracking_status() returns ONLY { order_number, status,
+//     delivery_method, rider_assigned, reported_at } for that order — never
+//     customer identity, address, phone or another customer's order;
+//   * Supabase Realtime broadcast from the database (public topic
+//     'demo-tracking', event 'demo_status') pushes the same safe payload on
+//     every status / rider change, and a 20s poll is the safety net, so the
+//     card also recovers from a dropped connection, a page reload or a
+//     backgrounded tab.
+//
+// When no order is flagged (or the RPC/channel is unreachable) the card drops
+// into an EXPLICIT simulation mode: it is labelled "Demo simulation", says "no
+// live rider", and carries a "Sample" stamp. Simulated motion is therefore
+// never presented as real delivery progress, and NOTHING here uses or claims
+// GPS: the card only mirrors status stages.
+const TRACK_STAGES = ['Order confirmed','Preparing','Ready for pickup','Rider assigned','Picked up','On the Way','Delivered'];
+const TRACK_STAGE_INDEX = { 'Order confirmed':0,'Preparing':1,'Ready for pickup':2,'Rider assigned':3,'Picked up':4,'On the Way':5,'Delivered':6 };
+// Friendly stage wording for the demo card only — the customer track page keeps
+// the raw workflow wording it already used.
+const TRACK_STAGE_LABEL = {
+  'Order confirmed':'Order placed',
+  'Preparing':'Vendor preparing',
+  'Ready for pickup':'Ready for pickup',
+  'Rider assigned':'Rider assigned — heading to pickup',
+  'Picked up':'Order picked up',
+  'On the Way':'Rider on the way',
+  'Delivered':'Delivered',
+  'Rated':'Delivered & rated',
+  'Cancelled':'Cancelled'
+};
+
+const DEMO_TRACK_TOPIC = 'demo-tracking';
+const DEMO_TRACK_EVENT = 'demo_status';
+const DEMO_TRACK_POLL_MS = 20000;
+const DEMO_TRACK_RETRY_MAX_MS = 60000;
+const DEMO_TRACK_SAMPLE_CODE = 'DZ-4417LG'; // placeholder shown in simulation mode
+
+let demoTrack = {
+  active: false, mode: 'simulation', channel: null, pollTimer: null, retryTimer: null,
+  retryDelay: 0, orderNumber: '', status: '', stage: -1, riderAssigned: false,
+  reportedAt: '', inFlight: false
+};
+
+function stopDemoTracking() {
+  demoTrack.active = false;
+  if (demoTrack.pollTimer) { clearTimeout(demoTrack.pollTimer); demoTrack.pollTimer = null; }
+  if (demoTrack.retryTimer) { clearTimeout(demoTrack.retryTimer); demoTrack.retryTimer = null; }
+  if (demoTrack.channel && typeof supabase !== 'undefined' && supabase) {
+    try { supabase.removeChannel(demoTrack.channel); } catch (e) { /* ignore */ }
+  }
+  demoTrack.channel = null;
+}
+
+// Called after EVERY render: the card only exists on the home route, so this
+// starts the subscription there and tears it down everywhere else (no leaked
+// channel or timer).
+function initDemoTracking() {
+  if (!document.getElementById('waybillCard')) { stopDemoTracking(); return; }
+  if (demoTrack.active) { renderDemoTracking(); return; }
+  demoTrack.active = true;
+  // 1. Latest PERSISTED status first (page load / return to the home route).
+  refreshDemoTrackingStatus('load');
+  // 2. Realtime for every later change…
+  ensureDemoTrackingChannel();
+  // 3. …with a poll as the safety net.
+  scheduleDemoTrackingPoll();
+}
+
+function scheduleDemoTrackingPoll() {
+  if (demoTrack.pollTimer) clearTimeout(demoTrack.pollTimer);
+  demoTrack.pollTimer = setTimeout(async () => {
+    if (!demoTrack.active) return;
+    try { await refreshDemoTrackingStatus('poll'); } catch (e) { console.error('Demo tracking poll failed:', e); }
+    scheduleDemoTrackingPoll();
+  }, DEMO_TRACK_POLL_MS);
+}
+
+async function refreshDemoTrackingStatus(reason) {
+  if (demoTrack.inFlight) return;                       // duplicate-fetch guard
+  if (typeof supabase === 'undefined' || !supabase) { applyDemoTrackingStatus(null); return; }
+  demoTrack.inFlight = true;
+  try {
+    const { data, error } = await supabase.rpc('get_demo_tracking_status');
+    if (error) throw error;
+    const row = Array.isArray(data) ? (data[0] || null) : (data || null);
+    demoTrack.retryDelay = 0;
+    applyDemoTrackingStatus(row, reason);
+  } catch (err) {
+    // Missing migration / offline: never guess — show the explicit simulation.
+    console.error('Demo tracking status refresh failed:', err);
+    applyDemoTrackingStatus(null);
+  } finally {
+    demoTrack.inFlight = false;
+  }
+}
+
+// Realtime: a PUBLIC broadcast channel fed by a database trigger on the flagged
+// order (20261220_demo_tracking_sync.sql). Only the five safe fields travel over
+// the wire — never the order row — so no customer data is broadcast and no extra
+// RLS grant is needed.
+function ensureDemoTrackingChannel() {
+  if (demoTrack.channel || typeof supabase === 'undefined' || !supabase) return;
+  try {
+    demoTrack.channel = supabase
+      .channel(DEMO_TRACK_TOPIC)
+      .on('broadcast', { event: DEMO_TRACK_EVENT }, message => {
+        const payload = message && message.payload;
+        if (!payload || !payload.status) return;
+        // Guard against a payload for a different (previously flagged) order.
+        if (demoTrack.orderNumber && payload.order_number
+            && payload.order_number !== demoTrack.orderNumber) return;
+        // Duplicate/stale events are harmless: the apply step is idempotent and
+        // monotonic, so a late event can never move the card backwards.
+        applyDemoTrackingStatus(payload, 'realtime');
+      })
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') {
+          demoTrack.retryDelay = 0;
+          // (Re)connected: re-read the latest PERSISTED status, because events
+          // that happened while the socket was down are never replayed.
+          refreshDemoTrackingStatus('reconnect');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          scheduleDemoTrackingReconnect();
+        }
+      });
+  } catch (err) {
+    console.error('Demo tracking channel failed:', err);
+    demoTrack.channel = null;
+    scheduleDemoTrackingReconnect();
+  }
+}
+
+// Exponential backoff (5s → 60s) for a broken channel: drop it, refresh the
+// persisted status, then subscribe again. The poll keeps the card correct
+// meanwhile.
+function scheduleDemoTrackingReconnect() {
+  if (!demoTrack.active || demoTrack.retryTimer) return;
+  const delay = Math.min(demoTrack.retryDelay ? demoTrack.retryDelay * 2 : 5000, DEMO_TRACK_RETRY_MAX_MS);
+  demoTrack.retryDelay = delay;
+  demoTrack.retryTimer = setTimeout(() => {
+    demoTrack.retryTimer = null;
+    if (!demoTrack.active) return;
+    if (demoTrack.channel && typeof supabase !== 'undefined' && supabase) {
+      try { supabase.removeChannel(demoTrack.channel); } catch (e) { /* ignore */ }
+    }
+    demoTrack.channel = null;
+    refreshDemoTrackingStatus('reconnect');
+    ensureDemoTrackingChannel();
+  }, delay);
+}
+
+// Existing statuses → the stage the UI can show. 'Rated' is the end of the
+// journey; 'Cancelled' has no position on the route, so the card keeps the last
+// known stage and says the order was cancelled instead of jumping anywhere.
+function demoTrackStageFor(status) {
+  if (status === 'Rated') return TRACK_STAGES.length - 1;
+  if (status === 'Cancelled') return null;
+  const idx = TRACK_STAGE_INDEX[status];
+  return typeof idx === 'number' ? idx : 0;
+}
+
+function applyDemoTrackingStatus(row, reason) {
+  if (!row || !row.status) {
+    demoTrack.orderNumber = '';
+    demoTrack.status = '';
+    demoTrack.stage = -1;
+    demoTrack.riderAssigned = false;
+    setDemoTrackingMode('simulation');
+    return;
+  }
+  // A DIFFERENT flagged order starts a new run, so the monotonic guard resets.
+  if (demoTrack.orderNumber && demoTrack.orderNumber !== row.order_number) demoTrack.stage = -1;
+  demoTrack.orderNumber = String(row.order_number || '');
+  demoTrack.status = String(row.status);
+  demoTrack.riderAssigned = Boolean(row.rider_assigned);
+  demoTrack.reportedAt = String(row.reported_at || '');
+  const incoming = demoTrackStageFor(demoTrack.status);
+  if (incoming !== null) demoTrack.stage = Math.max(demoTrack.stage, incoming);
+  setDemoTrackingMode('live');
+}
+
+function setDemoTrackingMode(mode) {
+  const changed = demoTrack.mode !== mode;
+  demoTrack.mode = mode;
+  if (changed && mode === 'live') stopWaybillAnimation();
+  renderDemoTracking();
+  if (changed && mode === 'simulation' && document.getElementById('waybillCard')) playWaybill();
+}
+
+// Route position for a stage: 'Order confirmed' has just left the origin and
+// 'Delivered' sits at the destination. Stage positions only — no pseudo-GPS
+// interpolation between them.
+function demoTrackPercent(stage) {
+  const last = TRACK_STAGES.length - 1;
+  if (stage <= 0) return 0.08;
+  if (stage >= last) return 1;
+  return Math.max(0.08, Math.min(1, stage / last));
+}
+
+// Paint the waybill from the current mode/state. Pure presentation: it decides
+// between the two HONEST labels ("Live status" vs "Demo simulation") and never
+// claims GPS or a fabricated ETA.
+function renderDemoTracking() {
+  const card = document.getElementById('waybillCard');
+  if (!card) return;
   const fill = document.getElementById('waybillRouteFill');
   const truck = document.getElementById('waybillTruck');
   const marker = document.getElementById('waybillRouteMarker');
-  const eta = document.getElementById('waybillEtaValue');
+  const route = fill && fill.parentElement;
+  const tag = document.getElementById('waybillTag');
+  const code = document.getElementById('waybillCode');
+  const statusText = document.getElementById('waybillStatusText');
+  const etaValue = document.getElementById('waybillEtaValue');
+  const stamp = document.getElementById('waybillStamp');
+  const live = demoTrack.mode === 'live';
+
+  card.classList.toggle('is-live', live);
+  card.classList.toggle('is-simulation', !live);
+  card.setAttribute('aria-label', live
+    ? 'Live order progress (status based, not GPS)'
+    : 'Demo tracking simulation — no live rider connected');
+
+  if (tag) { tag.textContent = live ? 'Live status' : 'Demo simulation'; tag.classList.toggle('is-live', live); }
+  if (code) code.textContent = live && demoTrack.orderNumber ? demoTrack.orderNumber : DEMO_TRACK_SAMPLE_CODE;
+  if (stamp) {
+    stamp.textContent = live ? 'Live' : 'Sample';
+    stamp.setAttribute('aria-label', live ? 'Live status' : 'Sample');
+    stamp.classList.toggle('is-live', live);
+  }
+
+  if (live && route && fill && truck) {
+    const percent = demoTrackPercent(demoTrack.stage);
+    const width = Math.max(0, route.clientWidth - 32);
+    const x = 16 + percent * width;
+    fill.style.width = (percent * width) + 'px';
+    truck.style.left = x + 'px';
+    if (marker) marker.style.left = x + 'px';
+  }
+
+  const stageLabel = TRACK_STAGE_LABEL[demoTrack.status] || demoTrack.status || '';
+  if (statusText) statusText.textContent = live ? 'Rider status —' : 'Demo simulation —';
+  if (etaValue) {
+    etaValue.textContent = live ? (demoTrack.status === 'Cancelled' ? 'Cancelled' : stageLabel) : 'no live rider';
+    etaValue.title = live
+      ? 'Mirrors the rider’s real status changes. No GPS tracking.'
+      : 'Sample animation — not a real delivery';
+  }
+}
+
+/* ---- Presentation-only: hero waybill route animation ----------------------
+   Fills the route line and moves the truck marker along it once on page
+   load. Respects prefers-reduced-motion and pauses while the stub is
+   scrolled out of view. Runs ONLY in simulation mode: once the card is showing
+   live rider status the simulated motion stops and the marker sits at the real
+   stage position. Visual only — no app logic. */
+let waybillAnim = null;
+function stopWaybillAnimation() {
+  if (waybillAnim) { waybillAnim.stopped = true; if (waybillAnim.raf) cancelAnimationFrame(waybillAnim.raf); waybillAnim = null; }
+}
+function playWaybill() {
+  stopWaybillAnimation();
+  // Live mode: the marker position IS the rider's real stage — never animate.
+  if (demoTrack.mode === 'live' && document.getElementById('waybillCard')) return;
+  const fill = document.getElementById('waybillRouteFill');
+  const truck = document.getElementById('waybillTruck');
+  const marker = document.getElementById('waybillRouteMarker');
   if (!fill || !truck || !fill.parentElement) return;
   const route = fill.parentElement;
+  // NOTE: no ETA text is written here anymore. The fabricated "18 min" counter
+  // is gone — the ETA line belongs to renderDemoTracking(), which only ever
+  // shows the real stage label or the word "no live rider".
   const finish = () => {
     fill.style.width = Math.max(0, route.clientWidth - 32) + 'px';
     const x = Math.max(16, route.clientWidth - 16);
     truck.style.left = x + 'px';
     if (marker) marker.style.left = x + 'px';
-    if (eta) eta.textContent = '18 min';
   };
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
 
@@ -4419,7 +4971,6 @@ function playWaybill() {
       const x = 16 + eased * w;
       truck.style.left = x + 'px';
       if (marker) marker.style.left = x + 'px';
-      if (eta) eta.textContent = Math.max(18, Math.round(21 - 3 * eased)) + ' min';
     }
     if (t < 1) anim.raf = requestAnimationFrame(step);
   };
@@ -4712,6 +5263,8 @@ async function render() {
   else view = notFound();
   $('#app').innerHTML = view;
   initReplacementDecisionUi(parts);
+  initVendorProductImageUi();
+  initDemoTracking();
   playWaybill();
   initVendorCarousel();
   updateChrome();
@@ -4844,6 +5397,18 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
   return false;
 }
 
+// Broken/missing product pictures fall back to the emoji icon: the markup always
+// renders the icon layer BEHIND the image, so hiding a failed <img> reveals it.
+// Capture phase is required because 'error' does not bubble, and an inline
+// onerror attribute would be blocked by the site's CSP.
+document.addEventListener('error', e => {
+  const el = e.target;
+  if (!el || el.tagName !== 'IMG' || !el.dataset || !el.dataset.imgGuard) return;
+  el.hidden = true;
+  const wrap = el.closest('.pcard__thumb, .product-detail__media, .prod-thumb, .img-upload__preview');
+  if (wrap) wrap.classList.add('is-broken');
+}, true);
+
 document.addEventListener('click', async e=>{
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
@@ -4854,6 +5419,7 @@ document.addEventListener('click', async e=>{
   const vpToggle=e.target.closest('[data-vp-toggle]'); if(vpToggle){ toggleVendorProductActive(vpToggle.dataset.vpToggle); }
   const vpDelete=e.target.closest('[data-vp-delete]'); if(vpDelete){ deleteVendorProduct(vpDelete.dataset.vpDelete); }
   if(e.target.id==='vendorProductClear'){ resetVendorProductForm(); }
+  const vpImgRemove=e.target.closest('#vendorProductImageRemove'); if(vpImgRemove){ dropVendorProductImageSelection(); }
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
   const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){

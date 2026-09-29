@@ -1144,6 +1144,7 @@ function adminSidebar() {
       count: (state.reports || []).filter(r => r.status === 'Open').length
     },
     { key: 'settings', label: 'Settings', icon: '⚙️' }
+  ]; // array terminator (was missing — made the whole module fail to parse)
   return `<nav class="admin-nav" aria-label="Admin sections"><ul class="admin-nav__list">
     ${sections.map(s => `
       <li>

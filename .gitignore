@@ -7,6 +7,7 @@ npm-debug.log*
 .env.*
 *.pem
 supabase/.temp/
+.tmp/
 
 # OS / editor noise
 .DS_Store

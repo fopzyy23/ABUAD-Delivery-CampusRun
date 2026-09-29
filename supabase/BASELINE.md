@@ -95,22 +95,29 @@ the live schema via PostgREST probes):
 4. Live data (vendors/products catalog â€” reproducible via
    `npm run seed:catalog` with a service-role env var).
 
-## 4. Reproduction procedure (fresh Supabase project)
+## 4. Reproduction procedure
 
-1. Create the 5 base tables per the snapshot in Â§2 (enable RLS; default
-   Supabase grants to anon/authenticated are fine at this stage).
-2. Create the `auth`-schema-linked columns exactly as listed (profiles.id
-   mirrors auth.users.id; orders.user_id / rider tables reference it).
-3. Apply every migration in Â§1 in filename order (all are idempotent;
-   20260815 drops and recreates all base-table policies, so any interim
-   policy state self-heals).
-4. Seed the catalog: `npm run seed:catalog`
-   (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars; never commit keys).
-5. Verify with the read-only validators in `scripts/` (no service-role key
-   needed): `validate_action12.js`, `_validate_payment_prep.js`,
-   `validate_action10.js`, `validate_vendor_migration.js`,
-   `validate_discovery_migration.js`, then the live checks
-   (`validate_action11_live.js`, `verify_rls_readonly.js`).
+### Fresh install
+
+1. Create an empty Supabase project; Supabase Auth must be available.
+2. Run `supabase/bootstrap/00000000_base_schema.sql` once in the SQL Editor.
+   This is a fresh-install bootstrap, not a normal upgrade migration.
+3. Apply every file in `supabase/migrations/` in filename order.
+4. Deploy every directory under `supabase/functions/` and configure the
+   secrets listed in §7. Configure the Vault entry listed in §8 before
+   applying the scheduler migration.
+5. Seed optional development catalog data with `npm run seed:catalog` using
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+6. Run `node scripts/validate_all.js`; run `--live` only against staging.
+
+### Existing deployment
+
+1. Do not run the bootstrap file and do not recreate the five base tables.
+2. Confirm the existing migration history, then apply only pending files in
+   `supabase/migrations/` in filename order, including the three 20261218–20
+   files when they are intentionally adopted.
+3. Deploy changed Edge Functions, configure secrets/Vault, and run offline
+   validators before any staging live checks.
 
 ## 5. Live schema introspection (ACTION 13 finding)
 
