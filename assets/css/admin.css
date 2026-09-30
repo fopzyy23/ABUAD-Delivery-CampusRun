@@ -797,6 +797,26 @@ html[data-theme="dark"] .badge--brand {
 .admin-sidebar {
   position: sticky;
   top: 20px;
+  min-width: 0;
+}
+
+.admin-sidebar ul,
+.admin-sidebar ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-sidebar li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-sidebar button {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: inherit;
 }
 
 .admin-mobile-menu { display:none; }
