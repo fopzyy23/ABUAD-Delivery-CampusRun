@@ -77,10 +77,19 @@ the live schema via PostgREST probes):
 - **notifications** (20260903) and **withdrawal_requests** (20260905) are
   fully migration-owned.
 
+Fresh-install compatibility note: the historical pre-migration baseline is the
+five tables above. The bootstrap additionally creates the complete initial
+`public.riders` table because 20260815 and 20260818 reference it before
+20260819's tracked `CREATE TABLE IF NOT EXISTS` definition. This does not claim
+that riders was part of the historical five-table baseline. The bootstrap is
+for fresh environments only and is not executed by normal `supabase db push`
+against existing environments.
+
 ## 3. What is NOT reproducible from migrations alone
 
-1. `CREATE TABLE` statements for the 5 base tables (exact PK/FK/type DDL,
-   including whether products.id is integer or bigint).
+1. `CREATE TABLE` statements for the 5 historical base tables (exact PK/FK/type
+   DDL, including whether products.id is integer or bigint). Fresh installs
+   also receive the riders compatibility prerequisite described above.
 2. Initial `ENABLE ROW LEVEL SECURITY` on the base tables â€” **but**
    `20260815_fix_rls_security.sql` re-runs `ENABLE ROW LEVEL SECURITY` on
    profiles/riders/orders/order_items/vendors/products, so applying the
@@ -105,7 +114,10 @@ the live schema via PostgREST probes):
    production; never run push/reset/migration-repair/remote SQL/function deploy
    commands while that production link remains unintentionally active.
 2. Run `supabase/bootstrap/00000000_base_schema.sql` once in the SQL Editor.
-   This is a fresh-install bootstrap, not a normal upgrade migration.
+   It contains the five historical base tables plus the fresh-install riders
+   compatibility prerequisite required by 20260815 and 20260818. This file is
+   for fresh environments only; normal `supabase db push` does not execute it
+   against existing environments.
 3. Configure the staging frontend/CSP and non-scheduler Edge environment,
    including `DROPZYY_ENVIRONMENT=staging`, Paystack TEST, explicit
    `ALLOWED_ORIGIN`, and `PAYSTACK_CALLBACK_URL`.

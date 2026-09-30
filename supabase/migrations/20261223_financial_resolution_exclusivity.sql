@@ -31,9 +31,9 @@ FROM (
          bool_or(r.id IS NOT NULL) AS has_refund,
          bool_or(t.id IS NOT NULL) AS has_reimbursement,
          bool_or(r.status = 'processed' OR t.status = 'success') AS has_terminal,
-         min(r.payment_id) FILTER (WHERE r.id IS NOT NULL) AS payment_id,
-         min(r.id) FILTER (WHERE r.id IS NOT NULL) AS refund_id,
-         min(c.id) FILTER (WHERE t.id IS NOT NULL) AS cancellation_id
+         min(r.payment_id::text) FILTER (WHERE r.id IS NOT NULL)::uuid AS payment_id,
+         min(r.id::text) FILTER (WHERE r.id IS NOT NULL)::uuid AS refund_id,
+         min(c.id::text) FILTER (WHERE t.id IS NOT NULL)::uuid AS cancellation_id
   FROM public.orders o
   LEFT JOIN public.refunds r ON r.order_id=o.id
     AND r.status IN ('approved','processing','processed')

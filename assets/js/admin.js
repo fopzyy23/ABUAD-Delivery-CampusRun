@@ -17,11 +17,15 @@ let state = {
   ordersLoading: false,
   ordersError: null,
   riders: [],
+  riderMetrics: {},
   users: [],
   withdrawals: [],
   withdrawalsLoading: false,
   withdrawalsError: null,
   refunds: [],
+  payments: [],
+  paymentsLoading: false,
+  paymentsError: null,
   refundsLoading: false,
   refundsError: null,
   settlements: [],
@@ -32,6 +36,14 @@ let state = {
   reports: [],
   reportsLoading: false,
   reportsError: null,
+  ratings: [],
+  ratingsLoading: false,
+  ratingsError: null,
+  notifications: [],
+  notificationsLoading: false,
+  notificationsError: null,
+  auditLogs: [], auditLogsLoading: false, auditLogsError: null,
+  adminUsers: [], adminUsersLoading: false, adminUsersError: null,
   vendorApplications: [],
   vendorApplicationsLoading: false,
   vendorApplicationsError: null,
@@ -342,9 +354,7 @@ async function syncVendorToSupabase(vendor) {
   lastVendorSyncError = null;
   try {
     if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
-    const { error } = await supabase
-      .from('vendors')
-      .upsert(vendorToRow(vendor), { onConflict: 'id' });
+    const { error } = await supabase.rpc('admin_upsert_vendor', { p_vendor: vendorToRow(vendor) });
     if (error) throw error;
     return true;
   } catch (err) {
@@ -365,9 +375,8 @@ async function syncProductToSupabase(product) {
   const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
-    const { error } = await supabase
-      .from('products')
-      .upsert(productToRow(product), { onConflict: 'id' });
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_upsert_product', { p_product: productToRow(product) });
     if (error) throw error;
     return true;
   } catch (err) {
@@ -382,27 +391,15 @@ async function deleteVendorFromSupabase(vendorId) {
   const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
-    const { error: productError } = await supabase
-      .from('products')
-      .update({ active: false })
-      .eq('vendor_id', vendorId);
-    if (productError) {
-      console.error('Supabase vendor delete failed:', {
-        code: productError.code,
-        message: productError.message,
-        details: productError.details,
-        hint: productError.hint,
-        vendorId,
-        operation: 'product deactivation',
-        entity: 'products'
-      });
-      return false;
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { data: products, error: productReadError } = await supabase.from('products').select('id').eq('vendor_id', vendorId);
+    if (productReadError) throw productReadError;
+    for (const product of products || []) {
+      const { error: productError } = await supabase.rpc('admin_deactivate_product', { p_product_id: product.id });
+      if (productError) throw productError;
     }
-
-    const { error: vendorError } = await supabase
-      .from('vendors')
-      .update({ open: false })
-      .eq('id', vendorId);
+    const vendor = state.catalog?.vendors?.find(v => v.id === vendorId);
+    const { error: vendorError } = await supabase.rpc('admin_upsert_vendor', { p_vendor: vendorToRow({ ...vendor, open: false }) });
     if (vendorError) {
       console.error('Supabase vendor delete failed:', {
         code: vendorError.code,
@@ -435,10 +432,8 @@ async function deactivateProductInSupabase(productId) {
   const state = currentAdminState();
   if (!supabaseAvailable()) return false;
   try {
-    const { error } = await supabase
-      .from('products')
-      .update({ active: false })
-      .eq('id', productId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_deactivate_product', { p_product_id: productId });
     if (error) throw error;
     return true;
   } catch (err) {
@@ -843,21 +838,14 @@ async function addVendor(formData) {
     opening_hours: (formData.get('opening_hours') || '').trim()
   };
 
-  const existingIndex = state.catalog.vendors.findIndex(v => v.id === vendor.id);
-  if (existingIndex >= 0) {
-    state.catalog.vendors[existingIndex] = vendor;
-  } else {
-    state.catalog.vendors.push(vendor);
-  }
-
-  // Save to localStorage (fallback)
-  saveCatalog();
-
-  // Sync to Supabase
   const synced = await syncVendorToSupabase(vendor);
   if (!synced) {
-    toast(adminMfaMessage(lastVendorSyncError?.message || 'Vendor saved locally (Supabase sync failed)'), 'error');
+    toast(adminMfaMessage(lastVendorSyncError?.message || 'Vendor save failed; no local changes were made'), 'error');
   } else {
+    const existingIndex = state.catalog.vendors.findIndex(v => v.id === vendor.id);
+    if (existingIndex >= 0) state.catalog.vendors[existingIndex] = vendor;
+    else state.catalog.vendors.push(vendor);
+    saveCatalog();
     toast('Vendor saved successfully');
   }
 
@@ -894,14 +882,12 @@ async function toggleVendor(vendorId) {
   if (vendor) {
     vendor.open = !vendor.open;
 
-    // Save to localStorage (fallback)
-    saveCatalog();
-
-    // Sync to Supabase
     const synced = await syncVendorToSupabase(vendor);
     if (!synced) {
-      toast(adminMfaMessage(lastVendorSyncError?.message || `Vendor ${vendor.open ? 'opened' : 'closed'} locally (Supabase sync failed)`), 'error');
+      vendor.open = !vendor.open;
+      toast(adminMfaMessage(lastVendorSyncError?.message || 'Vendor update failed; no local changes were made'), 'error');
     } else {
+      saveCatalog();
       toast(`Vendor ${vendor.open ? 'opened' : 'closed'}`);
     }
 
@@ -925,21 +911,14 @@ async function addProduct(formData) {
     image: safeImageUrl(formData.get('image'))
   };
 
-  const existingIndex = state.catalog.products.findIndex(p => p.id === product.id);
-  if (existingIndex >= 0) {
-    state.catalog.products[existingIndex] = product;
-  } else {
-    state.catalog.products.push(product);
-  }
-
-  // Save to localStorage (fallback)
-  saveCatalog();
-
-  // Sync to Supabase
   const synced = await syncProductToSupabase(product);
   if (!synced) {
-    toast('Product saved locally (Supabase sync failed)', 'error');
+    toast('Product save failed; no local changes were made', 'error');
   } else {
+    const existingIndex = state.catalog.products.findIndex(p => p.id === product.id);
+    if (existingIndex >= 0) state.catalog.products[existingIndex] = product;
+    else state.catalog.products.push(product);
+    saveCatalog();
     toast('Product saved successfully');
   }
 
@@ -949,6 +928,7 @@ async function addProduct(formData) {
 async function deleteProduct(productId) {
   const state = currentAdminState();
   if (await DropzyyModal.confirm({ title:'Delete product', message:'Delete this product?', confirmText:'Delete product', danger:true })) {
+    const previousProducts = clone(state.catalog.products);
     state.catalog.products = state.catalog.products.filter(p => p.id !== Number(productId));
     // Remove any cart entries that referenced the deleted product
     const cart = load('cart', []);
@@ -960,7 +940,9 @@ async function deleteProduct(productId) {
     // Deactivate in Supabase (soft delete — keeps FK integrity)
     const synced = await deactivateProductInSupabase(Number(productId));
     if (!synced) {
-      toast('Product deleted locally (Supabase sync failed)', 'error');
+      state.catalog.products = previousProducts;
+      saveCatalog();
+      toast('Product deactivation failed; no local changes were made', 'error');
     } else {
       toast('Product deleted');
     }
@@ -1008,6 +990,8 @@ async function init() {
     if (state !== currentAdminState()) return false;
     await loadRiders();
     if (state !== currentAdminState()) return false;
+    await loadRiderMetrics();
+    if (state !== currentAdminState()) return false;
     await loadAssignableUsers();
     if (state !== currentAdminState()) return false;
   }
@@ -1018,11 +1002,17 @@ async function init() {
   // Refund requests are always refreshed on admin entry.
   await loadRefundsFromSupabase();
   if (state !== currentAdminState()) return false;
+  await loadPaymentsFromSupabase();
+  if (state !== currentAdminState()) return false;
   await loadSettlementsFromSupabase();
   if (state !== currentAdminState()) return false;
   // Issue reports are always refreshed on admin entry so new reports from
   // customers (homepage "Report an Issue") appear.
   await loadReportsFromSupabase();
+  if (state !== currentAdminState()) return false;
+  await loadRatingsFromSupabase();
+  if (state !== currentAdminState()) return false;
+  await loadNotificationsFromSupabase();
   if (state !== currentAdminState()) return false;
   // Automatic cutoff claims are refreshed on entry so failed claims are retried.
   await loadAutomaticCutoffClaimsFromSupabase();
@@ -1033,6 +1023,8 @@ async function init() {
   if (state !== currentAdminState()) return false;
   await loadSiteSettingsFromSupabase();
   if (state !== currentAdminState()) return false;
+  await loadGovernanceData();
+  if (state !== currentAdminState()) return false;
   // If orders failed to load, the error banner renders here.
   if (state !== currentAdminState()) return false;
   renderAdminWorkspace();
@@ -1041,6 +1033,18 @@ async function init() {
 
 // Load the global settings from Supabase. The database row is the source of
 // truth; this is intentionally not backed by localStorage.
+async function loadPaymentsFromSupabase() {
+  const state = currentAdminState();
+  state.paymentsLoading = true; state.paymentsError = null;
+  try {
+    const { data, error } = await supabase.from('payments').select('id,order_id,reference,transaction_id,amount,currency,status,gateway,created_at,updated_at').order('created_at', { ascending: false });
+    if (error) throw error;
+    state.payments = data || [];
+  } catch (err) {
+    state.payments = []; state.paymentsError = err.message || 'Could not load payment ledger.';
+  } finally { state.paymentsLoading = false; }
+}
+
 async function loadSiteSettingsFromSupabase() {
   const state = currentAdminState();
   state.siteSettingsLoading = true;
@@ -1053,7 +1057,7 @@ async function loadSiteSettingsFromSupabase() {
   try {
     const { data, error } = await supabase
       .from('site_settings')
-      .select('maintenance_mode')
+      .select('maintenance_mode,weekday_delivery_start,weekday_delivery_end,weekend_delivery_start,weekend_delivery_end,timezone,updated_at')
       .eq('id', 1)
       .maybeSingle();
     if (error) throw error;
@@ -1070,6 +1074,13 @@ async function loadSiteSettingsFromSupabase() {
   }
 }
 
+async function loadGovernanceData() {
+  const s = currentAdminState();
+  s.auditLogsLoading = true; s.adminUsersLoading = true;
+  try { const q = await supabase.from('admin_action_audit').select('*').order('created_at',{ascending:false}).limit(500); if (q.error) throw q.error; s.auditLogs=q.data||[]; } catch(e) { s.auditLogs=[]; s.auditLogsError=e.message||'Audit log load failed'; } finally { s.auditLogsLoading=false; }
+  try { const q = await supabase.from('profiles').select('id,full_name,email,role,created_at').eq('role','admin').order('created_at',{ascending:false}); if(q.error) throw q.error; s.adminUsers=q.data||[]; } catch(e) { s.adminUsers=[]; s.adminUsersError=e.message||'Admin list load failed'; } finally { s.adminUsersLoading=false; }
+}
+
 async function updateMaintenanceMode(enabled) {
   const state = currentAdminState();
   if (!supabaseAvailable()) {
@@ -1078,41 +1089,19 @@ async function updateMaintenanceMode(enabled) {
   }
   try {
     // Require AAL2 for platform-wide maintenance toggle
-    const userClient = createClient(
-      (typeof supabase !== 'undefined' && supabase.supabaseUrl) || '',
-      '',
-      { global: { headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ''}` } } }
-    );
-    // We'll use the direct supabase client with the user's JWT
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      toast('Please sign in again to change maintenance mode', 'error');
-      return false;
-    }
-    const { error: aalErr } = await supabase.rpc('require_admin_aal2');
-    if (aalErr) {
-      toast('AAL2/MFA is required to change Maintenance Mode', 'error');
-      return false;
-    }
-
-    const { data, error } = await supabase
-      .from('site_settings')
-      .update({ maintenance_mode: Boolean(enabled) })
-      .eq('id', 1)
-      .select('maintenance_mode')
-      .single();
+    const { data: setting, error } = await supabase.rpc('admin_set_maintenance_mode', { p_enabled: Boolean(enabled) });
     if (error) throw error;
-    state.siteSettings = data;
+    state.siteSettings = { maintenance_mode: Boolean(setting) };
     window.dispatchEvent(new CustomEvent('dropzyy:maintenance-changed', {
-      detail: { enabled: Boolean(data.maintenance_mode) }
+      detail: { enabled: Boolean(setting) }
     }));
     const maintenanceChannel = new BroadcastChannel('dropzyy-maintenance');
     maintenanceChannel.postMessage({
       type: 'maintenance-changed',
-      enabled: Boolean(data.maintenance_mode)
+      enabled: Boolean(setting)
     });
     maintenanceChannel.close();
-    toast(`Maintenance Mode turned ${data.maintenance_mode ? 'ON' : 'OFF'}`);
+    toast(`Maintenance Mode turned ${setting ? 'ON' : 'OFF'}`);
     return true;
   } catch (err) {
     console.error('Maintenance mode update failed:', err);
@@ -1187,10 +1176,39 @@ function renderLogin() {
 // gate in app.js and the standalone admin.html entry, and changes no data,
 // RLS, RPC, or business logic.
 let adminSection = 'dashboard';
+let financeFilter = { query: '', status: 'all', page: 1 };
 
 // Sidebar navigation with at-a-glance pending-count badges (presentational).
 function adminSidebar() {
+  // The navigation is intentionally broader than the underlying data loaders.
+  // Related views reuse the existing, audited management workflows below.
   const sections = [
+    { key: 'dashboard', label: 'Dashboard', icon: '⌂', group: 'Overview' },
+    { key: 'orders', label: 'Orders', icon: '▤', group: 'Operations' },
+    { key: 'deliveries', label: 'Deliveries', icon: '⌁', group: 'Operations' },
+    { key: 'customers', label: 'Customers', icon: '♙', group: 'Operations' },
+    { key: 'riders', label: 'Riders', icon: '◉', group: 'Operations', count: (state.riders || []).filter(r => r.status === 'pending').length },
+    { key: 'vendors', label: 'Vendors', icon: '▣', group: 'Marketplace', count: (state.vendorApplications || []).filter(a => a.status === 'Pending').length },
+    { key: 'restaurants', label: 'Restaurants', icon: '⌂', group: 'Marketplace' },
+    { key: 'products', label: 'Products', icon: '□', group: 'Marketplace' },
+    { key: 'categories', label: 'Categories', icon: '≡', group: 'Marketplace' },
+    { key: 'payments', label: 'Payments', icon: '₦', group: 'Finance', count: (state.refunds || []).filter(r => r.status === 'requested').length },
+    { key: 'settlements', label: 'Settlements', icon: '⇄', group: 'Finance' },
+    { key: 'withdrawals', label: 'Withdrawals', icon: '↓', group: 'Finance' },
+    { key: 'transfers', label: 'Transfers', icon: '→', group: 'Finance' },
+    { key: 'refunds', label: 'Refunds / Reimbursements', icon: '↩', group: 'Finance' },
+    { key: 'ratings', label: 'Ratings', icon: '★', group: 'Insights' },
+    { key: 'reports', label: 'Reports', icon: '▥', group: 'Insights', count: (state.reports || []).filter(r => r.status === 'Open').length },
+    { key: 'notifications', label: 'Notifications', icon: '◌', group: 'System' },
+    { key: 'settings', label: 'Platform Settings', icon: '⚙', group: 'System' },
+    { key: 'admin-management', label: 'Admin Management', icon: '♟', group: 'System' },
+    { key: 'audit-logs', label: 'Audit Logs', icon: '⌕', group: 'System' },
+    { key: 'security', label: 'Security', icon: '◇', group: 'System' }
+  ];
+  let previousGroup = '';
+  return `<button class="admin-mobile-menu" type="button" aria-controls="adminNav" aria-expanded="false" data-admin-menu>☰ <span>Menu</span></button><nav id="adminNav" class="admin-nav" aria-label="Admin sections"><ul class="admin-nav__list">${sections.map(s => `${s.group !== previousGroup ? `<li class="admin-nav__group">${previousGroup = s.group}</li>` : ''}<li><button type="button" class="admin-nav__item${adminSection === s.key ? ' is-active' : ''}" data-admin-nav="${s.key}"${adminSection === s.key ? ' aria-current="page"' : ''}><span class="admin-nav__icon" aria-hidden="true">${s.icon}</span><span class="admin-nav__label">${s.label}</span>${s.count ? `<span class="admin-nav__count">${s.count}</span>` : ''}</button></li>`).join('')}</ul></nav>`;
+// Legacy sidebar retained for reference during rollout.
+  const legacySections = [
     { key: 'dashboard', label: 'Dashboard', icon: '🏠' },
     { key: 'orders', label: 'Orders', icon: '🧾' },
     {
@@ -1229,6 +1247,82 @@ function adminSidebar() {
   </ul></nav>`;
 }
 
+function renderAdminUtilitySection(key) {
+  const labels = {
+    ratings: ['Ratings', 'Monitor customer and rider feedback without altering historical ratings.'],
+    notifications: ['Notifications', 'Review operational notifications and delivery alerts.'],
+    'admin-management': ['Admin Management', 'Manage administrator access through Supabase Auth and MFA.'],
+    'audit-logs': ['Audit Logs', 'Immutable operational history for sensitive admin activity.'],
+    security: ['Security', 'Review MFA posture and protected financial operations.']
+  };
+  const [title, description] = labels[key] || ['Admin workspace', ''];
+  return `<div class="page-head"><div><span class="badge badge--brand">Control center</span><h1 class="mt-1">${title}</h1><p class="muted">${description}</p></div></div><div class="card utility-panel"><div class="card__head"><h3>${title} workspace</h3><span class="badge badge--info">Protected</span></div><p class="muted">This workspace is ready for live records and keeps financial and order history intact. Use the existing operational sections for actions currently backed by Supabase.</p><div class="admin-actions"><button class="btn btn--soft" data-admin-nav="dashboard">Back to dashboard</button><button class="btn btn--ghost" data-admin-nav="settings">Review platform settings</button></div></div>`;
+}
+function renderAdminManagementWorkspace() {
+  const q=(document.getElementById('adminUserSearch')?.value||'').toLowerCase(); const rows=(state.adminUsers||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Admin Management</h1><p class="muted">Read-only administrator roster. Role changes remain server-controlled.</p></div><button class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="adminUserSearch" placeholder="Search admins"></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>MFA</th></tr></thead><tbody>${adminSupportTableState(rows,state.adminUsersLoading,state.adminUsersError,5,'No administrators found.')||rows.map(x=>`<tr><td>${escHtml(x.full_name||'—')}</td><td>${escHtml(x.email||'—')}</td><td>${escHtml(x.role)}</td><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>Session MFA required for protected actions</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+function renderAuditLogsWorkspace() {
+  const q=(document.getElementById('auditSearch')?.value||'').toLowerCase(); const rows=(state.auditLogs||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Audit Logs</h1><p class="muted">Immutable sensitive-action history. No edit, delete, or clear operation is available.</p></div><button class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="auditSearch" placeholder="Search actor, action or entity"></div><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Entity</th><th>Before / After</th></tr></thead><tbody>${adminSupportTableState(rows,state.auditLogsLoading,state.auditLogsError,5,'No audit events found.')||rows.map(x=>`<tr data-audit-detail="${x.id}"><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>${escHtml(x.admin_id)}</td><td>${escHtml(x.action)}</td><td>${escHtml(x.entity_type)} ${escHtml(x.entity_id||'')}</td><td><button class="link-btn" data-audit-view="${x.id}">View JSON</button></td></tr>`).join('')}</tbody></table></div></div>`;
+}
+function renderSecurityWorkspace() {
+  const sensitive=(state.auditLogs||[]).filter(x=>/admin|suspend|maintenance|withdraw|refund|transfer|review|settings/i.test(`${x.action} ${x.entity_type}`)).slice(0,25);
+  return `<div class="page-head"><div><span class="badge badge--brand">Security</span><h1 class="mt-1">Security Center</h1><p class="muted">Safe posture and recent sensitive activity.</p></div></div><div class="stats-grid mt-2"><div class="stat-card"><span>Current AAL</span><b>${escHtml(state.mfa.aal?.currentLevel||'unknown')}</b></div><div class="stat-card"><span>MFA enrolled</span><b>${state.mfa.factors.some(f=>f.status==='verified')?'Yes':'No'}</b></div></div><div class="card mt-2"><div class="card__head"><h3>Recent security-sensitive events</h3><button class="link-btn" data-admin-nav="audit-logs">Open audit logs</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Action</th><th>Entity</th></tr></thead><tbody>${sensitive.length?sensitive.map(x=>`<tr><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>${escHtml(x.action)}</td><td>${escHtml(x.entity_type)} ${escHtml(x.entity_id||'')}</td></tr>`).join(''):'<tr><td colspan="3" class="muted center">No security events found.</td></tr>'}</tbody></table></div></div><div class="card mt-2"><p class="muted">Session/device management and MFA secrets are not exposed or managed here. Paystack keys, tokens, passwords, and TOTP secrets remain unavailable to the panel.</p></div>`;
+}
+function paymentReconciliation(p) {
+  const order = state.orders.find(o => o.dbId === p.order_id);
+  if (!order) return '<span class="badge badge--danger">Order missing</span>';
+  if (p.status === 'success' && order.payment_status && order.payment_status !== 'success') return '<span class="badge badge--danger">Payment/order mismatch</span>';
+  return `<span class="badge badge--${p.status === 'failed' ? 'danger' : p.status === 'success' ? 'success' : 'warn'}">${escHtml(p.status)}</span>`;
+}
+function transferReconciliation(t) {
+  const stale = ['pending','processing'].includes(t.status) && t.created_at && Date.now() - new Date(t.created_at).getTime() > 60 * 60 * 1000;
+  return `<span class="badge badge--${['failed','reversed'].includes(t.status) ? 'danger' : stale ? 'warn' : t.status === 'success' ? 'success' : 'info'}">${stale ? 'Stuck ' : ''}${escHtml(t.status)}</span>`;
+}
+function withdrawalReconciliation(w) {
+  const t = state.transfers.find(x => Number(x.withdrawal_request_id) === Number(w.id));
+  if (['approved','paid'].includes(w.status) && !t) return '<span class="badge badge--danger">Transfer missing</span>';
+  return withdrawalStatusBadge(w.status);
+}
+function settlementReconciliation(s) {
+  const t = state.transfers.find(x => (s.kind === 'vendor' ? x.vendor_settlement_id : x.delivery_settlement_id) === s.id);
+  if (s.status === 'pending' && t?.status === 'success') return '<span class="badge badge--danger">State mismatch</span>';
+  return `<span class="badge badge--${t?.status === 'success' ? 'success' : t?.status === 'failed' ? 'danger' : 'warn'}">${escHtml(s.status)}</span>`;
+}
+function renderRefundWorkspace() { return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Refunds / Reimbursements</h1><p class="muted">Provider-authoritative refunds and reimbursement recovery.</p></div></div>${renderPaymentsSection()}`; }
+function renderFinancialResolutionWorkspace() {
+  const cases = [];
+  state.transfers.filter(t => ['failed','reversed'].includes(t.status)).forEach(t => cases.push({ id:t.id, type:'Transfer', reason:t.status, target:'transfers' }));
+  state.payments.filter(p => paymentReconciliation(p).includes('danger')).forEach(p => cases.push({ id:p.id, type:'Payment', reason:'payment/order mismatch', target:'payments' }));
+  state.withdrawals.filter(w => withdrawalReconciliation(w).includes('danger')).forEach(w => cases.push({ id:w.id, type:'Withdrawal', reason:'transfer missing', target:'withdrawals' }));
+  (state.cancellations || []).filter(c => ['admin_resolution_required','reimbursement_failed'].includes(c.stage)).forEach(c => cases.push({ id:c.id, type:'Reimbursement', reason:c.stage, target:'refunds' }));
+  return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Financial Resolution</h1><p class="muted">Read-only exception queue. Use the linked workspace for supported recovery actions.</p></div><button class="btn btn--ghost btn--sm" data-finance-refresh>Refresh</button></div><div class="card"><div class="card__head"><h3>Exceptions requiring attention</h3><span class="muted small">${cases.length} detected</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Type</th><th>Record</th><th>Reason</th><th>Workspace</th></tr></thead><tbody>${cases.length ? cases.map(c => `<tr><td>${escHtml(c.type)}</td><td>${escHtml(c.id)}</td><td><span class="badge badge--danger">${escHtml(c.reason)}</span></td><td><button class="link-btn" data-admin-nav="${c.target}">Open</button></td></tr>`).join('') : '<tr><td colspan="4" class="muted center">No financial exceptions detected.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderFinanceWorkspace(kind) {
+  const titles = { payments: 'Payments', settlements: 'Settlements', withdrawals: 'Withdrawals', transfers: 'Transfers', refunds: 'Refunds / Reimbursements', financial: 'Financial Resolution' };
+  const title = titles[kind] || 'Finance';
+  if (kind === 'refunds') return renderRefundWorkspace();
+  if (kind === 'financial') return renderFinancialResolutionWorkspace();
+  const source = kind === 'payments' ? state.payments : kind === 'withdrawals' ? state.withdrawals : kind === 'transfers' ? state.transfers : state.settlements;
+  const query = financeFilter.query.toLowerCase();
+  const rows = source.filter(row => {
+    const text = JSON.stringify(row).toLowerCase();
+    return (!query || text.includes(query)) && (financeFilter.status === 'all' || row.status === financeFilter.status);
+  });
+  const pageSize = 20, pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  financeFilter.page = Math.min(financeFilter.page, pages);
+  const visible = rows.slice((financeFilter.page - 1) * pageSize, financeFilter.page * pageSize);
+  const cells = kind === 'payments' ? ['Payment', 'Order', 'Amount', 'State', 'Provider', 'Created'] : kind === 'withdrawals' ? ['Withdrawal', 'Rider', 'Amount', 'State', 'Transfer', 'Requested'] : kind === 'transfers' ? ['Transfer', 'Payee', 'Amount', 'State', 'Reference', 'Created'] : ['Settlement', 'Order', 'Payee', 'Amount', 'State', 'Transfer'];
+  const body = visible.length ? visible.map(row => {
+    if (kind === 'payments') return `<tr><td><b>${escHtml(row.reference)}</b><div class="muted small">${escHtml(row.id)}</div></td><td>${escHtml(state.orders.find(o => o.dbId === row.order_id)?.id || row.order_id)}</td><td>${money(row.amount)}</td><td>${escHtml(row.status)}</td><td>${escHtml(row.gateway)}</td><td>${formatDate(row.created_at)}</td></tr>`;
+    if (kind === 'withdrawals') return `<tr><td>${row.id}</td><td>${escHtml(row.rider_id)}</td><td>${money(row.amount)}</td><td>${withdrawalStatusBadge(row.status)}</td><td>${escHtml((state.transfers.find(t => Number(t.withdrawal_request_id) === Number(row.id)) || {}).status || '—')}</td><td>${formatDate(row.requested_at)}</td></tr>`;
+    if (kind === 'transfers') return `<tr><td>${escHtml(row.id)}</td><td>${escHtml(row.payee_type)}</td><td>${money(row.amount)}</td><td>${escHtml(row.status)}</td><td>${escHtml(row.paystack_reference)}</td><td>${formatDate(row.created_at)}</td></tr>`;
+    return `<tr><td>${escHtml(row.id)}</td><td>${escHtml(state.orders.find(o => o.dbId === row.order_id)?.id || row.order_id)}</td><td>${escHtml(row.kind === 'vendor' ? row.vendor_id : row.rider_id)}</td><td>${money(row.authoritative_amount)}</td><td>${escHtml(row.status)}</td><td>${escHtml((state.transfers.find(t => (row.kind === 'vendor' ? t.vendor_settlement_id : t.delivery_settlement_id) === row.id) || {}).status || '—')}</td></tr>`;
+  }).join('') : `<tr><td colspan="6" class="muted center">No ${title.toLowerCase()} match the current filters.</td></tr>`;
+  const statuses = [...new Set(source.map(r => r.status).filter(Boolean))];
+  return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">${title}</h1><p class="muted">Server-authoritative financial records. No browser-side success marking.</p></div><button class="btn btn--ghost btn--sm" data-finance-refresh>Refresh</button></div><div class="card"><div class="admin-filters"><input class="input" data-finance-search placeholder="Search records" value="${escHtml(financeFilter.query)}"><select class="select" data-finance-status><option value="all">All statuses</option>${statuses.map(s => `<option value="${escHtml(s)}" ${financeFilter.status === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr>${cells.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div><div class="admin-filters"><span class="muted small">${rows.length} records · page ${financeFilter.page} of ${pages}</span><div><button class="btn btn--ghost btn--sm" data-finance-page="prev" ${financeFilter.page <= 1 ? 'disabled' : ''}>Previous</button> <button class="btn btn--ghost btn--sm" data-finance-page="next" ${financeFilter.page >= pages ? 'disabled' : ''}>Next</button></div></div></div>${kind === 'payments' && state.paymentsError ? `<p class="orders-error">${escHtml(state.paymentsError)}</p>` : ''}`;
+}
 function renderAdminWorkspace() {
   if (!state.isAuthenticated) { renderLogin(); return; }
   const vendors = state.catalog ? state.catalog.vendors : [];
@@ -1255,13 +1349,22 @@ function renderAdminWorkspace() {
   let view;
   if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
-  else if (adminSection === 'vendors') view = renderVendorsSection(shared);
+  else if (adminSection === 'deliveries') view = renderDeliveriesSection(shared);
+  else if (adminSection === 'vendors') view = renderVendorOperationsSection(shared);
   else if (adminSection === 'riders') view = renderRidersSection(shared);
-  else if (adminSection === 'customers') view = renderCustomersSection(shared);
+  else if (adminSection === 'customers') view = renderCustomerOperationsSection(shared);
+  else if (adminSection === 'restaurants') view = renderRestaurantOperationsSection(shared);
+  else if (adminSection === 'products') view = renderProductsOperationsSection(shared);
+  else if (adminSection === 'categories') view = renderCategoriesOperationsSection(shared);
   else if (adminSection === 'catalog') view = renderCatalogSection(shared);
-  else if (adminSection === 'payments') view = renderPaymentsSection(shared);
-  else if (adminSection === 'financial') view = renderFinancialSection(shared);
-  else if (adminSection === 'reports') view = renderReportsSection(shared);
+  else if (['payments', 'settlements', 'withdrawals', 'transfers', 'refunds', 'financial'].includes(adminSection)) view = renderFinanceWorkspace(adminSection);
+  else if (['financial', 'refunds'].includes(adminSection)) view = renderFinancialSection(shared);
+  else if (adminSection === 'reports') view = renderReportsWorkspace();
+  else if (adminSection === 'ratings') view = renderRatingsWorkspace();
+  else if (adminSection === 'notifications') view = renderNotificationsWorkspace();
+  else if (adminSection === 'admin-management') view = renderAdminManagementWorkspace();
+  else if (adminSection === 'audit-logs') view = renderAuditLogsWorkspace();
+  else if (adminSection === 'security') view = renderSecurityWorkspace();
   else view = renderSettingsSection(shared);
 
   const app = $('#app');
@@ -1284,6 +1387,20 @@ function renderAdminWorkspace() {
 // ---------------------------------------------------------------------------
 // Dashboard: overview + things requiring attention. No full management tables.
 // ---------------------------------------------------------------------------
+function renderDeliveriesSection({ orders, riders, vendors }) {
+  const deliveryOrders = orders.filter(o => o.delivery_method !== 'vendor_self');
+  const status = financeFilter.deliveryStatus || 'all';
+  const query = financeFilter.deliveryQuery || '';
+  const vendor = financeFilter.deliveryVendor || 'all';
+  const rider = financeFilter.deliveryRider || 'all';
+  const rows = deliveryOrders.filter(o => (!query || JSON.stringify(o).toLowerCase().includes(query.toLowerCase())) && (status === 'all' || o.status === status) && (vendor === 'all' || o.vendor_id === vendor) && (rider === 'all' || o.rider_id === rider));
+  const pageSize = 20, pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  financeFilter.deliveryPage = Math.min(financeFilter.deliveryPage || 1, pages);
+  const visible = rows.slice((financeFilter.deliveryPage - 1) * pageSize, financeFilter.deliveryPage * pageSize);
+  const stalled = o => ['Order confirmed','Rider assigned','Picked up','On the Way'].includes(o.status) && o.created && Date.now() - new Date(o.created).getTime() > 60 * 60 * 1000;
+  return `<div class="page-head"><div><span class="badge badge--brand">Operations</span><h1 class="mt-1">Deliveries</h1><p class="muted">Order-backed delivery lifecycle. No duplicate delivery records are created.</p></div><button class="btn btn--ghost btn--sm" data-delivery-refresh>Refresh</button></div><div class="grid grid--stats"><div class="stat"><span class="stat__label">Awaiting rider</span><span class="stat__value">${deliveryOrders.filter(o => !o.rider_id && ['Order confirmed','Ready for pickup'].includes(o.status)).length}</span></div><div class="stat"><span class="stat__label">Active</span><span class="stat__value">${deliveryOrders.filter(o => ['Rider assigned','Picked up','On the Way'].includes(o.status)).length}</span></div><div class="stat"><span class="stat__label">Stalled</span><span class="stat__value">${deliveryOrders.filter(stalled).length}</span></div><div class="stat"><span class="stat__label">Delivered</span><span class="stat__value">${deliveryOrders.filter(o => ['Delivered','Rated'].includes(o.status)).length}</span></div></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-delivery-search placeholder="Search order, customer or location" value="${escHtml(query)}"><select class="select" data-delivery-status><option value="all">All statuses</option>${['Order confirmed','Ready for pickup','Rider assigned','Picked up','On the Way','Delivered','Rated','Cancelled'].map(s => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><select class="select" data-delivery-rider><option value="all">All riders</option>${riders.map(r => `<option value="${r.id}" ${rider === r.id ? 'selected' : ''}>${escHtml(r.full_name || r.matric_number || r.id)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Customer</th><th>Pickup / delivery</th><th>Rider</th><th>Payment</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${visible.length ? visible.map(o => `<tr class="${stalled(o) ? 'report-row--open' : ''}"><td><b>#${escHtml(o.id)}</b></td><td>${escHtml(o.user_id || '—')}</td><td>${escHtml(o.spot || '—')}</td><td>${escHtml(o.rider_id || 'Awaiting rider')}</td><td>${escHtml(o.payment_status || 'unknown')}</td><td><span class="status-badge ${orderStatusClass(o.status)}">${escHtml(o.status)}${stalled(o) ? ' · stalled' : ''}</span></td><td>${formatDate(o.created)}</td><td><button class="link-btn" data-delivery-detail="${escHtml(o.dbId)}">Details</button>${!['Delivered','Rated','Cancelled'].includes(o.status) ? ` <button class="link-btn" data-assign-delivery="${escHtml(o.dbId)}">Assign</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="8" class="muted center">No deliveries match the current filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">${rows.length} deliveries · page ${financeFilter.deliveryPage} of ${pages}</span><button class="btn btn--ghost btn--sm" data-delivery-page="next" ${financeFilter.deliveryPage >= pages ? 'disabled' : ''}>Next</button></div></div>`;
+}
+
 function renderDashboardSection({ vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue }) {
   const pendingNow = orders.filter(o => (o.status || 'Order confirmed') === 'Order confirmed').length;
   const attention = [
@@ -1294,6 +1411,9 @@ function renderDashboardSection({ vendors, products, orders, riders, totalOrders
     { key: 'payments', icon: '💵', label: 'Withdrawal requests to review', count: (state.withdrawals || []).filter(w => w.status === 'pending').length },
     { key: 'reports', icon: '📋', label: 'Open issue reports', count: (state.reports || []).filter(r => r.status === 'Open').length }
   ];
+  attention.push({ key: 'deliveries', icon: '!', label: 'Stalled deliveries', count: orders.filter(o => ['Rider assigned','Picked up','On the Way'].includes(o.status) && o.created && Date.now()-new Date(o.created).getTime()>60*60*1000).length });
+  attention.push({ key: 'transfers', icon: '→', label: 'Failed or reversed transfers', count: (state.transfers||[]).filter(t=>['failed','reversed'].includes(t.status)).length });
+  attention.push({ key: 'financial', icon: '⚖', label: 'Financial resolution required', count: (state.cancellations||[]).filter(c=>c.stage==='admin_resolution_required').length + (state.automaticCutoffClaims||[]).filter(c=>c.status==='admin_resolution_required').length });
   const waiting = attention.filter(a => a.count > 0);
   const recent = orders.slice(0, 5);
   const quickActions = [
@@ -1579,6 +1699,12 @@ function renderOrdersSection({ filteredOrders, orders }) {
 // ---------------------------------------------------------------------------
 // Vendors: vendor storefronts + applications.
 // ---------------------------------------------------------------------------
+function renderVendorOperationsSection({ vendors, products, orders }) {
+  const q=financeFilter.vendorQuery||'', status=financeFilter.vendorStatus||'all'; const rows=vendors.filter(v=>(!q||JSON.stringify(v).toLowerCase().includes(q.toLowerCase()))&&(status==='all'||(v.open?'open':'closed')===status)); const page=financeFilter.vendorPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)),visible=rows.slice((page-1)*size,page*size);
+  return `<div class="page-head"><div><span class="badge badge--brand">Marketplace</span><h1 class="mt-1">Vendors</h1><p class="muted">Vendor profiles, applications, catalog linkage and order activity.</p></div><button class="btn btn--ghost btn--sm" data-vendor-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-vendor-search placeholder="Search vendors" value="${escHtml(q)}"><select class="select" data-vendor-status><option value="all">All storefronts</option><option value="open" ${status==='open'?'selected':''}>Open</option><option value="closed" ${status==='closed'?'selected':''}>Closed</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Vendor</th><th>Type</th><th>Store</th><th>Products</th><th>Active orders</th><th>Completed</th><th>Delivery</th><th></th></tr></thead><tbody>${visible.length?visible.map(v=>{const ps=products.filter(p=>p.vendor===v.id),os=orders.filter(o=>o.vendor_id===v.id);return `<tr><td><b>${escHtml(v.name)}</b><div class="muted small">${escHtml(v.id)}</div></td><td>${escHtml(v.type||'—')}</td><td>${v.open?'Open':'Closed'}</td><td>${ps.length}</td><td>${os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length}</td><td>${os.filter(o=>['Delivered','Rated'].includes(o.status)).length}</td><td>${escHtml(v.delivery_method||'rider')}</td><td><button class="link-btn" data-vendor-detail="${escHtml(v.id)}">Details</button></td></tr>`}).join(''):'<tr><td colspan="8" class="muted center">No vendors match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-vendor-page="next" ${page>=pages?'disabled':''}>Next</button></div></div><div class="card mt-2"><div class="card__head"><h3>Vendor applications</h3><span class="muted small">${state.vendorApplications.filter(a=>a.status==='Pending').length} pending</span></div><div class="table-wrap"><table class="table"><tbody>${renderVendorApplicationRows()}</tbody></table></div></div>`;
+}
+function renderRestaurantOperationsSection(shared) { return renderVendorOperationsSection({ ...shared, vendors: shared.vendors.filter(v=>/restaurant/i.test(v.type||'')) }); }
+
 function renderVendorsSection({ vendors }) {
   return `
     <div class="page-head">
@@ -1719,7 +1845,7 @@ function renderVendorsSection({ vendors }) {
 // ---------------------------------------------------------------------------
 // Riders: applications + active/suspended riders.
 // ---------------------------------------------------------------------------
-function renderRidersSection() {
+function renderRidersLegacySection() {
   return `
     <div class="page-head">
       <div>
@@ -1809,9 +1935,25 @@ function renderRidersSection() {
   `;
 }
 
+function renderRidersSection() {
+  const q = financeFilter.riderQuery || '', status = financeFilter.riderStatus || 'all';
+  const filtered = state.riders.filter(r => (!q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase())) && (status === 'all' || r.status === status));
+  const page = financeFilter.riderPage || 1, size = 20, pages = Math.max(1, Math.ceil(filtered.length / size));
+  const rows = filtered.slice((page - 1) * size, page * size);
+  return `<div class="page-head"><div><span class="badge badge--brand">Fleet</span><h1 class="mt-1">Riders</h1><p class="muted">Authoritative rider status, availability, delivery activity and earnings.</p></div><button class="btn btn--ghost btn--sm" data-rider-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-rider-search placeholder="Search rider" value="${escHtml(q)}"><select class="select" data-rider-status><option value="all">All statuses</option>${['pending','approved','suspended','rejected'].map(s => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>Rider</th><th>Status</th><th>Availability</th><th>Active</th><th>Completed</th><th>Rating</th><th>Gross</th><th>Available balance</th><th>Pending withdrawals</th><th></th></tr></thead><tbody>${rows.length ? rows.map(r => { const m=state.riderMetrics[r.id]||{}, e=m.earnings||{}; return `<tr><td><b>${escHtml(r.full_name || r.matric_number || r.id)}</b><div class="muted small">${escHtml(r.phone || '')}</div></td><td>${escHtml(r.status)}</td><td>${r.status === 'approved' ? (r.available ? 'Available' : 'Offline / busy') : '—'}</td><td>${m.active ?? '—'}</td><td>${m.completed ?? '—'}</td><td>${r.rating_avg ?? '—'} (${r.rating_count || 0})</td><td>${e.gross_earned != null ? money(e.gross_earned) : '—'}</td><td>${e.available_balance != null ? money(e.available_balance) : '—'}</td><td>${state.withdrawals.filter(w => w.rider_id === r.id && ['pending','approved'].includes(w.status)).length}</td><td><button class="link-btn" data-rider-detail="${r.id}">Details</button></td></tr>`; }).join('') : '<tr><td colspan="10" class="muted center">No riders match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-rider-page="next" ${page >= pages ? 'disabled' : ''}>Next</button></div></div>`;
+}
+
 // ---------------------------------------------------------------------------
 // Customers: user accounts + vendor assignment (the existing account/role table).
 // ---------------------------------------------------------------------------
+function renderProductsOperationsSection({ vendors, products }) {
+  const q=financeFilter.productQuery||'', vf=financeFilter.productVendor||'all', cf=financeFilter.productCategory||'all', af=financeFilter.productAvailability||'all';
+  const rows=products.filter(p=>(!q||JSON.stringify(p).toLowerCase().includes(q.toLowerCase()))&&(vf==='all'||p.vendor===vf)&&(cf==='all'||p.category===cf)&&(af==='all'||(af==='active'?p.active:!p.active))); const page=financeFilter.productPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)),visible=rows.slice((page-1)*size,page*size); const categories=[...new Set(products.map(p=>p.category).filter(Boolean))];
+  return `<div class="page-head"><div><span class="badge badge--brand">Catalog</span><h1 class="mt-1">Products</h1><p class="muted">Server-authoritative products. Historical order items are preserved.</p></div><button class="btn btn--ghost btn--sm" data-product-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-product-search placeholder="Search products" value="${escHtml(q)}"><select class="select" data-product-vendor><option value="all">All vendors</option>${vendors.map(v=>`<option value="${escHtml(v.id)}" ${vf===v.id?'selected':''}>${escHtml(v.name)}</option>`).join('')}</select><select class="select" data-product-category><option value="all">All categories</option>${categories.map(c=>`<option value="${escHtml(c)}" ${cf===c?'selected':''}>${escHtml(c)}</option>`).join('')}</select><select class="select" data-product-availability><option value="all">All availability</option><option value="active" ${af==='active'?'selected':''}>Active</option><option value="inactive" ${af==='inactive'?'selected':''}>Deactivated</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th>Vendor</th><th>Category</th><th>Price</th><th>Availability</th><th>Image</th><th></th></tr></thead><tbody>${visible.length?visible.map(p=>`<tr><td><b>${escHtml(p.name)}</b></td><td>${escHtml(vendors.find(v=>v.id===p.vendor)?.name||p.vendor)}</td><td>${escHtml(p.category||'—')}</td><td>${money(p.price)}</td><td>${p.active===false?'Deactivated':'Active'}</td><td>${p.image?'Yes':'—'}</td><td><button class="link-btn" data-product-detail="${p.id}">Details</button></td></tr>`).join(''):'<tr><td colspan="7" class="muted center">No products match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-product-page="next" ${page>=pages?'disabled':''}>Next</button></div></div>`;
+}
+function renderCategoriesOperationsSection({ products }) { const q=financeFilter.categoryQuery||'', all=[...new Set(products.map(p=>p.category).filter(Boolean))].filter(c=>c.toLowerCase().includes(q.toLowerCase())), page=financeFilter.categoryPage||1,size=20,pages=Math.max(1,Math.ceil(all.length/size)); return `<div class="page-head"><div><span class="badge badge--brand">Catalog</span><h1 class="mt-1">Categories</h1><p class="muted">Categories remain product strings; no normalization migration was introduced.</p></div><button class="btn btn--ghost btn--sm" data-product-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-category-search placeholder="Search categories" value="${escHtml(q)}"></div><div class="table-wrap"><table class="table"><thead><tr><th>Category</th><th>Product count</th><th>Vendor usage</th><th>Visibility</th></tr></thead><tbody>${all.slice((page-1)*size,page*size).map(c=>{const ps=products.filter(p=>p.category===c);return `<tr><td><b>${escHtml(c)}</b></td><td>${ps.length}</td><td>${new Set(ps.map(p=>p.vendor)).size}</td><td>Supported through product availability</td></tr>`}).join('')||'<tr><td colspan="4" class="muted center">No categories found.</td></tr>'}</tbody></table></div></div>`; }
+function renderCustomerOperationsSection({ orders }) { const q=financeFilter.customerQuery||'', rows=state.users.filter(u=>!q||JSON.stringify(u).toLowerCase().includes(q.toLowerCase())); const page=financeFilter.customerPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)); return `<div class="page-head"><div><span class="badge badge--brand">Accounts</span><h1 class="mt-1">Customers</h1><p class="muted">Read-only customer operations; order and financial history is preserved.</p></div><button class="btn btn--ghost btn--sm" data-customer-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-customer-search placeholder="Search name, email or phone" value="${escHtml(q)}"></div><div class="table-wrap"><table class="table"><thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>Orders</th><th>Active</th><th>Completed</th><th>Cancelled</th><th></th></tr></thead><tbody>${rows.slice((page-1)*size,page*size).map(u=>{const os=orders.filter(o=>o.user_id===u.id);return `<tr><td><b>${escHtml(u.full_name||u.id)}</b></td><td>${escHtml(u.email||'—')}</td><td>${escHtml(u.phone||'—')}</td><td>${os.length}</td><td>${os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length}</td><td>${os.filter(o=>['Delivered','Rated'].includes(o.status)).length}</td><td>${os.filter(o=>o.status==='Cancelled').length}</td><td><button class="link-btn" data-customer-detail="${u.id}">Details</button></td></tr>`}).join('')||'<tr><td colspan="8" class="muted center">No customers found.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-customer-page="next" ${page>=pages?'disabled':''}>Next</button></div></div>`; }
+
 function renderCustomersSection({ vendors }) {
   return `
     <div class="page-head">
@@ -2158,6 +2300,47 @@ function renderCutoffResolutionRows(claims) {
 // ---------------------------------------------------------------------------
 // Reports / Activity: customer issue reports.
 // ---------------------------------------------------------------------------
+async function loadRatingsFromSupabase() {
+  const s = currentAdminState(); s.ratingsLoading = true; s.ratingsError = null;
+  try { const { data, error } = await supabase.from('rider_ratings').select('*').order('created_at', { ascending: false }); if (error) throw error; s.ratings = data || []; }
+  catch (e) { s.ratings = []; s.ratingsError = e.message || 'Load failed'; }
+  s.ratingsLoading = false;
+}
+
+async function loadNotificationsFromSupabase() {
+  const s = currentAdminState(); s.notificationsLoading = true; s.notificationsError = null;
+  try { const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }); if (error) throw error; s.notifications = data || []; }
+  catch (e) { s.notifications = []; s.notificationsError = e.message || 'Load failed'; }
+  s.notificationsLoading = false;
+}
+
+function adminSupportTableState(items, loading, error, colspan, empty) {
+  if (loading && !items.length) return `<tr><td colspan="${colspan}" class="muted center">Loading…</td></tr>`;
+  if (error) return `<tr><td colspan="${colspan}" class="muted center">${escHtml(error)} <button class="link-btn" data-admin-refresh="${adminSection}">Refresh</button></td></tr>`;
+  if (!items.length) return `<tr><td colspan="${colspan}" class="muted center">${empty}</td></tr>`;
+  return null;
+}
+
+function renderRatingsWorkspace() {
+  const rows = state.ratings || [], avg = rows.length ? (rows.reduce((n, r) => n + Number(r.rating || 0), 0) / rows.length).toFixed(2) : '—';
+  return `<div class="page-head"><div><span class="badge badge--brand">Quality</span><h1 class="mt-1">Ratings</h1><p class="muted">Authoritative rider ratings. Ratings are preserved and read-only.</p></div><button class="btn btn--soft" data-admin-refresh="ratings">Refresh</button></div>
+    <div class="stats-grid mt-2"><div class="stat-card"><span>Total ratings</span><b>${rows.length}</b></div><div class="stat-card"><span>Average score</span><b>${avg}</b></div></div>
+    <div class="card mt-2"><div class="toolbar"><input class="input" id="ratingSearch" placeholder="Search review, order or rider ID"><select class="select" id="ratingFilter"><option value="all">All scores</option>${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join('')}</select></div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Score</th><th>Review</th><th>Order</th><th>Rider</th><th>Customer</th><th>Date</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('ratingSearch')?.value||'').toLowerCase(), f=document.getElementById('ratingFilter')?.value||'all'; const a=rows.filter(r=>(f==='all'||String(r.rating)===f)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.ratingsLoading,state.ratingsError,6,'No ratings found.'); return empty||a.map(r=>`<tr data-rating-detail="${r.id}"><td><b>${escHtml(String(r.rating))}/5</b></td><td>${escHtml(r.review||'—')}</td><td>${escHtml((r.order_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.rider_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.reviewer_id||'').slice(0,8)||'—')}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
+}
+
+function renderReportsWorkspace() {
+  const rows = state.reports || [];
+  return `<div class="page-head"><div><span class="badge badge--brand">Support</span><h1 class="mt-1">Reports & Support</h1><p class="muted">Review customer reports with audited, AAL2-protected status changes.</p></div><button class="btn btn--soft" data-admin-refresh="reports">Refresh</button></div>
+    <div class="card mt-2"><div class="toolbar"><input class="input" id="supportSearch" placeholder="Search reports, customers or orders"><select class="select" id="supportStatus"><option value="all">All statuses</option>${REPORT_STATUS_OPTIONS.map(x=>`<option>${x}</option>`).join('')}</select><select class="select" id="supportType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.subject).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>Report</th><th>Reporter</th><th>Type</th><th>Order</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('supportSearch')?.value||'').toLowerCase(), s=document.getElementById('supportStatus')?.value||'all', t=document.getElementById('supportType')?.value||'all'; const a=rows.filter(r=>(s==='all'||r.status===s)&&(t==='all'||r.subject===t)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.reportsLoading,state.reportsError,7,'No reports found.'); return empty||a.map(r=>`<tr data-report-row="${r.id}"><td>${escHtml(r.id.slice(0,8))}…</td><td>${escHtml(r.reporter_name||r.reporter_email||r.user_id||'Unknown')}</td><td>${escHtml(r.subject)}</td><td>${escHtml(r.order_number||'—')}</td><td>${escHtml(r.status)}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td><td><button class="link-btn" data-report-detail="${r.id}">View</button><button class="link-btn" data-review-report="${r.id}">Review</button></td></tr>`).join('')})()}</tbody></table></div></div>`;
+}
+
+function renderNotificationsWorkspace() {
+  const rows = state.notifications || [];
+  return `<div class="page-head"><div><span class="badge badge--brand">System</span><h1 class="mt-1">Notifications</h1><p class="muted">Server-generated in-app notifications. Email, SMS and push are not integrated.</p></div><button class="btn btn--soft" data-admin-refresh="notifications">Refresh</button></div>
+    <div class="card mt-2"><div class="toolbar"><input class="input" id="notificationSearch" placeholder="Search title, message or recipient"><select class="select" id="notificationType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.type).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select><select class="select" id="notificationAudience"><option value="all">All recipients</option><option value="read">Read</option><option value="unread">Unread</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Title</th><th>Message</th><th>Recipient</th><th>Type</th><th>State</th><th>Created</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('notificationSearch')?.value||'').toLowerCase(), t=document.getElementById('notificationType')?.value||'all', a=document.getElementById('notificationAudience')?.value||'all'; const x=rows.filter(r=>(t==='all'||r.type===t)&&(a==='all'||(a==='read'?r.is_read:!r.is_read))&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(x,state.notificationsLoading,state.notificationsError,6,'No notifications found.'); return empty||x.map(r=>`<tr data-notification-detail="${r.id}"><td>${escHtml(r.title)}</td><td>${escHtml(r.message)}</td><td>${escHtml((r.user_id||'').slice(0,8)||'—')}</td><td>${escHtml(r.type)}</td><td>${r.is_read?'Read':'Unread'}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
+}
+
 function renderReportsSection() {
   return `
     <div class="page-head">
@@ -2207,7 +2390,10 @@ function renderSettingsSection({ vendors, orders }) {
     { k: 'Completed (terminal) statuses', v: COMPLETED_STATUSES.join(' · ') || '—' },
     { k: 'Cancelled status', v: CANCELLED_STATUS },
     { k: 'Delivery fee values (from loaded orders)', v: deliveryFees.map(f => money(f)).join(' · ') || '—' },
-    { k: 'Vendor delivery methods in use', v: deliveryMethods.join(' · ') || '—' }
+    { k: 'Vendor delivery methods in use', v: deliveryMethods.join(' · ') || '—' },
+    { k: 'Weekday delivery hours', v: state.siteSettings ? `${state.siteSettings.weekday_delivery_start || '—'} – ${state.siteSettings.weekday_delivery_end || '—'}` : '—' },
+    { k: 'Weekend delivery hours', v: state.siteSettings ? `${state.siteSettings.weekend_delivery_start || '—'} – ${state.siteSettings.weekend_delivery_end || '—'}` : '—' },
+    { k: 'Timezone', v: state.siteSettings?.timezone || '—' }
   ];
   return `
     <div class="page-head">
@@ -2253,7 +2439,83 @@ function renderSettingsSection({ vendors, orders }) {
   `;
 }
 
+function showAdminSupportDetail(title, record) {
+  const root = document.getElementById('modalRoot');
+  if (!root) return;
+  root.innerHTML = `<div class="modal-backdrop" data-close-modal><div class="modal finance-detail-drawer" role="dialog" aria-modal="true"><div class="modal__head"><h3>${escHtml(title)} detail</h3><button class="icon-btn" data-close-modal>×</button></div><div class="modal__body"><dl class="detail-list">${Object.entries(record).map(([k,v])=>`<div><dt>${escHtml(k.replaceAll('_',' '))}</dt><dd>${escHtml(v == null || v === '' ? '—' : String(v))}</dd></div>`).join('')}</dl></div></div></div>`;
+  root.querySelectorAll('[data-close-modal]').forEach(x => x.addEventListener('click', e => { if (e.target === x || x.matches('button')) root.innerHTML = ''; }));
+}
+
 function attachAdminEventListeners() {
+  document.querySelector('[data-admin-menu]')?.addEventListener('click', e => { const nav=document.getElementById('adminNav'); const open=nav?.classList.toggle('is-open'); e.currentTarget.setAttribute('aria-expanded', String(Boolean(open))); });
+  document.querySelectorAll('[data-governance-refresh]').forEach(btn => btn.addEventListener('click', async () => { await loadSiteSettingsFromSupabase(); await loadGovernanceData(); renderAdminWorkspace(); }));
+  ['adminUserSearch','auditSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener('input',()=>renderAdminWorkspace()); });
+  document.querySelectorAll('[data-audit-view]').forEach(btn => btn.addEventListener('click', () => { const row=state.auditLogs.find(x=>String(x.id)===String(btn.dataset.auditView)); if(row) showAdminSupportDetail('Audit event',row); }));
+  document.querySelectorAll('[data-admin-refresh]').forEach(btn => btn.addEventListener('click', async () => {
+    const section = btn.dataset.adminRefresh;
+    if (section === 'ratings') await loadRatingsFromSupabase();
+    else if (section === 'notifications') await loadNotificationsFromSupabase();
+    else if (section === 'reports') await loadReportsFromSupabase();
+    renderAdminWorkspace();
+  }));
+  ['ratingSearch','ratingFilter','supportSearch','supportStatus','supportType','notificationSearch','notificationType','notificationAudience'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.addEventListener('input', () => renderAdminWorkspace());
+  });
+  document.querySelectorAll('[data-rating-detail]').forEach(row => row.addEventListener('click', () => {
+    const r = state.ratings.find(x => x.id === row.dataset.ratingDetail); if (r) showAdminSupportDetail('Rating', r);
+  }));
+  document.querySelectorAll('[data-notification-detail]').forEach(row => row.addEventListener('click', () => {
+    const r = state.notifications.find(x => x.id === row.dataset.notificationDetail); if (r) showAdminSupportDetail('Notification', r);
+  }));
+  document.querySelectorAll('[data-report-detail]').forEach(btn => btn.addEventListener('click', () => {
+    const r = state.reports.find(x => x.id === btn.dataset.reportDetail); if (r) showAdminSupportDetail('Report', r);
+  }));
+  document.querySelectorAll('[data-customer-detail]').forEach(b=>b.addEventListener('click',()=>showCustomerDetail(b.dataset.customerDetail)));
+  document.querySelectorAll('[data-product-detail]').forEach(b=>b.addEventListener('click',()=>showProductDetail(b.dataset.productDetail)));
+  document.querySelector('[data-product-search]')?.addEventListener('input',e=>{financeFilter.productQuery=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-product-vendor]')?.addEventListener('change',e=>{financeFilter.productVendor=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-product-category]')?.addEventListener('change',e=>{financeFilter.productCategory=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-product-availability]')?.addEventListener('change',e=>{financeFilter.productAvailability=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-product-page="next"]')?.addEventListener('click',()=>{financeFilter.productPage=(financeFilter.productPage||1)+1;renderAdminWorkspace();});
+  document.querySelector('[data-product-refresh]')?.addEventListener('click',async()=>{await loadCatalog();renderAdminWorkspace();});
+  document.querySelector('[data-category-search]')?.addEventListener('input',e=>{financeFilter.categoryQuery=e.target.value;financeFilter.categoryPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-customer-search]')?.addEventListener('input',e=>{financeFilter.customerQuery=e.target.value;financeFilter.customerPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-customer-page="next"]')?.addEventListener('click',()=>{financeFilter.customerPage=(financeFilter.customerPage||1)+1;renderAdminWorkspace();});
+  document.querySelector('[data-customer-refresh]')?.addEventListener('click',async()=>{await loadAssignableUsers();await loadOrders();renderAdminWorkspace();});
+  document.querySelectorAll('[data-vendor-detail]').forEach(btn=>btn.addEventListener('click',()=>showVendorDetail(btn.dataset.vendorDetail)));
+  document.querySelector('[data-vendor-search]')?.addEventListener('input',e=>{financeFilter.vendorQuery=e.target.value;financeFilter.vendorPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-vendor-status]')?.addEventListener('change',e=>{financeFilter.vendorStatus=e.target.value;financeFilter.vendorPage=1;renderAdminWorkspace();});
+  document.querySelector('[data-vendor-page="next"]')?.addEventListener('click',()=>{financeFilter.vendorPage=(financeFilter.vendorPage||1)+1;renderAdminWorkspace();});
+  document.querySelector('[data-vendor-refresh]')?.addEventListener('click',async()=>{await loadCatalog();await loadVendorApplicationsFromSupabase();renderAdminWorkspace();});
+
+  document.querySelectorAll('[data-rider-detail]').forEach(btn => btn.addEventListener('click', () => showRiderDetail(btn.dataset.riderDetail)));
+  document.querySelector('[data-rider-search]')?.addEventListener('input', e => { financeFilter.riderQuery=e.target.value; financeFilter.riderPage=1; renderAdminWorkspace(); });
+  document.querySelector('[data-rider-status]')?.addEventListener('change', e => { financeFilter.riderStatus=e.target.value; financeFilter.riderPage=1; renderAdminWorkspace(); });
+  document.querySelector('[data-rider-page="next"]')?.addEventListener('click', () => { financeFilter.riderPage=(financeFilter.riderPage||1)+1; renderAdminWorkspace(); });
+  document.querySelector('[data-rider-refresh]')?.addEventListener('click', async () => { await loadRiders(); await loadRiderMetrics(); renderAdminWorkspace(); });
+
+  document.querySelectorAll('[data-delivery-detail]').forEach(btn => btn.addEventListener('click', () => showDeliveryDetail(btn.dataset.deliveryDetail)));
+  document.querySelectorAll('[data-assign-delivery]').forEach(btn => btn.addEventListener('click', async () => {
+    const riderId = await DropzyyModal.prompt({ title:'Assign rider', message:'Enter an approved rider ID. The server validates eligibility, payment state and the active-delivery cap.', label:'Rider ID', placeholder:'UUID', confirmText:'Assign' });
+    if (!riderId) return;
+    const { error } = await supabase.rpc('admin_assign_delivery_rider', { p_order_id: btn.dataset.assignDelivery, p_rider_id: riderId.trim() });
+    if (error) { toast('Assignment failed: ' + (error.message || 'unknown error'), 'error'); return; }
+    toast('Rider assigned'); await loadOrders(); renderAdminWorkspace();
+  }));
+  document.querySelector('[data-delivery-search]')?.addEventListener('input', e => { financeFilter.deliveryQuery = e.target.value; financeFilter.deliveryPage = 1; renderAdminWorkspace(); });
+  document.querySelector('[data-delivery-status]')?.addEventListener('change', e => { financeFilter.deliveryStatus = e.target.value; financeFilter.deliveryPage = 1; renderAdminWorkspace(); });
+  document.querySelector('[data-delivery-rider]')?.addEventListener('change', e => { financeFilter.deliveryRider = e.target.value; financeFilter.deliveryPage = 1; renderAdminWorkspace(); });
+  document.querySelector('[data-delivery-page="next"]')?.addEventListener('click', () => { financeFilter.deliveryPage += 1; renderAdminWorkspace(); });
+  document.querySelector('[data-delivery-refresh]')?.addEventListener('click', async () => { await loadOrders(); renderAdminWorkspace(); });
+
+  document.querySelectorAll('[data-finance-detail]').forEach(btn => btn.addEventListener('click', () => showFinanceDetail(btn.dataset.financeDetail)));
+
+  const financeSearch = document.querySelector('[data-finance-search]');
+  financeSearch?.addEventListener('input', () => { financeFilter.query = financeSearch.value; financeFilter.page = 1; renderAdminWorkspace(); });
+  document.querySelector('[data-finance-status]')?.addEventListener('change', (event) => { financeFilter.status = event.target.value; financeFilter.page = 1; renderAdminWorkspace(); });
+  document.querySelector('[data-finance-page="prev"]')?.addEventListener('click', () => { financeFilter.page -= 1; renderAdminWorkspace(); });
+  document.querySelector('[data-finance-page="next"]')?.addEventListener('click', () => { financeFilter.page += 1; renderAdminWorkspace(); });
+  document.querySelector('[data-finance-refresh]')?.addEventListener('click', async () => { await loadPaymentsFromSupabase(); await loadWithdrawalsFromSupabase(); await loadSettlementsFromSupabase(); await loadRefundsFromSupabase(); renderAdminWorkspace(); });
 
   const maintenanceToggle = $('#maintenanceModeToggle');
   if (maintenanceToggle) {
@@ -2557,6 +2819,35 @@ function attachAdminEventListeners() {
   });
 }
 
+function showProductDetail(id){const p=state.catalog?.products?.find(x=>String(x.id)===String(id));if(!p)return;const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(p.name)}</h3><button class="btn btn--ghost btn--sm" data-close-product>Close</button></div><dl class="settings-list">${[['Vendor',p.vendor],['Category',p.category],['Price',money(p.price)],['Status',p.active===false?'Deactivated':'Active'],['Image',p.image||'—'],['Description',p.desc||'—']].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl></div></div>`;root.querySelector('[data-close-product]')?.addEventListener('click',()=>root.innerHTML='');}
+function showCustomerDetail(id){const u=state.users.find(x=>x.id===id);if(!u)return;const os=state.orders.filter(o=>o.user_id===id);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(u.full_name||u.id)}</h3><button class="btn btn--ghost btn--sm" data-close-customer>Close</button></div><dl class="settings-list">${[['Email',u.email||'—'],['Phone',u.phone||'—'],['Profile status',u.role||'user'],['Orders',os.length],['Active',os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed',os.filter(o=>['Delivered','Rated'].includes(o.status)).length],['Cancelled',os.filter(o=>o.status==='Cancelled').length]].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl><h4>Recent orders</h4><p class="muted small">${os.slice(0,10).map(o=>`#${escHtml(o.id)} · ${escHtml(o.status)}`).join('<br>')||'No orders.'}</p><p class="muted small">Account controls are read-only because no safe customer suspension model exists in the current schema.</p></div></div>`;root.querySelector('[data-close-customer]')?.addEventListener('click',()=>root.innerHTML='');}
+
+function showVendorDetail(vendorId){const v=state.catalog?.vendors?.find(x=>x.id===vendorId);if(!v)return;const products=state.catalog.products.filter(p=>p.vendor===vendorId),orders=state.orders.filter(o=>o.vendor_id===vendorId);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(v.name)}</h3><button class="btn btn--ghost btn--sm" data-close-vendor>Close</button></div><dl class="settings-list">${[['Type',v.type],['Store',v.open?'Open':'Closed'],['Delivery',v.delivery_method],['Products',products.length],['Active orders',orders.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed orders',orders.filter(o=>['Delivered','Rated'].includes(o.status)).length]].map(([k,x])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(x)}</dd></div>`).join('')}</dl><h4>Products</h4><p class="muted small">${products.map(p=>escHtml(p.name)).join(', ')||'No products'}</p><h4>Application</h4><p class="muted small">${escHtml(state.vendorApplications.find(a=>a.vendor_id===vendorId)?.status||'No linked application')}</p></div></div>`;root.querySelector('[data-close-vendor]')?.addEventListener('click',()=>root.innerHTML='');}
+
+function showRiderDetail(riderId) {
+  const rider = state.riders.find(r => String(r.id) === String(riderId)); if (!rider) return;
+  const m = state.riderMetrics[rider.id] || {}, active = state.orders.filter(o => o.rider_id === rider.id && ['Rider assigned','Picked up','On the Way'].includes(o.status));
+  const ratings = m.ratings || [], e = m.earnings || {};
+  const actions = rider.status === 'pending' ? `<button class="btn btn--soft" data-approve-rider="${rider.id}">Approve</button><button class="btn btn--dangerSoft" data-reject-rider="${rider.id}">Reject</button>` : rider.status === 'approved' ? `<button class="btn btn--dangerSoft" data-suspend-rider="${rider.id}">Suspend</button>` : rider.status === 'suspended' ? `<button class="btn btn--soft" data-unsuspend-rider="${rider.id}">Unsuspend</button>` : '';
+  const root=$('#modalRoot'); root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>Rider details</h3><button class="btn btn--ghost btn--sm" data-close-rider>Close</button></div><p><b>${escHtml(rider.full_name || rider.matric_number || rider.id)}</b> · ${escHtml(rider.status)} · ${rider.available ? 'Available' : 'Offline / busy'}</p><div class="admin-actions">${actions}</div><h4>Authoritative earnings</h4><dl class="settings-list">${[['Gross earned',e.gross_earned],['Withdrawn',e.withdrawn_amount],['Reserved',e.reserved_amount],['Available balance',e.available_balance],['Pending earnings',e.pending_earnings],['Bonus today',e.bonus_earned_today]].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${v != null ? money(v) : '—'}</dd></div>`).join('')}</dl><h4>Active deliveries (${active.length})</h4><p class="muted small">${active.map(o=>`#${escHtml(o.id)} · ${escHtml(o.status)}`).join('<br>') || 'None'}</p><h4>Recent ratings</h4><p class="muted small">${ratings.map(x=>`${x.rating}/5 · ${escHtml(x.review || 'No comment')} · ${formatDate(x.created_at)}`).join('<br>') || 'No ratings loaded.'}</p><h4>Withdrawal requests</h4><p class="muted small">${state.withdrawals.filter(w=>w.rider_id===rider.id).map(w=>`${w.id} · ${money(w.amount)} · ${escHtml(w.status)}`).join('<br>') || 'None'}</p></div></div>`;
+  root.querySelector('[data-close-rider]')?.addEventListener('click',()=>{root.innerHTML='';});
+  root.querySelectorAll('[data-approve-rider],[data-reject-rider],[data-suspend-rider],[data-unsuspend-rider]').forEach(btn=>btn.addEventListener('click',()=>{root.innerHTML=''; document.querySelector(`[data-${btn.dataset.approveRider?'approve':btn.dataset.rejectRider?'reject':btn.dataset.suspendRider?'suspend':'unsuspend'}-rider="${rider.id}"]`)?.click();}));
+}
+
+function showDeliveryDetail(orderId) {
+  const order = state.orders.find(o => String(o.dbId) === String(orderId)); if (!order) return;
+  const root = $('#modalRoot'); root.innerHTML = `<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>Delivery details</h3><button class="btn btn--ghost btn--sm" data-close-delivery>Close</button></div><dl class="settings-list">${Object.entries(order).map(([k,v]) => `<div class="settings-row"><dt>${escHtml(k)}</dt><dd>${escHtml(Array.isArray(v) ? JSON.stringify(v) : v)}</dd></div>`).join('')}</dl><p class="muted small">Historical status-event timestamps are not available in the current order model; this view shows authoritative current lifecycle fields only.</p></div></div>`;
+  root.querySelector('[data-close-delivery]')?.addEventListener('click', () => { root.innerHTML = ''; });
+}
+
+function showFinanceDetail(id) {
+  const record = [...state.payments, ...state.withdrawals, ...state.transfers, ...state.settlements, ...state.refunds].find(x => String(x.id) === String(id));
+  if (!record) return;
+  const root = $('#modalRoot');
+  root.innerHTML = `<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>Financial record</h3><button class="btn btn--ghost btn--sm" data-close-finance-detail>Close</button></div><dl class="settings-list">${Object.entries(record).filter(([k]) => k !== 'raw_payload').map(([k,v]) => `<div class="settings-row"><dt>${escHtml(k)}</dt><dd>${escHtml(typeof v === 'object' ? JSON.stringify(v) : v)}</dd></div>`).join('')}</dl></div></div>`;
+  root.querySelector('[data-close-finance-detail]')?.addEventListener('click', () => { root.innerHTML = ''; });
+}
+
 function editVendor(vendorId) {
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   if (!vendor) return;
@@ -2731,17 +3022,14 @@ async function reviewWithdrawal(requestId, newStatus, note) {
       await loadWithdrawalsFromSupabase(); loadSettlementsFromSupabase(); renderAdminWorkspace();
       return true;
     }
-    const { error } = await supabase
-      .from('withdrawal_requests')
-      .update({
-        status: newStatus,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: session.user.id,
-        admin_note: (note || '').trim() || null
-      })
-      .eq('id', requestId);
-    if (error) throw error;
-    toast(`Withdrawal request marked ${newStatus}`);
+    if (newStatus !== 'rejected') {
+      throw new Error('Pending and paid withdrawal states are server-managed');
+    }
+    const { error: rejectError } = await supabase.rpc('admin_reject_withdrawal', {
+      p_withdrawal_id: Number(requestId), p_note: (note || '').trim() || null
+    });
+    if (rejectError) throw rejectError;
+    toast('Withdrawal request rejected');
     await loadWithdrawalsFromSupabase();
     renderAdminWorkspace();
     return true;
@@ -3029,15 +3317,11 @@ async function updateReportReview(reportId, newStatus, adminResponse) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to review', 'error'); return false; }
-    const { error } = await supabase
-      .from('issue_reports')
-      .update({
-        status: newStatus,
-        admin_response: (adminResponse || '').trim() || null,
-        admin_reviewed_at: new Date().toISOString(),
-        admin_reviewed_by: session.user.id
-      })
-      .eq('id', reportId);
+    const { error } = await supabase.rpc('admin_review_issue_report', {
+      p_report_id: reportId,
+      p_status: newStatus,
+      p_admin_response: (adminResponse || '').trim() || null
+    });
     if (error) throw error;
     toast(`Report marked ${newStatus}`);
     await loadReportsFromSupabase();
@@ -3186,40 +3470,8 @@ async function approveVendorApplication(appId) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to approve', 'error'); return false; }
-    const slugify = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-    const vendorId = `${slugify(app.full_name) || 'vendor'}-${slugify(app.matric_number) || app.user_id.slice(0, 6)}`;
-    // 1. Storefront — must exist before assign_user_to_vendor links profiles.vendor_id to it.
-    const { error: vErr } = await supabase
-      .from('vendors')
-      .upsert({
-        id: vendorId,
-        name: app.full_name || vendorId,
-        icon: '🛍️',
-        type: 'Vendor',
-        rating: '4.5',
-        time: '15–25 min',
-        cover: '#d9f5e9',
-        open: true,
-        delivery_method: 'rider',
-        is_restaurant: false,
-        description: (app.what_they_want_to_sell || '').slice(0, 200)
-      }, { onConflict: 'id' });
-    if (vErr) throw vErr;
-    // 2. Activate the existing vendor relationship (admin-gated RPC).
-    const assigned = await assignUserToVendor(app.user_id, vendorId);
-    if (!assigned) throw new Error('vendor assignment failed');
-    // 3. Record the decision on the application.
-    const { error } = await supabase
-      .from('vendor_applications')
-      .update({
-        status: 'Approved',
-        vendor_id: vendorId,
-        admin_response: (app.admin_response || '').trim() || `Approved — your storefront (${vendorId}) is live. Manage it from the Vendor dashboard.`,
-        admin_reviewed_at: new Date().toISOString(),
-        admin_reviewed_by: session.user.id
-      })
-      .eq('id', appId);
-    if (error) throw error;
+    const { error: reviewError } = await supabase.rpc('admin_review_vendor_application', { p_application_id: appId, p_status: 'Approved', p_response: (app.admin_response || '').trim() || 'Approved — your storefront is live.' });
+    if (reviewError) throw reviewError;
     toast('Vendor approved — storefront created & vendor access granted');
     await loadVendorApplicationsFromSupabase();
     await loadCatalog();
@@ -3245,15 +3497,7 @@ async function rejectVendorApplication(appId) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session || !session.user) { toast('Sign in required to reject', 'error'); return false; }
-    const { error } = await supabase
-      .from('vendor_applications')
-      .update({
-        status: 'Rejected',
-        admin_response: reason.trim() || 'Rejected — please reach out via Report an Issue if you have questions.',
-        admin_reviewed_at: new Date().toISOString(),
-        admin_reviewed_by: session.user.id
-      })
-      .eq('id', appId);
+    const { error } = await supabase.rpc('admin_review_vendor_application', { p_application_id: appId, p_status: 'Rejected', p_response: reason.trim() || 'Rejected — please reach out via Report an Issue if you have questions.' });
     if (error) throw error;
     toast('Vendor application rejected');
     await loadVendorApplicationsFromSupabase();
@@ -3285,15 +3529,7 @@ async function updateVendorApplicationReview(appId, newStatus, adminResponse) {
       // creation + vendor activation) so the backend state stays consistent.
       return await approveVendorApplication(appId);
     }
-    const { error } = await supabase
-      .from('vendor_applications')
-      .update({
-        status: newStatus,
-        admin_response: (adminResponse || '').trim() || null,
-        admin_reviewed_at: new Date().toISOString(),
-        admin_reviewed_by: session.user.id
-      })
-      .eq('id', appId);
+    const { error } = await supabase.rpc('admin_review_vendor_application', { p_application_id: appId, p_status: newStatus, p_response: (adminResponse || '').trim() || null });
     if (error) throw error;
     toast(`Application marked ${newStatus}`);
     await loadVendorApplicationsFromSupabase();
@@ -3418,6 +3654,7 @@ document.addEventListener('click', (e) => {
   const key = navTrigger.getAttribute('data-admin-nav');
   if (key && key !== adminSection) {
     adminSection = key;
+    document.getElementById('adminNav')?.classList.remove('is-open');
     renderAdminWorkspace();
     window.scrollTo({ top: 0 });
   }
@@ -3568,6 +3805,10 @@ async function loadOrdersFromSupabase() {
       // the fallback matches the current flat ₦1,500 campus delivery fee.
       fee: order.fee != null ? order.fee : 1500,
       status: order.status || 'Order confirmed',
+      payment_status: order.payment_status || null,
+      delivery_method: order.delivery_method || 'rider',
+      rider_id: order.rider_id || null,
+      user_id: order.user_id || null,
       spot: order.spot || '',
       created: order.created_at
     }));
@@ -3628,10 +3869,8 @@ async function updateOrderStatus(orderId, status) {
       return;
     }
 
-    const { error } = await supabase
-      .from('orders')
-      .update({ status })
-      .eq('id', order.dbId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_update_order_status', { p_order_id: order.dbId, p_status: status });
     if (error) throw error;
     // Success toast fires ONLY after the server confirms (no error above).
     toast('Order status updated');
@@ -3686,31 +3925,48 @@ async function loadRiders() {
   store('riders', state.riders);
 }
 
+async function loadRiderMetrics() {
+  const metrics = {};
+  await Promise.all((state.riders || []).filter(r => r.dbId).map(async rider => {
+    try {
+      const [{ data: earnings }, { data: ratings }] = await Promise.all([
+        supabase.rpc('get_rider_earnings', { p_rider_id: rider.dbId }),
+        supabase.from('rider_ratings').select('id,order_id,rating,review,created_at').eq('rider_id', rider.dbId).order('created_at', { ascending: false }).limit(10)
+      ]);
+      const active = state.orders.filter(o => o.rider_id === rider.id && ['Rider assigned','Picked up','On the Way'].includes(o.status)).length;
+      const completed = state.orders.filter(o => o.rider_id === rider.id && ['Delivered','Rated'].includes(o.status)).length;
+      metrics[rider.id] = { earnings: earnings || null, ratings: ratings || [], active, completed };
+    } catch (err) { metrics[rider.id] = { error: err.message || 'Could not load rider metrics' }; }
+  }));
+  state.riderMetrics = metrics;
+}
+
 async function approveRider(riderId) {
   const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
+  const previousStatus = rider.status; const previousAvailable = rider.available;
 
   rider.status = 'approved';
   rider.available = true;
   store('riders', state.riders);
 
   if (!rider.dbId || !supabaseAvailable()) {
-    toast('Rider approved (status updated locally)');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider approval failed: Supabase unavailable', 'error');
     renderAdminWorkspace();
     return;
   }
 
   try {
-    const { error } = await supabase
-      .from('riders')
-      .update({ status: 'approved', available: true })
-      .eq('id', rider.dbId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_set_rider_status', { p_rider_id: rider.dbId, p_status: 'approved' });
     if (error) throw error;
     toast('Rider approved');
   } catch (err) {
     console.error('Supabase rider approval failed:', err);
-    toast('Rider approved locally (Supabase sync failed)', 'error');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider approval failed: ' + (err.message || 'Supabase mutation failed'), 'error');
   }
 
   renderAdminWorkspace();
@@ -3720,27 +3976,28 @@ async function rejectRider(riderId) {
   const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
+  const previousStatus = rider.status; const previousAvailable = rider.available;
 
   rider.status = 'rejected';
   rider.available = false;
   store('riders', state.riders);
 
   if (!rider.dbId || !supabaseAvailable()) {
-    toast('Rider rejected (status updated locally)');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider rejection failed: Supabase unavailable', 'error');
     renderAdminWorkspace();
     return;
   }
 
   try {
-    const { error } = await supabase
-      .from('riders')
-      .update({ status: 'rejected', available: false })
-      .eq('id', rider.dbId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_set_rider_status', { p_rider_id: rider.dbId, p_status: 'rejected' });
     if (error) throw error;
     toast('Rider rejected');
   } catch (err) {
     console.error('Supabase rider rejection failed:', err);
-    toast('Rider rejected locally (Supabase sync failed)', 'error');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider rejection failed: ' + (err.message || 'Supabase mutation failed'), 'error');
   }
 
   renderAdminWorkspace();
@@ -3753,27 +4010,28 @@ async function suspendRider(riderId) {
   const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
+  const previousStatus = rider.status; const previousAvailable = rider.available;
 
   rider.status = 'suspended';
   rider.available = false;
   store('riders', state.riders);
 
   if (!rider.dbId || !supabaseAvailable()) {
-    toast('Rider suspended (status updated locally)');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider suspension failed: Supabase unavailable', 'error');
     renderAdminWorkspace();
     return;
   }
 
   try {
-    const { error } = await supabase
-      .from('riders')
-      .update({ status: 'suspended', available: false })
-      .eq('id', rider.dbId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_set_rider_status', { p_rider_id: rider.dbId, p_status: 'suspended' });
     if (error) throw error;
     toast('Rider suspended');
   } catch (err) {
     console.error('Supabase rider suspension failed:', err);
-    toast('Rider suspended locally (Supabase sync failed)', 'error');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider suspension failed: ' + (err.message || 'Supabase mutation failed'), 'error');
   }
 
   renderAdminWorkspace();
@@ -3789,27 +4047,28 @@ async function unsuspendRider(riderId) {
   const state = currentAdminState();
   const rider = state.riders.find(item => item.id === riderId);
   if (!rider) return;
+  const previousStatus = rider.status; const previousAvailable = rider.available;
  
   rider.status = 'approved';
   rider.available = true;
   store('riders', state.riders);
  
   if (!rider.dbId || !supabaseAvailable()) {
-    toast('Rider unsuspended (status updated locally)');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider unsuspension failed: Supabase unavailable', 'error');
     renderAdminWorkspace();
     return;
   }
  
   try {
-    const { error } = await supabase
-      .from('riders')
-      .update({ status: 'approved', available: true })
-      .eq('id', rider.dbId);
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_set_rider_status', { p_rider_id: rider.dbId, p_status: 'approved' });
     if (error) throw error;
     toast('Rider unsuspended');
   } catch (err) {
     console.error('Supabase rider unsuspend failed:', err);
-    toast('Rider unsuspended locally (Supabase sync failed)', 'error');
+    rider.status = previousStatus; rider.available = previousAvailable; store('riders', state.riders);
+    toast('Rider unsuspension failed: ' + (err.message || 'Supabase mutation failed'), 'error');
   }
  
   renderAdminWorkspace();

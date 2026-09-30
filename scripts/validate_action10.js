@@ -62,7 +62,10 @@ check('withdrawals loaded on boot', /loadWithdrawalsFromSupabase\(\)/.test(app))
 console.log('\n== WITHDRAWAL FOUNDATION (admin side) ==');
 check('admin withdrawal loader exists', /async function loadWithdrawalsFromSupabase/.test(admin));
 check('admin review handler exists (approve/reject/paid)', /async function reviewWithdrawal/.test(admin));
-check('admin review only updates status/note/review fields', /status: newStatus/.test(admin) && /reviewed_at: new Date\(\)\.toISOString\(\)/.test(admin) && /admin_note:/.test(admin));
+check('admin rejection uses hardened admin_reject_withdrawal RPC', /supabase\.rpc\('admin_reject_withdrawal'/.test(admin) && /p_withdrawal_id: Number\(requestId\)/.test(admin));
+check('approved withdrawals use the secure Paystack transfer Edge Function', /functions\/v1\/paystack-transfer/.test(admin) && /withdrawal_id: Number\(requestId\)/.test(admin));
+check('admin withdrawal review has no direct browser mutation', !/from\(['"]withdrawal_requests['"]\)[\s\S]{0,240}\.(insert|update|upsert|delete)\(/i.test(admin));
+check('pending and paid states remain server-managed', /Pending and paid withdrawal states are server-managed/.test(admin));
 check('admin UI lists requests with rows', /renderWithdrawalRows\(\)/.test(admin) && /data-review-withdrawal/.test(admin));
 check('admin review wired to click handler', /data-review-withdrawal/.test(admin) && /reviewWithdrawal\(requestId, newStatus/.test(admin));
 check('paid requests cannot be re-reviewed (Save disabled)', /w\.status === 'paid' \? 'disabled' : ''/.test(admin));

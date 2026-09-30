@@ -72,7 +72,10 @@ check('header has Bank account column', /<th>Bank account<\/th>/.test(admin));
 check('withdrawal state rows use colspan="7"', /colspan="7" class="muted center">Loading withdrawal requests/.test(admin) && /colspan="7" class="muted center">No withdrawal requests yet/.test(admin) && /colspan="7" class="muted center">Could not load withdrawal requests/.test(admin));
 check('no stale colspan="6" in withdrawal rows', !/colspan="6" class="muted center">Loading withdrawal requests/.test(admin) && !/colspan="6" class="muted center">No withdrawal requests yet/.test(admin) && !/colspan="6" class="muted center">Could not load withdrawal requests/.test(admin));
 check('row renders bank details', admin.includes('w.bank_name ? escHtml'));
-check('reviewWithdrawal still only updates status/note/review', /status: newStatus/.test(admin) && /reviewed_at: new Date\(\)/.test(admin) && /reviewed_by: session\.user\.id/.test(admin));
+check('rejection uses admin_reject_withdrawal RPC', /supabase\.rpc\('admin_reject_withdrawal'/.test(admin) && /p_withdrawal_id: Number\(requestId\)/.test(admin));
+check('approved withdrawal uses secure Paystack transfer flow', /functions\/v1\/paystack-transfer/.test(admin) && /withdrawal_id: Number\(requestId\)/.test(admin));
+check('admin has no direct withdrawal_requests mutation', !/from\(['"]withdrawal_requests['"]\)[\s\S]{0,240}\.(insert|update|upsert|delete)\(/i.test(admin));
+check('pending/paid decisions remain server-controlled', /Pending and paid withdrawal states are server-managed/.test(admin));
 
 
 console.log('\n===============================');

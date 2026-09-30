@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const migrationDir = path.join(__dirname, '..', 'supabase', 'migrations');
+const bootstrapPath = path.join(__dirname, '..', 'supabase', 'bootstrap', '00000000_base_schema.sql');
 const names = fs.readdirSync(migrationDir).filter((n) => n.endsWith('.sql')).sort();
 let failed = 0;
 // Supabase accepts both date-only and timestamp migration versions. Compare
@@ -28,6 +29,62 @@ for (const n of [
 ]) {
   const ok = names.includes(n); console.log(`${ok ? 'PASS' : 'FAIL'} — required hardening migration ${n}`); if (!ok) failed++;
 }
+const bootstrapSql = fs.readFileSync(bootstrapPath, 'utf8');
+const ridersMigrationName = '20260819_restore_rider_hub.sql';
+const ridersMigrationSql = names.includes(ridersMigrationName)
+  ? fs.readFileSync(path.join(migrationDir, ridersMigrationName), 'utf8')
+  : '';
+function ridersTableDefinition(sql) {
+  return sql.match(/CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+public\.riders\s*\(([\s\S]*?)\)\s*;/i)?.[1] ?? null;
+}
+function normalizeDefinition(sql) {
+  return sql.toLowerCase().replace(/\s+/g, '').replace(/;$/, '');
+}
+const bootstrapRiders = ridersTableDefinition(bootstrapSql);
+const migrationRiders = ridersTableDefinition(ridersMigrationSql);
+const bootstrapHasRiders = bootstrapRiders !== null;
+console.log(`${bootstrapHasRiders ? 'PASS' : 'FAIL'} — fresh-install bootstrap defines public.riders before migration replay`);
+if (!bootstrapHasRiders) failed++;
+const profilesPosition = bootstrapSql.search(/CREATE\s+TABLE\s+public\.profiles\s*\(/i);
+const ridersPosition = bootstrapSql.search(/CREATE\s+TABLE\s+public\.riders\s*\(/i);
+const dependencyOrderOk = profilesPosition >= 0 && ridersPosition > profilesPosition;
+console.log(`${dependencyOrderOk ? 'PASS' : 'FAIL'} — bootstrap creates profiles before its riders foreign-key dependency`);
+if (!dependencyOrderOk) failed++;
+const requiredRiderShape = [
+  'id uuid primary key default gen_random_uuid()',
+  'user_id uuid not null references public.profiles(id) on delete cascade',
+  'matric_number text not null',
+  'phone text not null',
+  "status text not null default 'pending' check (status in ('pending','approved','rejected','suspended'))",
+  'available boolean not null default false',
+  'rating_avg numeric(3,2) not null default 5.00',
+  'rating_count integer not null default 0',
+  'created_at timestamptz not null default now()',
+  'updated_at timestamptz not null default now()',
+];
+const normalizedBootstrapRiders = normalizeDefinition(bootstrapRiders || '');
+const completeRiderShape = requiredRiderShape.every((field) =>
+  normalizedBootstrapRiders.includes(normalizeDefinition(field)));
+console.log(`${completeRiderShape ? 'PASS' : 'FAIL'} — bootstrap riders definition retains all expected initial columns, types, defaults and constraints`);
+if (!completeRiderShape) failed++;
+const migrationUsesCompatibleCreate = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+public\.riders\s*\(/i.test(ridersMigrationSql);
+console.log(`${migrationUsesCompatibleCreate ? 'PASS' : 'FAIL'} — 20260819 keeps CREATE TABLE IF NOT EXISTS for bootstrap compatibility`);
+if (!migrationUsesCompatibleCreate) failed++;
+const matchingRiderShape = bootstrapRiders !== null && migrationRiders !== null &&
+  normalizeDefinition(bootstrapRiders) === normalizeDefinition(migrationRiders);
+console.log(`${matchingRiderShape ? 'PASS' : 'FAIL'} — bootstrap riders table shape matches the initial 20260819 definition`);
+if (!matchingRiderShape) failed++;
+const earlyRiderReferences = [
+  '20260815_fix_rls_security.sql',
+  '20260818_add_vendor_order_workflow.sql',
+];
+const earlyRiderDependenciesOk = earlyRiderReferences.every((file) => {
+  const index = names.indexOf(file);
+  return index >= 0 && index < names.indexOf(ridersMigrationName) &&
+    /public\.riders/i.test(fs.readFileSync(path.join(migrationDir, file), 'utf8'));
+});
+console.log(`${earlyRiderDependenciesOk ? 'PASS' : 'FAIL'} — both pre-creation rider-dependent migrations are covered by bootstrap`);
+if (!earlyRiderDependenciesOk) failed++;
 function executableSql(file) {
   return fs.readFileSync(path.join(migrationDir, file), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -68,4 +125,4 @@ const edgeValidator = fs.readFileSync(path.join(__dirname, 'validate_edge_functi
 const ciOk = /node-version:\s*22/.test(workflow) && /stripTypeScriptTypes/.test(edgeValidator);
 console.log(`${ciOk ? 'PASS' : 'FAIL'} — CI Node runtime supports Edge TypeScript syntax validation`); if (!ciOk) failed++;
 if (failed) process.exit(1);
-console.log(`MIGRATION REPRODUCIBILITY STATIC CHECKS PASSED (${names.length} migrations).`);
+console.log(`STATIC REPRODUCIBILITY CHECKS PASSED (${names.length} migrations). This is not an actual PostgreSQL clean replay.`);

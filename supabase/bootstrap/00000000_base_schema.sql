@@ -15,6 +15,22 @@ create table public.profiles (
   role text not null default 'user'
 );
 
+-- Fresh-install compatibility prerequisite: 20260815 and 20260818
+-- configure policies/triggers that reference public.riders before
+-- 20260819's tracked CREATE TABLE IF NOT EXISTS definition.
+create table public.riders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  matric_number text not null,
+  phone text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','suspended')),
+  available boolean not null default false,
+  rating_avg numeric(3,2) not null default 5.00,
+  rating_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.vendors (
   id text primary key,
   name text not null,

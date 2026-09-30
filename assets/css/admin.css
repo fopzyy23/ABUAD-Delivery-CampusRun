@@ -799,6 +799,8 @@ html[data-theme="dark"] .badge--brand {
   top: 20px;
 }
 
+.admin-mobile-menu { display:none; }
+
 .admin-nav__list {
   display: flex;
   flex-direction: column;
@@ -807,6 +809,18 @@ html[data-theme="dark"] .badge--brand {
   margin: 0;
   padding: 0;
 }
+
+.admin-nav__group {
+  padding: 14px 12px 5px;
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.utility-panel { min-height: 220px; }
+.finance-detail-drawer { max-width: 720px; max-height: 86vh; overflow: auto; margin: 7vh auto; }
 
 .admin-nav__item {
   display: flex;
@@ -961,6 +975,10 @@ html[data-theme="dark"] .badge--brand {
     margin: 0 -4px;
     padding: 0 4px 4px;
   }
+
+  .admin-mobile-menu { display:flex; align-items:center; gap:8px; width:100%; margin-bottom:8px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); color:var(--ink); font:inherit; font-weight:700; }
+  .admin-sidebar .admin-nav { display:none; }
+  .admin-sidebar .admin-nav.is-open { display:block; max-height:70vh; overflow:auto; padding:8px; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); box-shadow:0 12px 28px rgba(0,0,0,.12); }
 
   .admin-nav__list {
     flex-direction: row;
