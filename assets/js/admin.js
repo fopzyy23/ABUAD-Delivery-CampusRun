@@ -1110,6 +1110,32 @@ async function updateMaintenanceMode(enabled) {
   }
 }
 
+async function saveSiteSettings(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  const required = ['weekday_delivery_start','weekday_delivery_end','weekend_delivery_start','weekend_delivery_end','timezone'];
+  if (required.some(key => !String(values[key] || '').trim())) { toast('Complete all platform settings fields.', 'error'); return false; }
+  if (values.weekday_delivery_start >= values.weekday_delivery_end || values.weekend_delivery_start >= values.weekend_delivery_end) { toast('Opening time must be earlier than closing time.', 'error'); return false; }
+  const save = form.querySelector('[type="submit"]'), cancel = form.querySelector('[data-settings-cancel]');
+  if (save) { save.disabled = true; save.textContent = 'Saving…'; } if (cancel) cancel.disabled = true;
+  try {
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this settings change');
+    const { data, error } = await supabase.rpc('admin_update_site_settings', {
+      p_maintenance_mode: values.maintenance_mode === 'on',
+      p_weekday_start: values.weekday_delivery_start,
+      p_weekday_end: values.weekday_delivery_end,
+      p_weekend_start: values.weekend_delivery_start,
+      p_weekend_end: values.weekend_delivery_end,
+      p_timezone: values.timezone.trim()
+    });
+    if (error) throw error;
+    currentAdminState().siteSettings = data;
+    toast('Platform settings saved successfully');
+    renderAdminWorkspace();
+    return true;
+  } catch (err) { toast('Could not save platform settings: ' + (err.message || 'unknown error'), 'error'); return false; }
+  finally { if (save) { save.disabled = false; save.textContent = 'Save Changes'; } if (cancel) cancel.disabled = false; }
+}
+
 // Re-render just the catalog tables (alias for the full workspace).
 function renderCatalog() {
   renderAdminWorkspace();
@@ -1350,11 +1376,11 @@ function renderAdminWorkspace() {
   if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
   else if (adminSection === 'deliveries') view = renderDeliveriesSection(shared);
-  else if (adminSection === 'vendors') view = renderVendorOperationsSection(shared);
+  else if (adminSection === 'vendors') view = renderVendorsSection(shared);
   else if (adminSection === 'riders') view = renderRidersSection(shared);
   else if (adminSection === 'customers') view = renderCustomerOperationsSection(shared);
   else if (adminSection === 'restaurants') view = renderRestaurantOperationsSection(shared);
-  else if (adminSection === 'products') view = renderProductsOperationsSection(shared);
+  else if (adminSection === 'products') view = renderCatalogSection(shared);
   else if (adminSection === 'categories') view = renderCategoriesOperationsSection(shared);
   else if (adminSection === 'catalog') view = renderCatalogSection(shared);
   else if (['payments', 'settlements', 'withdrawals', 'transfers', 'refunds', 'financial'].includes(adminSection)) view = renderFinanceWorkspace(adminSection);
@@ -2400,7 +2426,7 @@ function renderSettingsSection({ vendors, orders }) {
       <div>
         <span class="badge badge--brand">System</span>
         <h1 class="mt-1">Settings</h1>
-        <p class="muted">Read-only platform configuration.</p>
+        <p class="muted">Authoritative platform settings. Sensitive changes require admin AAL2.</p>
       </div>
     </div>
 
@@ -2432,6 +2458,15 @@ function renderSettingsSection({ vendors, orders }) {
         <h3>Platform configuration</h3>
         <span class="muted small">Display only — configuration lives in the application code and database; no runtime-editable settings exist.</span>
       </div>
+      <form id="siteSettingsForm" class="form-grid mb-2">
+        <div class="field"><label for="settingsWeekdayStart">Weekday opening time</label><input class="input" id="settingsWeekdayStart" name="weekday_delivery_start" type="time" value="${escHtml((state.siteSettings?.weekday_delivery_start || '').slice(0,5))}" required></div>
+        <div class="field"><label for="settingsWeekdayEnd">Weekday closing time</label><input class="input" id="settingsWeekdayEnd" name="weekday_delivery_end" type="time" value="${escHtml((state.siteSettings?.weekday_delivery_end || '').slice(0,5))}" required></div>
+        <div class="field"><label for="settingsWeekendStart">Weekend opening time</label><input class="input" id="settingsWeekendStart" name="weekend_delivery_start" type="time" value="${escHtml((state.siteSettings?.weekend_delivery_start || '').slice(0,5))}" required></div>
+        <div class="field"><label for="settingsWeekendEnd">Weekend closing time</label><input class="input" id="settingsWeekendEnd" name="weekend_delivery_end" type="time" value="${escHtml((state.siteSettings?.weekend_delivery_end || '').slice(0,5))}" required></div>
+        <div class="field"><label for="settingsTimezone">Timezone</label><input class="input" id="settingsTimezone" name="timezone" value="${escHtml(state.siteSettings?.timezone || 'Africa/Lagos')}" required></div>
+        <label class="radio-card"><input name="maintenance_mode" type="checkbox"${state.siteSettings?.maintenance_mode ? ' checked' : ''}> Maintenance mode enabled</label>
+        <div class="admin-actions col-2"><button class="btn" type="submit">Save Changes</button><button class="btn btn--ghost" type="button" data-settings-cancel>Cancel</button></div>
+      </form>
       <dl class="settings-list">
         ${rows.map(r => `<div class="settings-row"><dt>${r.k}</dt><dd>${r.v}</dd></div>`).join('')}
       </dl>
@@ -2527,6 +2562,8 @@ function attachAdminEventListeners() {
       maintenanceToggle.disabled = false;
     });
   }
+  $('#siteSettingsForm')?.addEventListener('submit', event => { event.preventDefault(); saveSiteSettings(event.currentTarget); });
+  document.querySelector('[data-settings-cancel]')?.addEventListener('click', () => renderAdminWorkspace());
   $('#adminMfaEnrollBtn')?.addEventListener('click', beginAdminMfaEnrollment);
   $('#adminMfaVerifyForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
