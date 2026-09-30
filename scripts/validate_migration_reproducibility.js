@@ -23,7 +23,8 @@ for (const n of [
   '20261226_refund_provider_reconciliation.sql','20261227_financial_resolution_proof_hardening.sql',
   '20261228_transfer_provider_reconciliation.sql','20261229_rider_settlement_withdrawal_exclusivity.sql',
   '20261230_finalize_transfer_reconciliation_entrypoints.sql','20261231_cutoff_recovery_reliability.sql',
-  '20270101_scheduler_environment_configuration.sql',
+  '20270101_scheduler_environment_configuration.sql','20270102_customer_reimbursement_provider_reconciliation.sql',
+  '20270103_reimbursement_reconciliation_final_hardening.sql','20270104_transfer_conflict_observation.sql',
 ]) {
   const ok = names.includes(n); console.log(`${ok ? 'PASS' : 'FAIL'} — required hardening migration ${n}`); if (!ok) failed++;
 }

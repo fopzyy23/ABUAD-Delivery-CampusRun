@@ -81,9 +81,9 @@ Do not add a staging origin to the production configuration as a workaround.
 
 | Environment | Browser/project selection | CSP and server configuration |
 | --- | --- | --- |
-| Production | Checked-in production label, dropzyy.com/www origins and public project/key | Existing explicit project HTTPS/WSS/img targets; verify actual deployment |
-| Staging | REQUIRED: chosen isolated origin, staging label, separate Supabase URL/public key | REQUIRED: matching netlify.toml connect-src/img-src HTTPS/WSS, ALLOWED_ORIGIN, Paystack callback, Auth Site URL/exact Redirect URLs |
-| Development | REQUIRED: explicit local origin/port, development label, non-production Supabase URL/public key | Match local host CSP where served; development ALLOWED_ORIGIN/callback and Auth redirects |
+| Production | Checked-in production frontend label, `DROPZYY_ENVIRONMENT=production`, dropzyy.com/www origins and production public project/key | Explicit production `ALLOWED_ORIGIN` + `PAYSTACK_CALLBACK_URL`; production HTTPS/WSS/img CSP; verify deployed settings |
+| Staging | REQUIRED: chosen isolated origin, browser staging label, `DROPZYY_ENVIRONMENT=staging`, separate Supabase URL/public key | REQUIRED: matching netlify.toml connect-src/img-src HTTPS/WSS, staging-only `ALLOWED_ORIGIN`, staging `PAYSTACK_CALLBACK_URL`, Auth Site URL/exact Redirect URLs |
+| Development | REQUIRED: explicit local origin/port, browser development label, `DROPZYY_ENVIRONMENT=development`, non-production Supabase URL/public key | Match local host CSP where served; explicit localhost-only `ALLOWED_ORIGIN`/callback and Auth redirects |
 
 Never use connect-src *. All six environment-specific settings (origin,
 browser project/key, CSP, ALLOWED_ORIGIN, callback and Auth URLs) are release
@@ -384,7 +384,7 @@ environments together.
 | `dropzyy-cleanup-rate-limits` | Daily 03:00 | `cleanup-rate-limits` | cleanup Vault/Edge secret pair | Repository-owned; expired-row cleanup is repeat-safe |
 | `dropzyy-cleanup-admissions` | Daily 04:00 | `cleanup-admissions` | cleanup Vault/Edge secret pair | Repository-owned; expired-row cleanup is repeat-safe |
 | Refund reconciliation | Recommended every 10–15 minutes | `paystack-refund-reconcile` | `REFUND_RECONCILIATION_WORKER_SECRET` | External authenticated scheduler required; claim RPC uses locked batches |
-| Transfer reconciliation | Recommended every 10–15 minutes | `paystack-transfer-reconcile` | `TRANSFER_RECONCILIATION_WORKER_SECRET` | External authenticated scheduler required; claim RPC uses locked batches |
+| Transfer reconciliation | Recommended every 10–15 minutes | `paystack-transfer-reconcile` | `TRANSFER_RECONCILIATION_WORKER_SECRET` | External authenticated scheduler required; reconciles stale settlement and customer-reimbursement transfers by existing Paystack reference (30-minute stale threshold); claim RPCs use locked batches |
 | Payout-cost reconciliation | Daily operational review/reconciliation | `paystack-payout-cost-reconcile` | `PAYSTACK_RECONCILER_SECRET` | External authenticated scheduler required; reporting/fee-evidence support, not transfer authorization |
 
 The forward scheduler function unschedules only those three stable repository

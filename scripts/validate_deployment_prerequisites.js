@@ -9,6 +9,7 @@ const check = (label, condition) => {
 };
 
 const docs = read('DEPLOYMENT.md');
+const baseline = read('supabase/BASELINE.md');
 const migration = read('supabase/migrations/20270101_scheduler_environment_configuration.sql');
 const cutoffHistory = read('supabase/migrations/20261127_automatic_8pm_cutoff_scheduler.sql');
 const cleanupHistory = read('supabase/migrations/20261217_add_cleanup_jobs.sql');
@@ -21,7 +22,9 @@ const requiredMigrations = [
   '20261226_refund_provider_reconciliation.sql', '20261227_financial_resolution_proof_hardening.sql',
   '20261228_transfer_provider_reconciliation.sql', '20261229_rider_settlement_withdrawal_exclusivity.sql',
   '20261230_finalize_transfer_reconciliation_entrypoints.sql', '20261231_cutoff_recovery_reliability.sql',
-  '20270101_scheduler_environment_configuration.sql',
+  '20270101_scheduler_environment_configuration.sql', '20270102_customer_reimbursement_provider_reconciliation.sql',
+  '20270103_reimbursement_reconciliation_final_hardening.sql',
+  '20270104_transfer_conflict_observation.sql',
 ];
 
 for (const name of requiredMigrations) {
@@ -36,6 +39,8 @@ check('historical replay creates no cron/network jobs or fixed project target', 
 check('historical migrations do not require Vault worker secrets for schema replay', !/vault\.decrypted_secrets|automatic_cutoff_worker_secret|cleanup_job_secret/i.test(historicalSchedulerSql));
 check('deployment runbook says worker Vault secrets are not required during replay', /not required for migration replay/i.test(docs) && docs.includes('Required before migration replay'));
 check('deployment runbook warns the current CLI link is production', /currently\s+links\s+to production/.test(docs));
+check('deployment guides keep scheduler Vault activation after function deployment', docs.indexOf('Keep\n   `dropzyy_scheduler_base_url`') < docs.indexOf('Deploy every function') && docs.indexOf('Deploy every function') < docs.indexOf('Add the three database Vault entries') && baseline.indexOf('scheduler Vault values') < baseline.indexOf('Deploy every directory') && baseline.indexOf('Deploy every directory') < baseline.indexOf('Provision the three scheduler Vault values'));
+check('deployment guides contain no stale instruction to provision scheduler Vault before migration replay', !/Vault entry listed in §8 before\s+applying the scheduler migration|Vault `automatic_cutoff_worker_secret` and `cleanup_job_secret` before a clean migration run/i.test(docs + baseline));
 const jobNames = ['dropzyy-automatic-cutoff-worker', 'dropzyy-cleanup-rate-limits', 'dropzyy-cleanup-admissions'];
 check('scheduler reconciliation has stable job names', jobNames.every((name) => migration.includes(name)));
 check('final scheduler creates exactly three environment-derived HTTP jobs', (migration.match(/cron\.schedule\s*\(/g) || []).length === 3 && /v_base_url\s*\|\|\s*'\/functions\/v1\//.test(migration));

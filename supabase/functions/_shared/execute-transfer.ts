@@ -1,3 +1,5 @@
+import { classifyTransferPostResponse } from "./transfer-execution.mjs";
+
 type RpcClient = {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }>;
   from: (table: string) => any;
@@ -77,18 +79,25 @@ export async function executeAuthoritativeTransfer(
     return { kind: "error", transfer_id: transferId, message: "Network error during Paystack transfer", transient: true, stage: "paystack" };
   }
 
-  if (!paystackRes.ok || !paystackBody?.status) {
-    log("authoritative transfer request failed", { transfer_id: transferId, http_status: paystackRes.status });
-    const { error: releaseErr } = await supabase.rpc("release_transfer_for_retry", { p_transfer_id: transferId });
-    if (releaseErr) log("transfer release failed", { transfer_id: transferId });
-    return { kind: "error", transfer_id: transferId, message: "Paystack transfer request failed", transient: true, stage: "paystack" };
+  const providerOutcome = classifyTransferPostResponse(paystackRes, paystackBody, {
+    reference: prep.reference,
+    amountKobo: prep.amount_kobo,
+    currency: prep.currency ?? "NGN",
+    recipientCode: prep.recipient_code,
+  });
+  if (providerOutcome.kind === "ambiguous") {
+    // We have no repository-backed proof that an HTTP error (including 4xx,
+    // 429, or 5xx), malformed body, or mismatched identity means Paystack did
+    // not accept the transfer. Keep processing and reconcile this same ref.
+    log("Paystack transfer outcome is ambiguous; preserving processing attempt", {
+      transfer_id: transferId,
+      http_status: paystackRes.status,
+      reason: providerOutcome.reason,
+    });
+    return { kind: "error", transfer_id: transferId, message: "Paystack transfer outcome is pending verification", transient: true, stage: "paystack" };
   }
 
-  const paystackStatus = paystackBody?.data?.status;
-  if (!paystackStatus) {
-    log("paystack response missing status", { transfer_id: transferId });
-    return { kind: "error", transfer_id: transferId, message: "Paystack response missing status", transient: true, stage: "paystack" };
-  }
+  const paystackStatus = providerOutcome.data.status;
 
   // Only conclusive statuses are treated as final
   if (!CONCLUSIVE_STATUSES.has(paystackStatus)) {
@@ -97,7 +106,7 @@ export async function executeAuthoritativeTransfer(
     log("paystack transfer non-conclusive status", { transfer_id: transferId, paystack_status: paystackStatus });
     const { error: recordErr } = await supabase.rpc("record_transfer_code", {
       p_transfer_id: transferId,
-      p_transfer_code: paystackBody?.data?.transfer_code ?? null,
+      p_transfer_code: providerOutcome.data.transfer_code,
     });
     if (recordErr) {
       log("transfer code recording failed", { transfer_id: transferId });
@@ -108,7 +117,7 @@ export async function executeAuthoritativeTransfer(
   // Conclusive status - record transfer code and return result
   const { error: recordErr } = await supabase.rpc("record_transfer_code", {
     p_transfer_id: transferId,
-    p_transfer_code: paystackBody?.data?.transfer_code ?? null,
+    p_transfer_code: providerOutcome.data.transfer_code,
   });
   if (recordErr) {
     log("transfer code recording failed", { transfer_id: transferId });

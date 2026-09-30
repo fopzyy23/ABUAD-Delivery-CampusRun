@@ -111,6 +111,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const retryQueries = await Promise.all([
       supabase.from("automatic_cutoff_claims").select("id").eq("status", "failed").limit(CLAIM_BATCH_SIZE),
       supabase.from("automatic_cutoff_claims").select("id").eq("status", "processing").lte("lease_until", now).limit(CLAIM_BATCH_SIZE),
+      supabase.from("automatic_cutoff_claims").select("id").eq("status", "expired").not("cancellation_id", "is", null).limit(CLAIM_BATCH_SIZE),
     ]);
     for (const result of retryQueries) {
       if (result.error) {

@@ -27,7 +27,7 @@ function parseOrigin(value) {
 /**
  * Resolve a fixed application return route from explicit deployment config.
  * The request Origin is only accepted after matching the explicit allowlist.
- * @param {{configuredCallback: string, requestOrigin: string, allowedOrigins: string[], requiredPath: string}} options
+ * @param {{configuredCallback: string, requestOrigin: string, allowedOrigins: string[], requiredPath: string, environment: string}} options
  */
 export function resolveTrustedCallbackUrl({
   configuredCallback,

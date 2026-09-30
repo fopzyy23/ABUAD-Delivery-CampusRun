@@ -58,7 +58,8 @@ check("calls Paystack /transfer", /api\.paystack\.co\/transfer"?\)?;?$/.test(tFn
 check("uses PAYSTACK_SECRET_KEY env", /Deno\.env\.get\("PAYSTACK_SECRET_KEY"\)/.test(tFn));
 check("refuses already-eligible via RPC 409", /not payout-eligible/i.test(tFn));
 check("records transfer code after Paystack accept", /record_transfer_code/i.test(tFn));
-check("releases claim on Paystack failure", /release_transfer_for_retry[\s\S]{0,600}!paystackRes\.ok|502/.test(tFn));
+const executeTransfer = fs.readFileSync(path.join(root, "supabase/functions/_shared/execute-transfer.ts"), "utf8");
+check("ambiguous Paystack response preserves processing for reconciliation", /classifyTransferPostResponse/.test(executeTransfer) && /providerOutcome\.kind === "ambiguous"[\s\S]{0,1000}stage: "paystack"/.test(executeTransfer) && !/release_transfer_for_retry/.test(executeTransfer.slice(executeTransfer.indexOf("const providerOutcome"))));
 check("no longer calls prepare_transfer_for_payout", !/prepare_transfer_for_payout/.test(tFn));
 check("no longer calls mark_transfer_processing", !/mark_transfer_processing/.test(tFn));
 check("race-safe processing flip", /Transfer already in flight/i.test(tFn));

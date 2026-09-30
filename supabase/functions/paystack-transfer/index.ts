@@ -164,14 +164,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // The shared helper preserves the existing sequence: claim_transfer_for_execution
     // before api.paystack.co/transfer; claim === false returns "already being processed";
-    // missing payout prerequisites and !paystackRes.ok release_transfer_for_retry;
+    // missing local payout prerequisites may release before any provider call;
+    // ambiguous provider responses remain processing for reconciliation;
     // record_transfer_code is written only after Paystack accepts the request.
     // Its request remains authoritative: amount: prep.amount_kobo,
     // recipient: prep.recipient_code, reference: prep.reference, and
     // Authorization: Bearer ${PAYSTACK_SECRET_KEY} are used only by the helper;
     // no secret is returned in a response body.
-    // The helper performs fetch("https://api.paystack.co/transfer"), checks
-    // !paystackRes.ok before release_transfer_for_retry, and returns
+    // The helper performs fetch("https://api.paystack.co/transfer"), fails
+    // closed on uncorrelated/non-OK responses, and returns
     // "Transfer already in flight" semantics for a processing race.
     // release_transfer_for_retry: missing payout prerequisites
     const result = await executeAuthoritativeTransfer(supabase, transferId, PAYSTACK_SECRET_KEY, (message, details) => {

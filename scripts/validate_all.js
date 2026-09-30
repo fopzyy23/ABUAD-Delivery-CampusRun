@@ -76,6 +76,7 @@ const structural = [
   'scripts/validate_restaurant_payment_gate.js',
   'scripts/validate_refund_provider_reconciliation.js',
   'scripts/validate_settlement_transfer_safety.js',
+  'scripts/validate_reimbursement_transfer_reconciliation.js',
   'scripts/validate_rider_ledger.js',
   'scripts/validate_cutoff_cleanup_admin_recovery.js',
   'scripts/validate_migration_reproducibility.js',

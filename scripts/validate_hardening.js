@@ -84,7 +84,8 @@ console.log("\n== paystack-transfer USES CLAIM-FIRST ==");
 check("calls claim_transfer_for_execution before Paystack", /claim_transfer_for_execution[\s\S]{0,1200}api\.paystack\.co\/transfer/.test(transferFn));
 check("handles claim=false (already processing)", /claim === false[\s\S]{0,200}already being processed/.test(transferFn));
 check("releases claim on missing prereqs", /release_transfer_for_retry[\s\S]{0,200}missing payout prerequisites/.test(transferFn));
-check("releases claim on Paystack refusal", /!paystackRes\.ok[\s\S]{0,600}release_transfer_for_retry/.test(transferFn));
+const executeTransfer = fs.readFileSync(path.join(root, "supabase/functions/_shared/execute-transfer.ts"), "utf8");
+check("ambiguous Paystack response is not released for retry", /classifyTransferPostResponse/.test(executeTransfer) && !/release_transfer_for_retry/.test(executeTransfer.slice(executeTransfer.indexOf("const providerOutcome"))));
 check("records transfer code after success", /record_transfer_code/.test(transferFn));
 check("no mark_transfer_processing post-call", !/mark_transfer_processing/.test(transferFn));
 

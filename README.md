@@ -292,9 +292,10 @@ never be used to invent payments.
 **How it works** — it builds a `charge.success` webhook payload and signs it
 with HMAC-SHA512 over the exact raw body, exactly like Paystack does, then
 POSTs it to the deployed `paystack-webhook` Edge Function. The deployed
-webhook (signature + amount validation) and the server-side payment RPC
-remain the **only** authoritative, idempotent confirmation path — the script
-itself performs no database writes.
+webhook and server-side payment RPC remain the authoritative confirmation
+path. The script does not connect to the database directly, but a successful
+POST can cause financial payment state to change; treat execution as a
+potentially mutating operation.
 
 **Required environment variables** (set in your shell, never in files):
 
