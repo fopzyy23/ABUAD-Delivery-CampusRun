@@ -173,6 +173,116 @@ function currentAppState() { return state; }
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
 
+// ============================================================
+// Targeted state update helpers
+// Allow mutations to patch local state without broad reloads
+// ============================================================
+
+// Update a single order in state.orders and state.riderPool
+function updateOrderInState(updatedOrder) {
+  const state = currentAppState();
+  const idx = state.orders.findIndex(o => o.dbId === updatedOrder.dbId || o.id === updatedOrder.id);
+  if (idx >= 0) {
+    state.orders[idx] = { ...state.orders[idx], ...updatedOrder };
+    return true;
+  }
+  // Also check riderPool
+  const poolIdx = state.riderPool.findIndex(o => o.dbId === updatedOrder.dbId || o.id === updatedOrder.id);
+  if (poolIdx >= 0) {
+    state.riderPool[poolIdx] = { ...state.riderPool[poolIdx], ...updatedOrder };
+    return true;
+  }
+  return false;
+}
+
+// Remove an order from riderPool (e.g. when claimed by another rider)
+function removeOrderFromRiderPool(orderId) {
+  const state = currentAppState();
+  const idx = state.riderPool.findIndex(o => o.id === orderId || o.dbId === orderId);
+  if (idx >= 0) {
+    state.riderPool.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+// Add/update an order in riderPool
+function upsertRiderPoolOrder(order) {
+  const state = currentAppState();
+  const idx = state.riderPool.findIndex(o => o.dbId === order.dbId || o.id === order.id);
+  if (idx >= 0) {
+    state.riderPool[idx] = { ...state.riderPool[idx], ...order };
+  } else {
+    state.riderPool.push(order);
+  }
+}
+
+// Update a single order in vendorOrders
+function updateVendorOrderInState(updatedOrder) {
+  const state = currentAppState();
+  const idx = state.vendorOrders.findIndex(o => o.dbId === updatedOrder.dbId || o.id === updatedOrder.id);
+  if (idx >= 0) {
+    state.vendorOrders[idx] = { ...state.vendorOrders[idx], ...updatedOrder };
+    return true;
+  }
+  return false;
+}
+
+// Batch fetch rider details for multiple orders
+async function loadRiderDetailsForOrders(orderIds) {
+  if (!orderIds || !orderIds.length || typeof supabase === 'undefined' || !supabase) return {};
+  try {
+    const { data, error } = await supabase.rpc('get_rider_details_for_orders', {
+      p_order_ids: orderIds
+    });
+    if (error) throw error;
+    const result = {};
+    (data || []).forEach(row => {
+      if (row.order_id && row.rider_id) {
+        result[row.rider_id] = {
+          full_name: row.full_name,
+          phone: row.phone
+        };
+      }
+    });
+    return result;
+  } catch (err) {
+    console.error('Batch rider details fetch failed:', err);
+    return {};
+  }
+}
+
+// Operation-specific loading states
+const operationLoading = {
+  claimingOrder: new Set(),
+  markingDelivered: new Set(),
+  pickingUp: new Set(),
+  onWay: new Set(),
+  acceptingOrder: new Set(),
+  rejectingOrder: new Set(),
+  markingReady: new Set(),
+  paymentConfirming: false,
+  withdrawalSubmitting: false,
+  cancellationSubmitting: new Set(),
+  ratingSubmitting: new Set(),
+  vendorStatusUpdating: new Set(),
+  vendorDeliveryChoice: new Set(),
+  vendorResponding: new Set()
+};
+
+function setOpLoading(op, key, loading) {
+  if (loading) operationLoading[op].add(key);
+  else operationLoading[op].delete(key);
+}
+
+function isOpLoading(op, key) {
+  return operationLoading[op].has(key);
+}
+
+function isAnyOpLoading(op) {
+  return operationLoading[op].size > 0;
+}
+
 async function isCurrentAuthenticatedUser(userId) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -1008,52 +1118,32 @@ async function loadOrdersForUser(userId) {
     });
 
         // Resolve rider details (name + phone) for orders that already have an
-    // assigned rider. The customer may read the assigned rider's row — including
-    // `phone` — via the existing riders_select_order_assigned policy, so phone is
-    // "existing profile data where permitted". Only the name is shown on the
-    // orders list; the phone is shown on the Track page for an active delivery
-    // (see track()) so a customer can contact the rider who is on the way.
-    const riderIds = [...new Set((ordersData || []).map(o => o.rider_id).filter(Boolean))];
+    // assigned rider using a BATCH RPC to avoid N+1 calls.
+    // The batch RPC enforces the same authorization/privacy boundary as the
+    // single-order RPC — caller must own the order or be the assigned rider.
+    const ordersWithRider = (ordersData || []).filter(o => o.rider_id);
     const riderNames = {};
     const riderPhones = {};
-    if (riderIds.length) {
-      const { data: riderRows } = await supabase
-        .from('riders')
-        .select('id, user_id, phone')
-        .in('id', riderIds);
-      if (riderRows && riderRows.length) {
-        // Fetch rider full_name from profiles for each order using the
-        // SECURITY DEFINER function that only returns name+phone for riders
-        // assigned to orders the caller owns (prevents broad profile exposure).
-        const ordersWithRider = ordersData.filter(o => o.rider_id);
-        const riderDetailsByOrderId = new Map();
-        for (const o of ordersWithRider) {
-          if (!await stillCurrent()) return false;
-          if (riderDetailsByOrderId.has(o.id)) {
-            const cached = riderDetailsByOrderId.get(o.id);
-            if (cached) {
-              riderNames[o.rider_id] = cached.full_name || null;
-              riderPhones[o.rider_id] = cached.phone || null;
+    if (ordersWithRider.length) {
+      const orderIds = ordersWithRider.map(o => o.id);
+      try {
+        const { data: riderDetails, error: rpcError } = await supabase.rpc('get_rider_details_for_orders', {
+          p_order_ids: orderIds
+        });
+        if (!rpcError && riderDetails) {
+          riderDetails.forEach(row => {
+            if (row.rider_id) {
+              riderNames[row.rider_id] = row.full_name || null;
+              riderPhones[row.rider_id] = row.phone || null;
             }
-            continue;
-          }
-          const { data: riderDetails, error: rpcError } = await supabase.rpc('get_rider_details_for_order', {
-            p_order_id: o.id
           });
-          if (!await stillCurrent()) return false;
-          riderDetailsByOrderId.set(o.id, riderDetails?.[0] || null);
-          if (rpcError) {
-            console.error('get_rider_details_for_order RPC failed:', rpcError);
-            // Fail safely: do not fall back to direct profile queries which would
-            // expose email/hostel/role. Leave rider name as null.
-            continue;
-          }
-          if (riderDetails && riderDetails.length) {
-            riderNames[o.rider_id] = riderDetails[0].full_name || null;
-            riderPhones[o.rider_id] = riderDetails[0].phone || null;
-          }
+        } else if (rpcError) {
+          console.error('Batch get_rider_details_for_orders RPC failed:', rpcError);
         }
+      } catch (err) {
+        console.error('Batch rider details fetch failed:', err);
       }
+      // Fallback: if batch RPC unavailable, leave rider names as null (fail-safe)
     }
 
         const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder, riderNames, riderPhones));
@@ -1103,6 +1193,26 @@ async function loadOrdersForUser(userId) {
         });
 
         poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames)));
+      }
+      // Also fetch rider details for pool orders that have riders assigned
+      const poolOrdersWithRider = poolRows.filter(o => o.rider_id);
+      if (poolOrdersWithRider.length) {
+        const poolOrderIds = poolOrdersWithRider.map(o => o.id);
+        try {
+          const { data: poolRiderDetails, error: poolRpcError } = await supabase.rpc('get_rider_details_for_orders', {
+            p_order_ids: poolOrderIds
+          });
+          if (!poolRpcError && poolRiderDetails) {
+            poolRiderDetails.forEach(row => {
+              if (row.rider_id) {
+                riderNames[row.rider_id] = row.full_name || null;
+                riderPhones[row.rider_id] = row.phone || null;
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Pool rider details fetch failed:', err);
+        }
       }
     }
     // 5. Replace local orders entirely with the Supabase result, sorted
@@ -3804,9 +3914,7 @@ function clearRiderOrdersSubscription() {
 }
 
 // Keep the Rider Hub's pool/current deliveries synchronized with customer and
-// vendor changes. The authoritative reload rebuilds both orders and order
-// items, so no stale localStorage merge or client-side financial mutation is
-// involved.
+// vendor changes. Uses targeted single-order fetches instead of broad reloads.
 function subscribeRiderOrdersRealtime() {
   const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase || riderOrdersChannel || riderOrdersSubscriptionStarting) return;
@@ -3816,11 +3924,14 @@ function subscribeRiderOrdersRealtime() {
     if (!session || riderOrdersChannel) { riderOrdersSubscriptionStarting = false; return; }
     const channel = supabase
       .channel(`customer-orders-live:${session.user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${session.user.id}` }, () => {
-        scheduleRiderOrdersReload(true);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${session.user.id}` }, async (payload) => {
+        // Fetch only the changed order and patch local state
+        const orderId = payload.new?.id || payload.old?.id;
+        if (orderId) await patchOrderInState(orderId);
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        scheduleRiderOrdersReload(true);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, async (payload) => {
+        const orderId = payload.new?.order_id || payload.old?.order_id;
+        if (orderId) await patchOrderInState(orderId);
       })
       .subscribe(status => {
         if (status === 'SUBSCRIBED') {
@@ -3838,6 +3949,80 @@ function subscribeRiderOrdersRealtime() {
   }).catch(() => { riderOrdersSubscriptionStarting = false; riderOrdersRealtimeConnected = false; startRiderOrdersPoll(); });
 }
 
+// Fetch a single order from Supabase and patch it into state.orders and state.riderPool
+async function patchOrderInState(dbId) {
+  const state = currentAppState();
+  if (typeof supabase === 'undefined' || !supabase || !dbId) return;
+  try {
+    const { data, error } = await supabase.from('orders').select('*').eq('id', dbId).single();
+    if (error || !data) return;
+    const mapped = mapSupabaseOrderToState(data);
+    if (!mapped) return;
+    // Update in state.orders
+    const idx = state.orders.findIndex(o => o.dbId === dbId);
+    if (idx >= 0) {
+      state.orders[idx] = mapped;
+    } else if (state.user && data.user_id === state.user.id) {
+      // New order for this customer
+      state.orders.unshift(mapped);
+    }
+    // Update in riderPool if this user is a rider
+    if (state.rider && state.rider.id) {
+      const poolIdx = state.riderPool.findIndex(o => o.dbId === dbId);
+      if (poolIdx >= 0) {
+        state.riderPool[poolIdx] = mapped;
+      } else if (data.rider_id === state.rider.id || (data.rider_id === null && data.delivery_method === 'rider' && ['Order confirmed','Ready for pickup'].includes(data.status))) {
+        // Order assigned to this rider or newly available for claim
+        state.riderPool.push(mapped);
+      }
+    }
+    if (location.hash.startsWith('#/rider')) render();
+  } catch (err) {
+    console.error('Patch order failed:', err);
+  }
+}
+
+// Map a Supabase order row to the frontend order shape (reused from loadOrdersForUser)
+function mapSupabaseOrderToState(o) {
+  if (!o) return null;
+  const state = currentAppState();
+  const riderNames = {};
+  const riderPhones = {};
+  // For now, skip rider detail resolution in realtime patches - it will be resolved on next full load
+  // or we could do a batch fetch if needed
+  return {
+    id: o.order_number,
+    dbId: o.id,
+    items: [], // Items not fetched in realtime patch; will be populated on next full load if needed
+    total: o.total,
+    final_order_total: o.final_order_total,
+    subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee != null ? o.fee : DELIVERY_FEE)),
+    fee: o.fee != null ? o.fee : DELIVERY_FEE,
+    status: o.status || 'Order confirmed',
+    payment_status: o.payment_status || 'pending',
+    request_type: o.request_type || 'restaurant',
+    vendor_delivery_requested: o.vendor_delivery_requested === true,
+    delivery_payment_status: o.delivery_payment_status || 'pending',
+    delivery_payment_id: o.delivery_payment_id || null,
+    rider_delivery_share: o.rider_delivery_share != null ? o.rider_delivery_share : 0,
+    company_delivery_share: o.company_delivery_share != null ? o.company_delivery_share : 0,
+    payment_reference: o.payment_reference || null,
+    transaction_id: o.transaction_id || null,
+    spot: o.spot || '',
+    delivery_method: o.delivery_method || 'rider',
+    product_availability_status: o.product_availability_status || 'not_started',
+    purchase_funding_status: o.purchase_funding_status || 'not_required',
+    cancellation_stage: o.cancellation_stage || 'none',
+    additional_amount_due: o.additional_amount_due || 0,
+    final_financial_status: o.final_financial_status || null,
+    rider_id: o.rider_id || null,
+    rider_name: null, // Will be resolved on next full load
+    rider_phone: null,
+    created: formatOrderCreated(o.created_at),
+    createdAt: o.created_at || null
+  };
+}
+
 function startRiderOrdersPoll() {
   if (riderOrdersPollTimer) return;
   riderOrdersPollTimer = setInterval(async () => {
@@ -3849,35 +4034,52 @@ function startRiderOrdersPoll() {
       stopRiderOrdersPoll();
       return;
     }
-    await loadOrdersFromSupabase();
+    // Poll only the rider's active orders, not all orders
+    await pollRiderActiveOrders();
     if (location.hash.startsWith('#/rider')) render();
   }, 30000);
 }
 
-function stopRiderOrdersPoll() {
-  if (riderOrdersPollTimer) {
-    clearInterval(riderOrdersPollTimer);
-    riderOrdersPollTimer = null;
-  }
-}
-
-let riderOrdersReloadTimer = null;
-let riderOrdersReloadPending = false;
-function scheduleRiderOrdersReload(renderHome = false) {
-  if (riderOrdersReloadTimer) {
-    riderOrdersReloadPending = true;
-    return;
-  }
-  riderOrdersReloadTimer = setTimeout(async () => {
-    riderOrdersReloadTimer = null;
-    await loadOrdersFromSupabase();
-    if (renderHome && (location.hash === '' || location.hash === '#/' || location.hash === '#')) render();
-    if (location.hash.startsWith('#/rider')) render();
-    if (riderOrdersReloadPending) {
-      riderOrdersReloadPending = false;
-      scheduleRiderOrdersReload();
+// Poll only the rider's active orders (claimed + available pool) instead of all orders
+async function pollRiderActiveOrders() {
+  const state = currentAppState();
+  if (!state.rider || !state.rider.id || typeof supabase === 'undefined' || !supabase) return;
+  try {
+    const riderId = state.rider.id;
+    // Fetch orders assigned to this rider
+    const { data: assigned, error: assignedError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('rider_id', riderId);
+    if (assignedError) throw assignedError;
+    // Fetch unassigned rider-delivery orders (pool)
+    const { data: unassigned, error: unassignedError } = await supabase
+      .from('orders')
+      .select('*')
+      .in('status', ['Order confirmed','Ready for pickup'])
+      .is('rider_id', null)
+      .eq('delivery_method', 'rider')
+      .eq('payment_status', 'success');
+    if (unassignedError) throw unassignedError;
+    const all = [...(assigned || []), ...(unassigned || [])];
+    for (const o of all) {
+      const mapped = mapSupabaseOrderToState(o);
+      if (mapped) {
+        const poolIdx = state.riderPool.findIndex(x => x.dbId === o.id);
+        if (poolIdx >= 0) {
+          state.riderPool[poolIdx] = mapped;
+        } else {
+          state.riderPool.push(mapped);
+        }
+        const orderIdx = state.orders.findIndex(x => x.dbId === o.id);
+        if (orderIdx >= 0) {
+          state.orders[orderIdx] = mapped;
+        }
+      }
     }
-  }, 300);
+  } catch (err) {
+    console.error('Rider active orders poll failed:', err);
+  }
 }
 
 function clearTrackSubscription() {
@@ -4762,19 +4964,35 @@ async function handlePaystackReturn() {
   if (!state.user) return;
   const search = new URLSearchParams(location.search);
   const ref = search.get('reference') || search.get('trxref');
-  const orderId = search.get('order_id');
+  const hintedOrderId = search.get('order_id');
   const delivery = search.get('payment_type') === 'vendor_delivery';
-  if (!ref || !orderId || !/^[0-9a-f-]{36}$/i.test(orderId)) return;
-  const order = (state.orders || []).find(o => o.dbId === orderId);
-  const route = delivery ? '#/vendor' : order ? `#/order/${encodeURIComponent(order.id)}` : '#/orders';
-  history.replaceState(null, '', location.pathname + route);
-  render();
+  if (!ref) return;
+  // Consume the callback query immediately. Keep the existing SPA hash so a
+  // duplicate lifecycle callback cannot verify the same return twice.
+  history.replaceState(null, '', location.pathname + location.hash);
   toast('Checking payment status…', 'info');
-  // The Edge Function verifies ownership, amount and Paystack status. Only its
-  // success and a subsequent database read can confirm the browser's result.
-  await verifyPaymentWithPaystack(ref);
+  // The Edge Function verifies ownership, amount and Paystack status. Its
+  // order_id is authoritative; the callback order_id is only a consistency
+  // hint and is never used as the final route identifier.
+  const verification = await verifyPaymentWithPaystack(ref);
   if (state !== currentAppState()) return;
-  if (location.hash !== route) location.hash = route;
+  if (!verification?.verified || verification.status !== 'success') {
+    // Keep the customer on a valid SPA route while a pending/failed payment is
+    // reconciled. Never construct #/order/undefined or show Path not found.
+    const safeRoute = delivery ? '#/vendor' : '#/orders';
+    if (location.hash !== safeRoute) location.hash = safeRoute;
+    return;
+  }
+  const orderId = String(verification.order_id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(orderId)) {
+    toast('Payment verified, but the order could not be resolved yet.', 'error');
+    if (location.hash !== '#/orders') location.hash = '#/orders';
+    return;
+  }
+  if (hintedOrderId && hintedOrderId !== orderId) {
+    console.warn('Paystack return order hint differed from verified order; using server order_id.');
+  }
+  if (delivery && location.hash !== '#/vendor') location.hash = '#/vendor';
   const check = async () => {
     if (delivery) {
       const { data, error } = await supabase.from('orders').select('delivery_payment_status').eq('id', orderId).maybeSingle();
@@ -4789,10 +5007,21 @@ async function handlePaystackReturn() {
     if (confirmed) {
       if (delivery) { state.vendorLoaded = false; await ensureVendorLoaded(); }
       else {
-        await loadOrdersFromSupabase();
-        if (state !== currentAppState()) return;
-        const confirmedOrder = (state.orders || []).find(o => o.dbId === orderId);
-        if (confirmedOrder) location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
+        // Fetch only the confirmed order by UUID
+        const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
+        if (orderData) {
+          const confirmedOrder = mapSupabaseOrderToState(orderData);
+          if (confirmedOrder) {
+            updateOrderInState(confirmedOrder);
+            location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
+          } else {
+            toast('Payment confirmed. Open My Orders to view it.', 'info');
+            location.hash = '#/orders';
+          }
+        } else {
+          toast('Payment confirmed. Open My Orders to view it.', 'info');
+          location.hash = '#/orders';
+        }
       }
       if (state !== currentAppState()) return;
       toast('Payment confirmed','success');
@@ -4815,13 +5044,14 @@ function schedulePayConfirmationPoll(routeOrderId, dbId) {
   const tick = async () => {
     if (!location.hash.startsWith('#/pay/') || !location.hash.includes(routeOrderId)) return;
     n++;
-    try { await loadOrdersFromSupabase(); } catch (e) { /* retry next tick; order stays visible */ }
-    const order = (state.orders || []).find(x => x.dbId === dbId || x.id === routeOrderId);
-    if (order && order.payment_status === 'success') {
-      toast('Payment successful — opening your order…');
-      location.hash = `#/order/${encodeURIComponent(order.dbId || order.id)}`;
-      return;
-    }
+    try {
+      const { data } = await supabase.from('orders').select('payment_status,order_number,id').eq('id', dbId).single();
+      if (data && data.payment_status === 'success') {
+        toast('Payment successful — opening your order…');
+        location.hash = `#/order/${encodeURIComponent(data.order_number || data.id)}`;
+        return;
+      }
+    } catch (e) { /* retry next tick; order stays visible */ }
     if (n < attempts) setTimeout(tick, interval);
   };
   setTimeout(tick, interval);
@@ -5540,20 +5770,27 @@ function riderStatusLabel(status) {
   return status;
 }
 
-// Refresh the authoritative pool/order state from Supabase and report how the
+// Fetch a single order from Supabase for reconciliation
+async function fetchOrderFromSupabase(dbId) {
+  if (typeof supabase === 'undefined' || !supabase || !dbId) return null;
+  try {
+    const { data, error } = await supabase.from('orders').select('*').eq('id', dbId).single();
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Fetch order failed:', err);
+    return null;
+  }
+}
+
+// Refresh a single order's state from Supabase and report how the
 // server sees the order: 'applied' (the target state is persisted), 'unchanged'
 // (still in the previous state), 'gone' (no longer in this rider's pool — e.g.
 // another rider claimed it), 'other' (server shows some other state) or
 // 'unknown' (the refresh itself failed).
 async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
   const state = currentAppState();
-  try {
-    await loadOrdersFromSupabase();
-  } catch (err) {
-    console.error('Rider reconcile refresh failed:', err);
-    return 'unknown';
-  }
-  const fresh = riderOrderByDbId(dbId);
+  const fresh = await fetchOrderFromSupabase(dbId);
   if (!fresh) return 'gone';
   if (fresh.status === nextStatus) return 'applied';
   if (fresh.status === prevStatus) return 'unchanged';
@@ -5571,7 +5808,8 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
   const dbId = order.dbId;
   const orderId = order.id;
   opts = opts || {};
-  if (state.riderSubmitting[orderId]) return false; // duplicate-submission guard
+  const opKey = nextStatus === 'Delivered' ? 'markingDelivered' : nextStatus === 'Picked up' ? 'pickingUp' : 'onWay';
+  if (state.riderSubmitting[orderId] || isOpLoading(opKey, orderId)) return false; // duplicate-submission guard
   const prevStatus = order.status;
 
   // Offline / no-Supabase fallback: the local store is the only source, so the
@@ -5582,7 +5820,7 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
     return true;
   }
 
-  state.riderSubmitting[orderId] = true;
+  setOpLoading(opKey, orderId, true);
   order.status = nextStatus;
   save();
   render();
@@ -5610,6 +5848,7 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
     }
   }
 
+  setOpLoading(opKey, orderId, false);
   delete state.riderSubmitting[orderId];
 
   if (ok) {
@@ -5663,63 +5902,61 @@ document.addEventListener('click', async e=>{
     const activeCount=(state.riderPool||[]).filter(x=>x.rider_id===state.rider.id && ['Rider assigned','Picked up','On the Way'].includes(x.status)).length;
     if(activeCount>=2){ toast('Delivery limit reached — you already have 2 active deliveries.','error'); return; }
     // Duplicate-submission guard: ignore taps while this claim is in flight.
-    if(state.riderSubmitting[o.id]) return;
-    state.riderSubmitting[o.id]=true;
+    if(state.riderSubmitting[o.id] || isOpLoading('claimingOrder', o.id)) return;
+    setOpLoading('claimingOrder', o.id, true);
     const prevStatus=o.status;
     o.status='Rider assigned';
     save();
     render();
     (async()=>{
-      // Success toasts fire ONLY after the server confirms (or the offline
-      // fallback path); failures never show a success message. Raw DB/RLS text
-      // is logged for debugging and never displayed to the rider.
       let ok=false;
-      let reconciled='unknown';
+      let claimErr=null;
       if(typeof supabase!=='undefined' && supabase && o.dbId){
-        let claimErr=null;
-        // One safe retry for transient failures. A repeated claim attempt can
-        // never corrupt state: if the first attempt actually persisted, the
-        // retry is a same-status no-op on the server.
-        for(let attempt=0; attempt<2; attempt++){
-          if(attempt===1) await new Promise(r=>setTimeout(r,600));
-          const res=await supabase.from('orders')
-            .update({ status:'Rider assigned', rider_id: state.rider.id }).eq('id', o.dbId);
-          if(!res.error){ ok=true; break; }
-          claimErr=res.error;
-          console.error('Rider claim failed (attempt '+(attempt+1)+' of 2):', res.error);
-        }
-        if(!ok){
-          reconciled=await riderReconcileOrder(o.dbId, prevStatus, 'Rider assigned');
-          if(reconciled==='applied') ok=true;
-          else if(reconciled==='unknown'){
-            // Refresh failed — revert the local pool entry to the last known
-            // server state so the UI stays consistent.
-            const stale=riderOrderByDbId(o.dbId);
-            if(stale && stale.status==='Rider assigned') stale.status=prevStatus;
-            save();
-          } else {
-            console.warn('Rider claim rejected by server:', claimErr && claimErr.message);
+        try {
+          const { data, error } = await supabase.rpc('claim_order', { p_order_id: o.dbId });
+          if (error) throw error;
+          ok = true;
+          // Authoritative response from RPC - update local state directly
+          if (data && data.order) {
+            const updated = data.order;
+            updateOrderInState({
+              dbId: updated.id,
+              id: updated.order_number,
+              status: updated.status,
+              rider_id: updated.rider_id
+            });
+            // Also update riderPool
+            upsertRiderPoolOrder({
+              dbId: updated.id,
+              id: updated.order_number,
+              status: updated.status,
+              rider_id: updated.rider_id
+            });
           }
+        } catch (err) {
+          claimErr = err;
+          console.error('Rider claim RPC failed:', err);
         }
       } else {
-        ok=true; // offline / local-only fallback preserves existing behaviour
+        ok = true; // offline / local-only fallback preserves existing behaviour
       }
-      delete state.riderSubmitting[o.id];
+      setOpLoading('claimingOrder', o.id, false);
       if(ok){
-        // Refresh the Rider Hub from Supabase so the persisted assignment
-        // (rider_id = currentRider.id, status = 'Rider assigned') is the source
-        // of truth — the order moves from Available to Active deliveries.
-        await loadOrdersFromSupabase();
         addNotification('Rider assigned',`A rider accepted order #${o.id}. They are on their way to the pickup point.`);
         toast('Delivery added to your rider queue');
-      } else if(/active deliver|max.*2|limit reached/i.test((claimErr && claimErr.message) || '')){
-        // Server-enforced 2-active cap rejected this claim: refresh so the hub
-        // shows the true active set, then explain the limit.
-        await loadOrdersFromSupabase();
+      } else if(claimErr && /active deliver|max.*2|limit reached|already has 2/i.test(claimErr.message || '')){
+        // Server-enforced 2-active cap rejected this claim
+        removeOrderFromRiderPool(o.id);
         toast('Delivery limit reached — you already have 2 active deliveries.','error');
-      } else if(reconciled==='gone' || reconciled==='other'){
+      } else if(claimErr && /not found|already has a rider|not a rider delivery|cannot be claimed/i.test(claimErr.message || '')){
+        // Order no longer claimable
+        removeOrderFromRiderPool(o.id);
         toast('This delivery is no longer available. Another rider accepted it.','error');
       } else {
+        // Revert optimistic update on other errors
+        const stale = riderOrderByDbId(o.dbId);
+        if (stale && stale.status === 'Rider assigned') stale.status = prevStatus;
+        save();
         toast('Could not accept this delivery. Check your connection and try again.','error');
       }
       render();
@@ -5746,16 +5983,16 @@ document.addEventListener('click', async e=>{
       console.error('record_product_availability_check failed:', error);
       toast('Could not save product availability: ' + (error.message || 'unknown error'), 'error');
     }
-    else { await loadOrdersFromSupabase(); toast(available?'Product marked available':'Product marked unavailable'); }
+    else { toast(available?'Product marked available':'Product marked unavailable'); }
     render();
   }
   const removeUnavailable=e.target.closest('[data-remove-unavailable]'); if(removeUnavailable){
     const { error }=await supabase.rpc('customer_remove_unavailable_item',{p_order_item_id:removeUnavailable.dataset.removeUnavailable});
-    if(error) toast('This item could not be removed.','error'); else { toast('Item removed from the final order'); await loadOrdersFromSupabase(); render(); }
+    if(error) toast('This item could not be removed.','error'); else { toast('Item removed from the final order'); render(); }
   }
   const replaceUnavailable=e.target.closest('[data-replace-unavailable]'); if(replaceUnavailable){
     const { data, error }=await supabase.rpc('customer_replace_unavailable_item',{p_order_item_id:replaceUnavailable.dataset.replaceUnavailable,p_replacement_product_id:replaceUnavailable.dataset.replacementProduct});
-    if(error) toast('Replacement could not be selected.','error'); else if(data?.requires_payment){ toast('Additional payment is required.'); await loadOrdersFromSupabase(); render(); } else { toast('Replacement confirmed'); await loadOrdersFromSupabase(); render(); }
+    if(error) toast('Replacement could not be selected.','error'); else if(data?.requires_payment){ toast('Additional payment is required.'); render(); } else { toast('Replacement confirmed'); render(); }
   }
   const replacementPay=e.target.closest('[data-replacement-pay]'); if(replacementPay){
     startPaystackCheckout(replacementPay.dataset.replacementPay,replacementPay,'Redirecting to Paystack…','replacement');
@@ -5768,7 +6005,7 @@ document.addEventListener('click', async e=>{
       if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
       else toast('Purchase funding request submitted');
     } catch (error) { toast(error.message && /eligible|confirmed|unavailable|decision/i.test(error.message) ? error.message : 'Purchase funding could not be released.','error'); }
-    await loadOrdersFromSupabase(); render();
+    render();
   }
   // Customer cancellation: only while the order is still cancellable
   // ('Order confirmed' / 'Preparing'). The order is never deleted — its status
@@ -5792,8 +6029,10 @@ document.addEventListener('click', async e=>{
       } else {
         toast('Cancellation recorded (stage: ' + (result?.stage || 'unknown') + ')');
       }
+      // Optimistically update local state
+      updateOrderInState({ dbId: o.dbId, id: o.id, status: 'Cancelled' });
     } catch (err) { toast(err?.message || 'Cancellation failed', 'error'); }
-    await loadOrdersFromSupabase(); render();
+    render();
   }}
   // Refund request: navigate to the dedicated Refund Request page (shared by
   // the My Orders and Order Details entry points — no popup modal).
@@ -5805,8 +6044,20 @@ document.addEventListener('click', async e=>{
     verifyPayment.textContent = 'Verifying…';
     const res = await verifyPaymentWithPaystack(reference);
     if (res && res.verified) {
-      toast('Payment verified — reloading…');
-      await loadOrdersFromSupabase();
+      toast('Payment verified');
+      // The paystack-verify RPC returns the order_id; we can fetch just that order
+      if (res.order_id) {
+        const { data } = await supabase.from('orders').select('*').eq('id', res.order_id).single();
+        if (data) {
+          updateOrderInState({
+            dbId: data.id,
+            id: data.order_number,
+            status: data.status,
+            payment_status: data.payment_status,
+            rider_id: data.rider_id
+          });
+        }
+      }
       render();
     } else {
       verifyPayment.disabled = false;
