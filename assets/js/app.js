@@ -4040,6 +4040,13 @@ function startRiderOrdersPoll() {
   }, 30000);
 }
 
+function stopRiderOrdersPoll() {
+  if (riderOrdersPollTimer) {
+    clearInterval(riderOrdersPollTimer);
+    riderOrdersPollTimer = null;
+  }
+}
+
 // Poll only the rider's active orders (claimed + available pool) instead of all orders
 async function pollRiderActiveOrders() {
   const state = currentAppState();

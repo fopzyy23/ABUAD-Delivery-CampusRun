@@ -95,6 +95,7 @@ const structural = [
   'scripts/validate_vendor_delivery_choice.js'
   ,'scripts/validate_h2_h3.js'
   ,'scripts/validate_schema_reproducibility.js'
+  ,'scripts/validate_rider_orders_poll.js'
 ];
 for (const rel of structural) {
   if (fs.existsSync(path.join(root, rel))) run(rel, process.execPath, [rel]);
