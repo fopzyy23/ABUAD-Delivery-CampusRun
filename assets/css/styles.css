@@ -287,7 +287,7 @@ hr, .rule {
   border-bottom: 1px solid var(--line);
 }
 .appbar__inner {
-  height: var(--appbar-h);
+  min-height: 64px;
   display: flex; align-items: center; gap: 12px;
 }
 
@@ -319,7 +319,7 @@ hr, .rule {
   display: block;
   width: auto;
   height: auto;
-  max-height: 42px;
+  max-height: 40px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -333,12 +333,14 @@ html[data-theme="dark"] .brand__img {
   box-shadow: var(--sh-1);
 }
 @media (max-width: 1024px) {
+  .appbar__inner { min-height: 60px; }
+  .topnav { gap: 4px; margin-left: 16px; }
   .appbar .brand__img { max-height: 38px; }
 }
 
 /* Top nav row — desktop */
 .topnav {
-  display: flex; gap: 4px; margin-left: 6px; flex: 1;
+  display: flex; gap: 8px; margin-left: 24px; flex: 1;
   align-items: center;
 }
 .topnav a {
@@ -1435,6 +1437,7 @@ body.modal-open { overflow: hidden; }
   .card { padding: 15px; border-radius: var(--r); }
   .sticky-side { position: static; }
   .appbar__inner { gap: 8px; }
+  .appbar__inner { min-height: var(--appbar-h); }
   .icon-btn { width: 36px; height: 36px; font-size: 15px; }
   .avatar { width: 36px; height: 36px; font-size: 13px; }
   .brand__logo { width: 30px; height: 30px; font-size: 16px; border-radius: 10px; }
