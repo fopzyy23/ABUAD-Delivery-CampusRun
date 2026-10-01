@@ -10,7 +10,10 @@
     function identity(value) {
       try {
         const payload = JSON.parse(atob(value.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        return payload.session_id ? value.user.id + ':' + payload.session_id : null;
+        // session_id is the stable logical-session component. Some hosted or
+        // test JWTs omit it; user id is still a safer stable fallback than
+        // treating every token/session object as a new login.
+        return value.user.id + ':' + (payload.session_id || 'user-session');
       } catch (_) { return null; }
     }
     function clearRecovery() {
@@ -47,7 +50,11 @@
       }
       // INITIAL_SESSION can follow the recovery/sign-in event from URL exchange.
       if (pending && identity(session) && identity(session) === identity(next) && event !== 'USER_UPDATED' && event !== 'PASSWORD_RECOVERY') return pending;
-      if (event === 'INITIAL_SESSION' && ready && identity(session) && identity(session) === identity(next)) return Promise.resolve();
+      // Re-entry/visibility checks may replay SIGNED_IN with the same session.
+      // Once that session is ready, it is already synchronized; do not clear
+      // private state and refetch the profile just because the tab regained
+      // focus. A genuinely new session still advances the generation below.
+      if (['INITIAL_SESSION', 'SIGNED_IN'].includes(event) && ready && identity(session) && identity(session) === identity(next)) return Promise.resolve();
       const ticket = ++generation;
       session = event === 'SIGNED_OUT' ? null : next;
       profile = null; ready = false;

@@ -894,6 +894,11 @@ async function loadOrdersForUser(userId) {
     return false;
   }
   let sessionIsCurrent = false;
+  const stillCurrent = async () => {
+    if (state !== currentAppState()) return false;
+    const { data: { session } } = await supabase.auth.getSession();
+    return Boolean(session?.user?.id === userId);
+  };
   try {
     // Per-user Rider Hub pool: rebuilt from Supabase below. Never reuse a stale
     // cached/previously-logged-in-user pool — this also guarantees that an error
@@ -904,6 +909,7 @@ async function loadOrdersForUser(userId) {
       .select('*')
       .eq('user_id', userId);
     if (ordersError) throw ordersError;
+    if (!await stillCurrent()) return false;
 
     const orderIds = (ordersData || []).map(o => o.id);
     let ratingsByOrder = {};
@@ -914,6 +920,7 @@ async function loadOrdersForUser(userId) {
         .in('order_id', orderIds)
         .eq('reviewer_id', userId);
       if (ratingsError) throw ratingsError;
+      if (!await stillCurrent()) return false;
       (ratingRows || []).forEach(r => { ratingsByOrder[r.order_id] = r; });
     }
 
@@ -926,6 +933,7 @@ async function loadOrdersForUser(userId) {
         .in('order_id', orderIds);
       if (itemsError) throw itemsError;
       orderItemsData = itemsData || [];
+      if (!await stillCurrent()) return false;
     }
 
     async function finalProductNames(rows) {
@@ -951,6 +959,7 @@ async function loadOrdersForUser(userId) {
       };
     }
     const customerFinalProducts = await finalProductNames(orderItemsData);
+    if (!await stillCurrent()) return false;
 
     // 3. Group order_items by order_id
     const itemsByOrder = {};
@@ -1017,9 +1026,11 @@ async function loadOrdersForUser(userId) {
         // assigned to orders the caller owns (prevents broad profile exposure).
         const ordersWithRider = ordersData.filter(o => o.rider_id);
         for (const o of ordersWithRider) {
+          if (!await stillCurrent()) return false;
           const { data: riderDetails, error: rpcError } = await supabase.rpc('get_rider_details_for_order', {
             p_order_id: o.id
           });
+          if (!await stillCurrent()) return false;
           if (rpcError) {
             console.error('get_rider_details_for_order RPC failed:', rpcError);
             // Fail safely: do not fall back to direct profile queries which would
@@ -1070,6 +1081,7 @@ async function loadOrdersForUser(userId) {
           .select('*')
           .in('order_id', poolIds);
         if (poolItemsError) throw poolItemsError;
+        if (!await stillCurrent()) return false;
 
         const poolItemsByOrder = {};
         const riderFinalProducts = await finalProductNames(poolItems || []);
@@ -1090,7 +1102,7 @@ async function loadOrdersForUser(userId) {
     //    after logout/login. Orders placed earlier in this session were persisted via the
     //    place_order RPC and are included in this Supabase result.
     sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
-    if (!sessionIsCurrent) return false;
+    if (!sessionIsCurrent || state !== currentAppState()) return false;
     const nextRiderPool = poolOrders;
     const nextOrders = sortOrdersNewestFirst(supabaseOrders);
     state.riderPool = nextRiderPool;
