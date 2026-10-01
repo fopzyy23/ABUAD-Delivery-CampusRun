@@ -89,6 +89,68 @@ async function main() {
       catch (error) { throw new Error(`Corrective migration ${file}: ${error.message}`, {cause:error}); }
       console.log('Applied corrective migration '+file);
     }
+    const riderCall=(userId,sql,params=[])=>asUser(db,userId,'aal1',tx=>tx.query(sql,params));
+    const claimOrder=async(userId,orderId)=>(await riderCall(userId,'SELECT claim_order($1) AS result',[orderId])).rows[0].result;
+    const claimUser=await user(), claimRider=randomUUID();
+    await q(`INSERT INTO riders(id,user_id,matric_number,phone,status,available) VALUES($1,$2,'CLAIM','08000000004','approved',true)`,[claimRider,claimUser]);
+    async function claimFixture(options={}) {
+      const id=randomUUID();
+      await q(`INSERT INTO orders(
+        id,order_number,user_id,total,subtotal,fee,status,payment_status,
+        delivery_method,request_type,vendor_delivery_requested,delivery_payment_status,rider_id
+      ) VALUES($1,$2,$3,1000,1000,$4,$5,$6,$7,$8,$9,$10,$11)`,[
+        id,'CLAIM-'+id,options.customer||customer,options.fee||0,
+        options.status||'Order confirmed',options.payment||'success',
+        options.deliveryMethod||'rider',options.requestType||'restaurant',
+        options.vendorRequested??false,options.deliveryPayment||'pending',options.riderId||null
+      ]);
+      return id;
+    }
+    await check('rider claim RPCs install with authenticated-only grants',async()=>{
+      const routines=await q(`SELECT proname FROM pg_proc JOIN pg_namespace n ON n.oid=pronamespace
+        WHERE n.nspname='public' AND proname IN ('claim_order','get_rider_details_for_orders')`);
+      assert.deepEqual(new Set(routines.map(row=>row.proname)),new Set(['claim_order','get_rider_details_for_orders']));
+      const oid=await claimFixture();
+      await assert.rejects(claimOrder(customer,oid),error=>error.code==='42501' && /Rider not found/.test(error.message));
+    });
+    await check('eligible paid restaurant order is claimed through final triggers',async()=>{
+      const oid=await claimFixture();
+      const result=await claimOrder(claimUser,oid);
+      assert.equal(result.rider_id,claimRider); assert.equal(result.status,'Rider assigned');
+      const stored=(await q('SELECT rider_id,status FROM orders WHERE id=$1',[oid]))[0];
+      assert.equal(stored.rider_id,claimRider); assert.equal(stored.status,'Rider assigned');
+    });
+    await check('already assigned and double claim are rejected with useful messages',async()=>{
+      const riderUser2=await user(), rider2=randomUUID();
+      await q(`INSERT INTO riders(id,user_id,matric_number,phone,status,available) VALUES($1,$2,'CLAIM2','08000000002','approved',true)`,[rider2,riderUser2]);
+      const oid=await claimFixture();
+      await claimOrder(claimUser,oid);
+      await assert.rejects(claimOrder(riderUser2,oid),/Order already has a rider assigned/);
+    });
+    await check('claim rejects unpaid, vendor self-delivery, and unpaid vendor delivery',async()=>{
+      const unpaid=await claimFixture({payment:'pending'});
+      await assert.rejects(claimOrder(claimUser,unpaid),/Order payment not successful/);
+      const selfDelivery=await claimFixture({requestType:'vendor_request',deliveryMethod:'vendor_self'});
+      await assert.rejects(claimOrder(claimUser,selfDelivery),/Order is not a rider delivery/);
+      const unpaidVendor=await claimFixture({requestType:'vendor_request',vendorRequested:true,deliveryPayment:'pending',fee:1500});
+      await assert.rejects(claimOrder(claimUser,unpaidVendor),/Vendor delivery payment not successful/);
+    });
+    await check('claim enforces the canonical two-active-delivery cap',async()=>{
+      const capUser=await user(), capRider=randomUUID();
+      await q(`INSERT INTO riders(id,user_id,matric_number,phone,status,available) VALUES($1,$2,'CAP','08000000003','approved',true)`,[capRider,capUser]);
+      for(const status of ['Rider assigned','On the Way']) await claimFixture({status,riderId:capRider});
+      const candidate=await claimFixture();
+      await assert.rejects(claimOrder(capUser,candidate),/Rider already has 2 active deliveries \(maximum 2\)/);
+      assert.equal((await q('SELECT rider_id FROM orders WHERE id=$1',[candidate]))[0].rider_id,null);
+    });
+    await check('batch rider details matches customer-only name-and-phone boundary',async()=>{
+      const oid=await claimFixture({riderId:claimRider,status:'Rider assigned'});
+      const owned=(await customerCall('SELECT * FROM get_rider_details_for_orders($1)',[[oid]])).rows[0].get_rider_details_for_orders;
+      assert.deepEqual(Object.keys(owned).sort(),['full_name','order_id','phone','rider_id']);
+      assert.equal(owned.rider_id,claimRider); assert.equal(owned.phone,'08000000004');
+      assert.equal((await riderCall(claimUser,'SELECT * FROM get_rider_details_for_orders($1)',[[oid]])).rows.length,0);
+      assert.equal((await adminCall('SELECT * FROM get_rider_details_for_orders($1)',[[oid]])).rows.length,0);
+    });
     await check('processing transfer stays reserved even with historical rejected status',async()=>assert.equal(await balance(),0));
     await check('rejecting processing withdrawal fails and preserves reservation',async()=>{
       await assert.rejects(adminCall('SELECT admin_reject_withdrawal($1,$2)',[withdrawal,'retry']),/cannot be rejected|active/);
