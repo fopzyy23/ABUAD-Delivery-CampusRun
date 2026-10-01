@@ -6236,7 +6236,11 @@ window.addEventListener('storage', (e) => {
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    state.catalog = catalogProducts(allowedCatalog());
+    const nextCatalog = catalogProducts(allowedCatalog());
+    // Re-entry is not itself a data change. Avoid replacing the routed DOM
+    // (and resetting scroll) unless another tab actually changed the catalog.
+    if (JSON.stringify(nextCatalog) === JSON.stringify(state.catalog)) return;
+    state.catalog = nextCatalog;
     render();
   }
 });
