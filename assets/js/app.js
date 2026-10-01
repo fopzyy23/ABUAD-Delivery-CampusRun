@@ -254,10 +254,11 @@ async function loadCatalogFromSupabase() {
     // Bookshop removal (Dropzyy 1.0): strip any Bookshop vendor or product
     // that still exists in the database before it can reach state or storage.
     const { catalog } = stripBookshop({ vendors, products });
+    const catalogChanged = JSON.stringify(state.catalog) !== JSON.stringify(catalog.products);
     state.catalog = catalog.products;
     state.catalogLoadError = false;
     store('catalog_v3', catalog);
-    render();
+    if (catalogChanged) render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
     state.catalogLoadError = true;
@@ -1025,12 +1026,22 @@ async function loadOrdersForUser(userId) {
         // SECURITY DEFINER function that only returns name+phone for riders
         // assigned to orders the caller owns (prevents broad profile exposure).
         const ordersWithRider = ordersData.filter(o => o.rider_id);
+        const riderDetailsByOrderId = new Map();
         for (const o of ordersWithRider) {
           if (!await stillCurrent()) return false;
+          if (riderDetailsByOrderId.has(o.id)) {
+            const cached = riderDetailsByOrderId.get(o.id);
+            if (cached) {
+              riderNames[o.rider_id] = cached.full_name || null;
+              riderPhones[o.rider_id] = cached.phone || null;
+            }
+            continue;
+          }
           const { data: riderDetails, error: rpcError } = await supabase.rpc('get_rider_details_for_order', {
             p_order_id: o.id
           });
           if (!await stillCurrent()) return false;
+          riderDetailsByOrderId.set(o.id, riderDetails?.[0] || null);
           if (rpcError) {
             console.error('get_rider_details_for_order RPC failed:', rpcError);
             // Fail safely: do not fall back to direct profile queries which would
