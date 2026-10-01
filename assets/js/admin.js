@@ -2359,7 +2359,7 @@ async function loadRatingsFromSupabase() {
 
 async function loadNotificationsFromSupabase() {
   const s = currentAdminState(); s.notificationsLoading = true; s.notificationsError = null;
-  try { const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }); if (error) throw error; s.notifications = data || []; }
+  try { const { data, error } = await supabase.from('notifications').select('id,user_id,title,message,type,is_read,created_at').order('created_at', { ascending: false }).limit(50); if (error) throw error; s.notifications = data || []; }
   catch (e) { s.notifications = []; s.notificationsError = e.message || 'Load failed'; }
   s.notificationsLoading = false;
 }
@@ -3450,12 +3450,10 @@ async function loadAutomaticCutoffClaimsFromSupabase() {
   state.automaticCutoffClaimsLoading = true;
   state.automaticCutoffClaimsError = null;
   try {
-    const { data, error } = await supabase
-      .from('automatic_cutoff_claims')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.rpc('admin_get_financial_resolution_queue');
     if (error) throw error;
-    state.automaticCutoffClaims = data || [];
+    state.automaticCutoffClaims = Array.isArray(data?.cutoff_claims) ? data.cutoff_claims : [];
+    if (Array.isArray(data?.cancellations)) state.cancellations = data.cancellations;
     state.automaticCutoffClaimsLoading = false;
     return state.automaticCutoffClaims;
   } catch (err) {
@@ -3835,15 +3833,16 @@ async function loadOrdersFromSupabase() {
   try {
     const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('id,order_number,total,fee,status,payment_status,delivery_method,rider_id,user_id,spot,created_at')
+      .order('created_at', { ascending: false })
+      .range(0, 499);
     if (ordersError) throw ordersError;
 
     let orderItemsData = [];
     if (ordersData.length) {
       const { data, error } = await supabase
         .from('order_items')
-        .select('*')
+        .select('id,order_id,product_id,vendor_id,name,price,icon,qty')
         .in('order_id', ordersData.map(order => order.id));
       if (error) throw error;
       orderItemsData = data || [];
@@ -3994,17 +3993,27 @@ async function loadRiders() {
 
 async function loadRiderMetrics() {
   const metrics = {};
-  await Promise.all((state.riders || []).filter(r => r.dbId).map(async rider => {
-    try {
-      const [{ data: earnings }, { data: ratings }] = await Promise.all([
-        supabase.rpc('get_rider_earnings', { p_rider_id: rider.dbId }),
-        supabase.from('rider_ratings').select('id,order_id,rating,review,created_at').eq('rider_id', rider.dbId).order('created_at', { ascending: false }).limit(10)
-      ]);
+  const riders = (state.riders || []).filter(r => r.dbId);
+  if (!riders.length) { state.riderMetrics = metrics; return; }
+  try {
+    const ids = riders.map(r => r.dbId);
+    const [{ data: earnings, error: earningsError }, { data: ratings, error: ratingsError }] = await Promise.all([
+      supabase.rpc('admin_get_rider_financial_summaries', { p_rider_ids: ids }),
+      supabase.from('rider_ratings').select('id,rider_id,order_id,rating,review,created_at').in('rider_id', ids).order('created_at', { ascending: false }).limit(Math.max(50, ids.length * 10))
+    ]);
+    if (earningsError) throw earningsError;
+    if (ratingsError) throw ratingsError;
+    const earningsByRider = Object.fromEntries((earnings || []).map(e => [e.rider_id, e]));
+    const ratingsByRider = {};
+    (ratings || []).forEach(r => { (ratingsByRider[r.rider_id] ||= []).push(r); });
+    riders.forEach(rider => {
       const active = state.orders.filter(o => o.rider_id === rider.id && ['Rider assigned','Picked up','On the Way'].includes(o.status)).length;
       const completed = state.orders.filter(o => o.rider_id === rider.id && ['Delivered','Rated'].includes(o.status)).length;
-      metrics[rider.id] = { earnings: earnings || null, ratings: ratings || [], active, completed };
-    } catch (err) { metrics[rider.id] = { error: err.message || 'Could not load rider metrics' }; }
-  }));
+      metrics[rider.id] = { earnings: earningsByRider[rider.dbId] || null, ratings: (ratingsByRider[rider.dbId] || []).slice(0, 10), active, completed };
+    });
+  } catch (err) {
+    riders.forEach(rider => { metrics[rider.id] = { error: err.message || 'Could not load rider metrics' }; });
+  }
   state.riderMetrics = metrics;
 }
 

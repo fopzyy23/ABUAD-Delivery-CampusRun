@@ -1,4 +1,4 @@
-# Dropzyy full audit — 1 October 2026
+ Dropzyy full audit — 1 October 2026
 
 **Assessment: the architecture and security posture remain solid, but the current
 repository HEAD is broken in two independent ways and the CI gate is red. This is

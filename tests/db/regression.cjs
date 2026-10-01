@@ -106,12 +106,35 @@ async function main() {
       ]);
       return id;
     }
-    await check('rider claim RPCs install with authenticated-only grants',async()=>{
+    await check('rider claim and admin remediation RPCs install',async()=>{
       const routines=await q(`SELECT proname FROM pg_proc JOIN pg_namespace n ON n.oid=pronamespace
-        WHERE n.nspname='public' AND proname IN ('claim_order','get_rider_details_for_orders')`);
-      assert.deepEqual(new Set(routines.map(row=>row.proname)),new Set(['claim_order','get_rider_details_for_orders']));
+        WHERE n.nspname='public' AND proname IN ('claim_order','get_rider_details_for_orders','admin_get_rider_financial_summaries','admin_get_financial_resolution_queue')`);
+      assert.deepEqual(new Set(routines.map(row=>row.proname)),new Set(['claim_order','get_rider_details_for_orders','admin_get_rider_financial_summaries','admin_get_financial_resolution_queue']));
       const oid=await claimFixture();
       await assert.rejects(claimOrder(customer,oid),error=>error.code==='42501' && /Rider not found/.test(error.message));
+    });
+    await check('admin browser uses remediation RPCs instead of broken direct/fan-out calls',async()=>{
+      const adminJs=fs.readFileSync(path.join(root,'assets/js/admin.js'),'utf8');
+      assert.doesNotMatch(adminJs,/from\(['"]automatic_cutoff_claims['"]\)/);
+      assert.doesNotMatch(adminJs,/rpc\(['"]get_rider_earnings['"]\)/);
+      assert.match(adminJs,/rpc\(['"]admin_get_rider_financial_summaries['"]/);
+      assert.match(adminJs,/rpc\(['"]admin_get_financial_resolution_queue['"]\)/);
+    });
+    await check('admin rider summaries are batched and rider earnings remain owner-only',async()=>{
+      const summaries=(await adminCall('SELECT * FROM admin_get_rider_financial_summaries($1)',[[rider,claimRider]])).rows;
+      assert.equal(summaries.length,2);
+      assert.ok(summaries.every(row=>row.admin_get_rider_financial_summaries.rider_id));
+      await assert.rejects(customerCall('SELECT get_rider_earnings($1)',[rider]),/Not authorized to view earnings/);
+      const own=(await riderCall(riderUser,'SELECT get_rider_earnings($1)',[rider])).rows[0].get_rider_earnings;
+      assert.ok(own && own.pending_earnings != null);
+    });
+    await check('financial resolution queue is admin-only and hides direct cutoff table access',async()=>{
+      const oid=await claimFixture();
+      await q(`INSERT INTO automatic_cutoff_claims(order_id,status,last_error) VALUES($1,'failed','test failure')`,[oid]);
+      const queue=(await adminCall('SELECT admin_get_financial_resolution_queue() AS q')).rows[0].q;
+      assert.ok(queue.cutoff_claims.some(row=>row.order_id===oid));
+      await assert.rejects(customerCall('SELECT * FROM automatic_cutoff_claims'),/permission denied/);
+      await assert.rejects(customerCall('SELECT admin_get_financial_resolution_queue()'),/admin authorization required/);
     });
     await check('eligible paid restaurant order is claimed through final triggers',async()=>{
       const oid=await claimFixture();
