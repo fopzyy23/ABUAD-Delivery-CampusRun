@@ -36,6 +36,7 @@ const OUT_DIR = path.join(ROOT, 'dist');
 // ---- The publish contract: ONLY these repository paths are ever deployed. ----
 const ALLOWLIST = [
   'assets',      // css/ html/ js/ images/ — the whole static website
+  'images',      // root-level brand/static images (e.g. the Dropzyy logo PNG)
   'robots.txt',  // served at /robots.txt
   '_redirects',  // comment-only signpost; the real rules live in netlify.toml
 ];
@@ -51,6 +52,7 @@ const REQUIRED_FILES = [
   'assets/js/admin.js',
   'assets/js/config.js',
   'assets/js/modal.js',
+  'images/dropzyy-logo.png', // the site logo (transparent PNG used by the navbars)
 ];
 
 // ---- Defence in depth: refuse to publish repository internals even if one of

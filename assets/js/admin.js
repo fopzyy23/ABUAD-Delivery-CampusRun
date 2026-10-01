@@ -1167,7 +1167,7 @@ function renderLogin() {
       <div class="auth-wrap">
         <div class="card">
           <div class="center">
-            <span class="brand__logo" style="display:inline-grid">🛵</span>
+            <div class="brand" style="justify-content:center"><img class="brand__img" src="/images/dropzyy-logo.png" alt="Dropzyy" width="160" height="133"></div>
             <h1 class="mt-1">Admin Access</h1>
             <p class="muted">Enter admin credentials to continue.</p>
           </div>

@@ -311,6 +311,30 @@ hr, .rule {
 .brand--sm .brand__logo { width: 28px; height: 28px; font-size: 15px; border-radius: 6px; }
 .brand--sm { font-size: 1rem; }
 
+/* Full Dropzyy logo (transparent PNG, /images) — replaces the emoji icon +
+   "Dropzyy" wordmark in the navbars. Width steps down per breakpoint while
+   height stays auto and object-fit keeps the intrinsic aspect ratio, so the
+   logo is never stretched or cropped and the header never overflows. */
+.brand__img {
+  display: block;
+  width: 160px;                 /* desktop 140–170px */
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.brand--sm .brand__img { width: 120px; }  /* footer brand */
+/* The logo's wordmark is near-black, so on the dark header/surface give the
+   logo a light chip — otherwise it disappears into the dark background. */
+html[data-theme="dark"] .brand__img {
+  background: #FFFFFF;
+  border-radius: 8px;
+  padding: 3px 8px;
+  box-shadow: var(--sh-1);
+}
+@media (max-width: 1024px) {
+  .brand__img { width: 130px; }   /* tablet 115–140px */
+}
+
 /* Top nav row — desktop */
 .topnav {
   display: flex; gap: 4px; margin-left: 6px; flex: 1;
@@ -1398,6 +1422,7 @@ body.modal-open { overflow: hidden; }
   .avatar { width: 36px; height: 36px; font-size: 13px; }
   .brand__logo { width: 30px; height: 30px; font-size: 16px; border-radius: 10px; }
   .brand__text { font-size: .98rem; }
+  .brand__img { width: 100px; }   /* mobile 90–110px */
   .section { padding-block: 20px; }
   .page-head { margin-bottom: 14px; }
   .grid { gap: 12px; }
@@ -1519,6 +1544,7 @@ body.modal-open { overflow: hidden; }
   .avatar { width: 34px; height: 34px; font-size: 12px; }
   .brand__text { font-size: .92rem; }
   .brand__logo { width: 28px; height: 28px; font-size: 15px; }
+  .brand__img { width: 92px; }
   .searchbar .btn { padding: 8px 10px; font-size: .8rem; }
   .searchbar { padding-left: 12px; }
 }
