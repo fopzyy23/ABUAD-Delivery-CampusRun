@@ -6,9 +6,16 @@
   "scripts": {
     "validate": "node scripts/validate_all.js",
     "validate:live": "node scripts/validate_all.js --live",
+    "test:db": "node tests/db/regression.cjs",
+    "test:ui": "node tests/ui/regression.cjs",
+    "test": "npm run test:db && npm run test:ui",
     "seed:catalog": "node scripts/seed_catalog.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "linkedom": "0.18.13"
   }
 }

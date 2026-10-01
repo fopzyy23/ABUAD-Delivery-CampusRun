@@ -20,6 +20,9 @@ jobs:
       - name: Syntax + structural validation
         run: node scripts/validate_all.js
 
+      - name: Executable database and UI regressions
+        run: npm test
+
       # Optional: live read-only Supabase probes (publishable key only).
       # Keep on a schedule or manual dispatch to avoid noisy PR failures
       # while migrations are pending application.

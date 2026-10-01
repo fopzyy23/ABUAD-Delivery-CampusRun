@@ -1,0 +1,18 @@
+const fs=require('fs'),vm=require('vm'),path=require('path');
+const toolRoot=process.env.DROPZYY_AUDIT_TOOLS || path.join(require('os').tmpdir(),'dropzyy-audit-tools');
+const {parseHTML}=require(path.join(toolRoot,'node_modules/linkedom'));
+const root=path.resolve(__dirname,'../..');
+const {window}=parseHTML('<html><body><main id="app"></main><div id="modalRoot"></div></body></html>');
+const document=window.document;
+const context=vm.createContext({window,document,console,setTimeout,clearTimeout,requestAnimationFrame:fn=>fn(),state:{ratings:[],ratingsLoading:false,ratingsError:null},adminSupportTableState:()=>'<tr><td>No rows</td></tr>'});
+const src=fs.readFileSync(path.join(root,'assets/js/admin.js'),'utf8');
+vm.runInContext(src.slice(src.indexOf('function renderRatingsWorkspace()'),src.indexOf('function renderReportsWorkspace()')),context);
+document.getElementById('app').innerHTML=vm.runInContext('renderRatingsWorkspace()',context);
+document.getElementById('ratingSearch').value='pizza';
+document.getElementById('app').innerHTML=vm.runInContext('renderRatingsWorkspace()',context);
+console.log('ratingSearch after render:',JSON.stringify(document.getElementById('ratingSearch').value));
+vm.runInContext(fs.readFileSync(path.join(root,'assets/js/modal.js'),'utf8'),context);
+let first='pending',second='pending';
+window.DropzyyModal.confirm({title:'First'}).then(v=>first=v);
+window.DropzyyModal.confirm({title:'Second'}).then(v=>second=v);
+setTimeout(()=>console.log('overlapping confirms:',JSON.stringify({first,second,visibleTitle:document.querySelector('.modal__title')?.textContent})),20);

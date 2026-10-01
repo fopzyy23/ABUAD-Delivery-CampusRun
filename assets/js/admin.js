@@ -55,7 +55,8 @@ let state = {
   cancellationsError: null,
   automaticCutoffClaims: [],
   automaticCutoffClaimsLoading: false,
-  automaticCutoffClaimsError: null
+  automaticCutoffClaimsError: null,
+  adminMetrics: null
   ,mfa: { factors: [], aal: null, enrollment: null, challenge: null, factorId: null, challengeRequired: false, loading: false, error: null }
 };
 
@@ -1025,6 +1026,8 @@ async function init() {
   if (state !== currentAdminState()) return false;
   await loadGovernanceData();
   if (state !== currentAdminState()) return false;
+  await loadAdminMetrics();
+  if (state !== currentAdminState()) return false;
   // If orders failed to load, the error banner renders here.
   if (state !== currentAdminState()) return false;
   renderAdminWorkspace();
@@ -1043,6 +1046,18 @@ async function loadPaymentsFromSupabase() {
   } catch (err) {
     state.payments = []; state.paymentsError = err.message || 'Could not load payment ledger.';
   } finally { state.paymentsLoading = false; }
+}
+
+async function loadAdminMetrics() {
+  const state=currentAdminState();
+  try {
+    const {data,error}=await supabase.rpc('admin_get_dashboard_metrics');
+    if(error) throw error;
+    state.adminMetrics=data||null;
+  } catch(error) {
+    state.adminMetrics=null;
+    console.error('Admin metrics load failed:',error);
+  }
 }
 
 async function loadSiteSettingsFromSupabase() {
@@ -1203,6 +1218,11 @@ function renderLogin() {
 // RLS, RPC, or business logic.
 let adminSection = 'dashboard';
 let financeFilter = { query: '', status: 'all', page: 1 };
+const supportFilters = {
+  adminUserSearch: '', auditSearch: '', ratingSearch: '', ratingFilter: 'all',
+  supportSearch: '', supportStatus: 'all', supportType: 'all',
+  notificationSearch: '', notificationType: 'all', notificationAudience: 'all'
+};
 
 // Sidebar navigation with at-a-glance pending-count badges (presentational).
 function adminSidebar() {
@@ -1285,11 +1305,11 @@ function renderAdminUtilitySection(key) {
   return `<div class="page-head"><div><span class="badge badge--brand">Control center</span><h1 class="mt-1">${title}</h1><p class="muted">${description}</p></div></div><div class="card utility-panel"><div class="card__head"><h3>${title} workspace</h3><span class="badge badge--info">Protected</span></div><p class="muted">This workspace is ready for live records and keeps financial and order history intact. Use the existing operational sections for actions currently backed by Supabase.</p><div class="admin-actions"><button class="btn btn--soft" data-admin-nav="dashboard">Back to dashboard</button><button class="btn btn--ghost" data-admin-nav="settings">Review platform settings</button></div></div>`;
 }
 function renderAdminManagementWorkspace() {
-  const q=(document.getElementById('adminUserSearch')?.value||'').toLowerCase(); const rows=(state.adminUsers||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  const q=supportFilters.adminUserSearch.toLowerCase(); const rows=(state.adminUsers||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
   return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Admin Management</h1><p class="muted">Read-only administrator roster. Role changes remain server-controlled.</p></div><button class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="adminUserSearch" placeholder="Search admins"></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>MFA</th></tr></thead><tbody>${adminSupportTableState(rows,state.adminUsersLoading,state.adminUsersError,5,'No administrators found.')||rows.map(x=>`<tr><td>${escHtml(x.full_name||'—')}</td><td>${escHtml(x.email||'—')}</td><td>${escHtml(x.role)}</td><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>Session MFA required for protected actions</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 function renderAuditLogsWorkspace() {
-  const q=(document.getElementById('auditSearch')?.value||'').toLowerCase(); const rows=(state.auditLogs||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  const q=supportFilters.auditSearch.toLowerCase(); const rows=(state.auditLogs||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
   return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Audit Logs</h1><p class="muted">Immutable sensitive-action history. No edit, delete, or clear operation is available.</p></div><button class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="auditSearch" placeholder="Search actor, action or entity"></div><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Entity</th><th>Before / After</th></tr></thead><tbody>${adminSupportTableState(rows,state.auditLogsLoading,state.auditLogsError,5,'No audit events found.')||rows.map(x=>`<tr data-audit-detail="${x.id}"><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>${escHtml(x.admin_id)}</td><td>${escHtml(x.action)}</td><td>${escHtml(x.entity_type)} ${escHtml(x.entity_id||'')}</td><td><button class="link-btn" data-audit-view="${x.id}">View JSON</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
 function renderSecurityWorkspace() {
@@ -1329,7 +1349,7 @@ function renderFinanceWorkspace(kind) {
   const titles = { payments: 'Payments', settlements: 'Settlements', withdrawals: 'Withdrawals', transfers: 'Transfers', refunds: 'Refunds / Reimbursements', financial: 'Financial Resolution' };
   const title = titles[kind] || 'Finance';
   if (kind === 'refunds') return renderRefundWorkspace();
-  if (kind === 'financial') return renderFinancialResolutionWorkspace();
+  if (kind === 'financial') return renderFinancialResolutionWorkspace() + renderFinancialSection();
   const source = kind === 'payments' ? state.payments : kind === 'withdrawals' ? state.withdrawals : kind === 'transfers' ? state.transfers : state.settlements;
   const query = financeFilter.query.toLowerCase();
   const rows = source.filter(row => {
@@ -1359,11 +1379,12 @@ function renderAdminWorkspace() {
   // ---- Compute order statistics from the Supabase-sourced order set ----
   // These numbers are always derived from state.orders, which loadOrders()
   // populates exclusively from Supabase (never from localStorage).
-  const totalOrders = orders.length;
-  const activeOrders = orders.filter(isOrderActive).length;
-  const completedOrders = orders.filter(isOrderCompleted).length;
-  const cancelledOrders = orders.filter(isOrderCancelled).length;
+  const totalOrders = Number(state.adminMetrics?.total_orders ?? orders.length);
+  const activeOrders = Number(state.adminMetrics?.active_orders ?? orders.filter(isOrderActive).length);
+  const completedOrders = Number(state.adminMetrics?.completed_orders ?? orders.filter(isOrderCompleted).length);
+  const cancelledOrders = Number(state.adminMetrics?.cancelled_orders ?? orders.filter(isOrderCancelled).length);
   const orderValue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+  const authoritativeOrderValue = Number(state.adminMetrics?.order_value ?? orderValue);
 
   // ---- Apply the active client-side filter for the order table ----
   // Filtering is purely presentational — the source of truth is still the
@@ -1371,7 +1392,7 @@ function renderAdminWorkspace() {
   const filteredOrders = applyOrderFilter(orders);
 
   // ---- Render ONLY the active section ----
-  const shared = { vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue, filteredOrders };
+  const shared = { vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue: authoritativeOrderValue, filteredOrders };
   let view;
   if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
@@ -1408,6 +1429,9 @@ function renderAdminWorkspace() {
 
   // Attach event listeners for the rendered section
   attachAdminEventListeners();
+  Object.entries(supportFilters).forEach(([id,value]) => {
+    const control=document.getElementById(id); if(control) control.value=value;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2352,19 +2376,19 @@ function renderRatingsWorkspace() {
   return `<div class="page-head"><div><span class="badge badge--brand">Quality</span><h1 class="mt-1">Ratings</h1><p class="muted">Authoritative rider ratings. Ratings are preserved and read-only.</p></div><button class="btn btn--soft" data-admin-refresh="ratings">Refresh</button></div>
     <div class="stats-grid mt-2"><div class="stat-card"><span>Total ratings</span><b>${rows.length}</b></div><div class="stat-card"><span>Average score</span><b>${avg}</b></div></div>
     <div class="card mt-2"><div class="toolbar"><input class="input" id="ratingSearch" placeholder="Search review, order or rider ID"><select class="select" id="ratingFilter"><option value="all">All scores</option>${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join('')}</select></div>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Score</th><th>Review</th><th>Order</th><th>Rider</th><th>Customer</th><th>Date</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('ratingSearch')?.value||'').toLowerCase(), f=document.getElementById('ratingFilter')?.value||'all'; const a=rows.filter(r=>(f==='all'||String(r.rating)===f)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.ratingsLoading,state.ratingsError,6,'No ratings found.'); return empty||a.map(r=>`<tr data-rating-detail="${r.id}"><td><b>${escHtml(String(r.rating))}/5</b></td><td>${escHtml(r.review||'—')}</td><td>${escHtml((r.order_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.rider_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.reviewer_id||'').slice(0,8)||'—')}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
+    <div class="table-wrap"><table class="table"><thead><tr><th>Score</th><th>Review</th><th>Order</th><th>Rider</th><th>Customer</th><th>Date</th></tr></thead><tbody>${(()=>{const q=supportFilters.ratingSearch.toLowerCase(), f=supportFilters.ratingFilter; const a=rows.filter(r=>(f==='all'||String(r.rating)===f)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.ratingsLoading,state.ratingsError,6,'No ratings found.'); return empty||a.map(r=>`<tr data-rating-detail="${r.id}"><td><b>${escHtml(String(r.rating))}/5</b></td><td>${escHtml(r.review||'—')}</td><td>${escHtml((r.order_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.rider_id||'').slice(0,8)||'—')}</td><td>${escHtml((r.reviewer_id||'').slice(0,8)||'—')}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
 }
 
 function renderReportsWorkspace() {
   const rows = state.reports || [];
   return `<div class="page-head"><div><span class="badge badge--brand">Support</span><h1 class="mt-1">Reports & Support</h1><p class="muted">Review customer reports with audited, AAL2-protected status changes.</p></div><button class="btn btn--soft" data-admin-refresh="reports">Refresh</button></div>
-    <div class="card mt-2"><div class="toolbar"><input class="input" id="supportSearch" placeholder="Search reports, customers or orders"><select class="select" id="supportStatus"><option value="all">All statuses</option>${REPORT_STATUS_OPTIONS.map(x=>`<option>${x}</option>`).join('')}</select><select class="select" id="supportType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.subject).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>Report</th><th>Reporter</th><th>Type</th><th>Order</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('supportSearch')?.value||'').toLowerCase(), s=document.getElementById('supportStatus')?.value||'all', t=document.getElementById('supportType')?.value||'all'; const a=rows.filter(r=>(s==='all'||r.status===s)&&(t==='all'||r.subject===t)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.reportsLoading,state.reportsError,7,'No reports found.'); return empty||a.map(r=>`<tr data-report-row="${r.id}"><td>${escHtml(r.id.slice(0,8))}…</td><td>${escHtml(r.reporter_name||r.reporter_email||r.user_id||'Unknown')}</td><td>${escHtml(r.subject)}</td><td>${escHtml(r.order_number||'—')}</td><td>${escHtml(r.status)}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td><td><button class="link-btn" data-report-detail="${r.id}">View</button><button class="link-btn" data-review-report="${r.id}">Review</button></td></tr>`).join('')})()}</tbody></table></div></div>`;
+    <div class="card mt-2"><div class="toolbar"><input class="input" id="supportSearch" placeholder="Search reports, customers or orders"><select class="select" id="supportStatus"><option value="all">All statuses</option>${REPORT_STATUS_OPTIONS.map(x=>`<option>${x}</option>`).join('')}</select><select class="select" id="supportType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.subject).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr><th>Report</th><th>Reporter</th><th>Type</th><th>Order</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>${(()=>{const q=supportFilters.supportSearch.toLowerCase(), s=supportFilters.supportStatus, t=supportFilters.supportType; const a=rows.filter(r=>(s==='all'||r.status===s)&&(t==='all'||r.subject===t)&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(a,state.reportsLoading,state.reportsError,7,'No reports found.'); return empty||a.map(r=>`<tr data-report-row="${r.id}"><td>${escHtml(r.id.slice(0,8))}…</td><td>${escHtml(r.reporter_name||r.reporter_email||r.user_id||'Unknown')}</td><td>${escHtml(r.subject)}</td><td>${escHtml(r.order_number||'—')}</td><td>${escHtml(r.status)}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td><td><button class="link-btn" data-report-detail="${r.id}">View</button><button class="link-btn" data-review-report="${r.id}">Review</button></td></tr>`).join('')})()}</tbody></table></div></div>`;
 }
 
 function renderNotificationsWorkspace() {
   const rows = state.notifications || [];
   return `<div class="page-head"><div><span class="badge badge--brand">System</span><h1 class="mt-1">Notifications</h1><p class="muted">Server-generated in-app notifications. Email, SMS and push are not integrated.</p></div><button class="btn btn--soft" data-admin-refresh="notifications">Refresh</button></div>
-    <div class="card mt-2"><div class="toolbar"><input class="input" id="notificationSearch" placeholder="Search title, message or recipient"><select class="select" id="notificationType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.type).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select><select class="select" id="notificationAudience"><option value="all">All recipients</option><option value="read">Read</option><option value="unread">Unread</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Title</th><th>Message</th><th>Recipient</th><th>Type</th><th>State</th><th>Created</th></tr></thead><tbody>${(()=>{const q=(document.getElementById('notificationSearch')?.value||'').toLowerCase(), t=document.getElementById('notificationType')?.value||'all', a=document.getElementById('notificationAudience')?.value||'all'; const x=rows.filter(r=>(t==='all'||r.type===t)&&(a==='all'||(a==='read'?r.is_read:!r.is_read))&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(x,state.notificationsLoading,state.notificationsError,6,'No notifications found.'); return empty||x.map(r=>`<tr data-notification-detail="${r.id}"><td>${escHtml(r.title)}</td><td>${escHtml(r.message)}</td><td>${escHtml((r.user_id||'').slice(0,8)||'—')}</td><td>${escHtml(r.type)}</td><td>${r.is_read?'Read':'Unread'}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
+    <div class="card mt-2"><div class="toolbar"><input class="input" id="notificationSearch" placeholder="Search title, message or recipient"><select class="select" id="notificationType"><option value="all">All types</option>${[...new Set(rows.map(r=>r.type).filter(Boolean))].map(x=>`<option>${escHtml(x)}</option>`).join('')}</select><select class="select" id="notificationAudience"><option value="all">All recipients</option><option value="read">Read</option><option value="unread">Unread</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Title</th><th>Message</th><th>Recipient</th><th>Type</th><th>State</th><th>Created</th></tr></thead><tbody>${(()=>{const q=supportFilters.notificationSearch.toLowerCase(), t=supportFilters.notificationType, a=supportFilters.notificationAudience; const x=rows.filter(r=>(t==='all'||r.type===t)&&(a==='all'||(a==='read'?r.is_read:!r.is_read))&&(!q||JSON.stringify(r).toLowerCase().includes(q))); const empty=adminSupportTableState(x,state.notificationsLoading,state.notificationsError,6,'No notifications found.'); return empty||x.map(r=>`<tr data-notification-detail="${r.id}"><td>${escHtml(r.title)}</td><td>${escHtml(r.message)}</td><td>${escHtml((r.user_id||'').slice(0,8)||'—')}</td><td>${escHtml(r.type)}</td><td>${r.is_read?'Read':'Unread'}</td><td>${r.created_at?formatDate(r.created_at):'—'}</td></tr>`).join('')})()}</tbody></table></div></div>`;
 }
 
 function renderReportsSection() {
@@ -2484,7 +2508,10 @@ function showAdminSupportDetail(title, record) {
 function attachAdminEventListeners() {
   document.querySelector('[data-admin-menu]')?.addEventListener('click', e => { const nav=document.getElementById('adminNav'); const open=nav?.classList.toggle('is-open'); e.currentTarget.setAttribute('aria-expanded', String(Boolean(open))); });
   document.querySelectorAll('[data-governance-refresh]').forEach(btn => btn.addEventListener('click', async () => { await loadSiteSettingsFromSupabase(); await loadGovernanceData(); renderAdminWorkspace(); }));
-  ['adminUserSearch','auditSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener('input',()=>renderAdminWorkspace()); });
+  ['adminUserSearch','auditSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener('input',()=>{
+    supportFilters[id]=el.value; const start=el.selectionStart; renderAdminWorkspace();
+    const next=document.getElementById(id); if(next){next.value=supportFilters[id];next.focus();if(start!=null)next.setSelectionRange(start,start);}
+  }); });
   document.querySelectorAll('[data-audit-view]').forEach(btn => btn.addEventListener('click', () => { const row=state.auditLogs.find(x=>String(x.id)===String(btn.dataset.auditView)); if(row) showAdminSupportDetail('Audit event',row); }));
   document.querySelectorAll('[data-admin-refresh]').forEach(btn => btn.addEventListener('click', async () => {
     const section = btn.dataset.adminRefresh;
@@ -2494,7 +2521,10 @@ function attachAdminEventListeners() {
     renderAdminWorkspace();
   }));
   ['ratingSearch','ratingFilter','supportSearch','supportStatus','supportType','notificationSearch','notificationType','notificationAudience'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.addEventListener('input', () => renderAdminWorkspace());
+    const el = document.getElementById(id); if (el) el.addEventListener('input', () => {
+      supportFilters[id]=el.value; const start=el.selectionStart; renderAdminWorkspace();
+      const next=document.getElementById(id); if(next){next.value=supportFilters[id];next.focus();if(start!=null&&next.setSelectionRange)next.setSelectionRange(start,start);}
+    });
   });
   document.querySelectorAll('[data-rating-detail]').forEach(row => row.addEventListener('click', () => {
     const r = state.ratings.find(x => x.id === row.dataset.ratingDetail); if (r) showAdminSupportDetail('Rating', r);

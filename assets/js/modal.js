@@ -56,7 +56,7 @@
   function openDialog(opts, settle) {
     // Only one dialog at a time — cancel any previously open one.
     if (current) {
-      settle(false);
+      current.settle(current.cancelValue);
       close();
     }
 
@@ -121,7 +121,10 @@
     confirmBtn.className = 'btn' + (opts.danger ? ' btn--danger' : '');
     confirmBtn.textContent = opts.confirmText || 'Confirm';
 
+    let settled = false;
     function settleAndClose(val) {
+      if (settled) return;
+      settled = true;
       settle(val);
       close();
     }
@@ -174,7 +177,11 @@
     document.body.classList.add('modal-open');
     document.addEventListener('keydown', onKeydown, true);
 
-    current = { backdrop, prevFocus, onKeydown };
+    current = {
+      backdrop, prevFocus, onKeydown,
+      cancelValue: opts.showInput ? null : false,
+      settle(value) { if (!settled) { settled = true; settle(value); } }
+    };
 
     // Initial focus: the input for prompt(), otherwise the primary action.
     const focusTarget = (opts.showInput && input) ? input : confirmBtn;
