@@ -2520,7 +2520,9 @@ function vendors() {
 function vendorView(id) {
   const v = vendor(id);
   if (!v) return notFound();
-  const items = data().products.filter(p => p.vendor === id);
+  // Customer menus only show currently active products. The vendor dashboard
+  // still retains inactive rows for soft-deactivation and historical orders.
+  const items = data().products.filter(p => p.vendor === id && p.active !== false);
   const status = vendorOpenStatus(v);
   const img = safeImageUrl(v.image);
   const vendorRequestStore = v.is_restaurant === false;
@@ -3175,7 +3177,10 @@ async function submitVendorProductForm(form) {
       // the id can never collide with a row this vendor is not allowed to see.
       // No upsert: an existing product is never overwritten.
       const row = { vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true };
-      const insertOnce = payload => supabase.from('products').insert(payload).select('id');
+      // Request the inserted row back. This makes success contingent on a
+      // committed, readable product rather than on an insert request that may
+      // have been rejected by RLS/defaults or returned no row.
+      const insertOnce = payload => supabase.from('products').insert(payload).select('*').single();
       const isDuplicateKey = e => e && (e.code === '23505' || /duplicate key|unique constraint/i.test(e.message || ''));
       const idHasNoDefault = e => e && (e.code === '23502'
         || /null value in column "id"|not-null constraint/i.test(e.message || ''));
@@ -3199,6 +3204,9 @@ async function submitVendorProductForm(form) {
         }
       }
       if (result.error) throw result.error;
+      if (!result.data || String(result.data.vendor_id) !== String(state.user.vendor_id)) {
+        throw new Error('The product was not saved to your vendor storefront. Please try again.');
+      }
       toast('Product added');
     }
 
