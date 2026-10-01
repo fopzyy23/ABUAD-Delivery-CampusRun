@@ -317,12 +317,13 @@ hr, .rule {
    logo is never stretched or cropped and the header never overflows. */
 .brand__img {
   display: block;
-  width: 160px;                 /* desktop 140–170px */
+  width: auto;
   height: auto;
+  max-height: 42px;
   object-fit: contain;
   flex-shrink: 0;
 }
-.brand--sm .brand__img { width: 120px; }  /* footer brand */
+.brand--sm .brand__img { width: 104px; max-height: none; }  /* footer brand */
 /* The logo's wordmark is near-black, so on the dark header/surface give the
    logo a light chip — otherwise it disappears into the dark background. */
 html[data-theme="dark"] .brand__img {
@@ -332,7 +333,7 @@ html[data-theme="dark"] .brand__img {
   box-shadow: var(--sh-1);
 }
 @media (max-width: 1024px) {
-  .brand__img { width: 130px; }   /* tablet 115–140px */
+  .appbar .brand__img { max-height: 38px; }
 }
 
 /* Top nav row — desktop */
@@ -669,7 +670,7 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .vcarousel__track { transition: none; } }
 .vcarousel__controls {
   display: flex; align-items: center; justify-content: center;
-  gap: 14px; margin: 18px 0 0; min-height: 44px;
+  gap: 18px; width: 100%; max-width: 100%; margin: 18px auto 0; min-height: 44px;
   position: relative; z-index: 1; visibility: visible; opacity: 1;
 }
 .vcarousel__btn {
@@ -711,6 +712,15 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 .vcarousel__dot.is-active::before {
   width: 20px;
   background: var(--brand);
+}
+@media (max-width: 820px) {
+  .vcarousel__controls { gap: clamp(12px, 5vw, 28px); min-width: 0; }
+  .vcarousel__btn { width: 44px; height: 44px; flex-basis: 44px; }
+}
+@media (max-width: 360px) {
+  .vcarousel__controls { gap: 10px; }
+  .vcarousel__dots { gap: 2px; min-width: 0; }
+  .vcarousel__dot { width: 28px; }
 }
 
 /* --- dropzyy-features --- */
@@ -1422,7 +1432,7 @@ body.modal-open { overflow: hidden; }
   .avatar { width: 36px; height: 36px; font-size: 13px; }
   .brand__logo { width: 30px; height: 30px; font-size: 16px; border-radius: 10px; }
   .brand__text { font-size: .98rem; }
-  .brand__img { width: 100px; }   /* mobile 90–110px */
+  .appbar .brand__img { width: auto; max-height: 34px; }
   .section { padding-block: 20px; }
   .page-head { margin-bottom: 14px; }
   .grid { gap: 12px; }
@@ -1497,54 +1507,48 @@ body.modal-open { overflow: hidden; }
    with even spacing instead of being stretched by space-between. */
 .footer { border-top: 1px solid var(--line); background: var(--surface); margin-top: 16px; }
 .footer__inner {
-  display: grid; gap: 12px 34px;
-  grid-template-columns: 1.3fr 1fr 1fr;
+  display: grid; gap: 12px clamp(24px, 5vw, 64px);
+  grid-template-columns: minmax(130px, 1fr) auto auto;
   align-items: start;
-  padding-block: 12px 12px;
+  padding-block: 26px 18px;
 }
-.footer__brand { min-width: 0; }
+.footer__brand { min-width: 0; display: flex; align-items: flex-start; }
 .footer__heading {
-  font-size: .74rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .07em; color: var(--muted); margin: 0 0 5px;
+  font-size: .7rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted); margin: 0 0 6px;
 }
-.footer__col { display: grid; gap: 0; align-content: start; font-size: .89rem; font-weight: 600; min-width: 0; }
-.footer__col a { padding: 2px 0; line-height: 1.35; color: var(--ink-2); text-decoration: none; }
+.footer__col { display: grid; gap: 4px; align-content: start; font-size: .84rem; font-weight: 600; min-width: 0; }
+.footer__col a { line-height: 1.35; color: var(--ink-2); text-decoration: none; }
 .footer__col a:hover, .footer__col a:focus-visible { color: var(--brand); }
-/* Base row: subtle top border separates it from the link columns above */
 .footer__base {
-  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-  gap: 2px 16px; border-top: 1px solid var(--line);
-  padding-block: 7px 9px; font-size: .78rem; min-width: 0; overflow-wrap: break-word;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px 18px;
+  border-top: 1px solid var(--line); padding-block: 10px 14px;
+  font-size: .76rem; min-width: 0; overflow-wrap: anywhere;
 }
-.footer__base > :first-child { justify-self: start; }
-.footer__base > :nth-child(2) { justify-self: center; text-align: center; }
-.footer__base > :last-child { justify-self: end; text-align: right; }
 .footer__base a { color: var(--brand); font-weight: 600; text-decoration: none; }
 .footer__base a:hover, .footer__base a:focus-visible { text-decoration: underline; }
 /* Mobile footer: brand takes its own full-width row, the two link columns
    stay side by side (keeps the footer short), and the base row stacks
    centered instead of squeezing three items onto one line. */
 @media (max-width: 700px) {
-  .footer__inner { grid-template-columns: 1fr 1fr; gap: 12px 16px; padding-block: 10px 10px; }
+  .footer__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 18px; padding-block: 20px 14px; }
   .footer__brand { grid-column: 1 / -1; }
-  .footer .brand--sm { font-size: .92rem; gap: 6px; }
-  .footer .brand--sm .brand__logo { width: 24px; height: 24px; font-size: 13px; }
-  .footer__col { font-size: .84rem; }
-  .footer__col a { padding: 1.5px 0; }
+  .footer .brand--sm .brand__img { width: 84px; }
+  .footer__col { font-size: .82rem; gap: 4px; }
   .footer__base {
-    grid-template-columns: 1fr; justify-items: center;
-    text-align: center; row-gap: 2px; padding-block: 7px 8px;
+    align-items: flex-start; flex-direction: column; gap: 3px;
+    padding-block: 9px 14px; font-size: .74rem;
   }
-  .footer__base > :first-child, .footer__base > :nth-child(2), .footer__base > :last-child { justify-self: center; text-align: center; }
+  .appbar .brand__img { max-height: 34px; }
 }
 @media (max-width: 360px) {
-  .footer__inner { grid-template-columns: 1fr; }
+  .footer__inner { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding-block: 18px 12px; }
   .appbar__actions { gap: 4px; }
   .icon-btn { width: 34px; height: 34px; font-size: 14px; }
   .avatar { width: 34px; height: 34px; font-size: 12px; }
   .brand__text { font-size: .92rem; }
   .brand__logo { width: 28px; height: 28px; font-size: 15px; }
-  .brand__img { width: 92px; }
+  .appbar .brand__img { max-height: 32px; }
   .searchbar .btn { padding: 8px 10px; font-size: .8rem; }
   .searchbar { padding-left: 12px; }
 }
@@ -1856,11 +1860,14 @@ html[data-theme="dark"] .dropzyy-faq__item[open] summary { color: var(--brand); 
 /* ================= SKIP LINK (F9 a11y) ================= */
 /* Visually hidden until keyboard focus; first "useful" tab stop. */
 .skip-link {
-  position: absolute;
-  top: 0;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: auto;
+  height: auto;
+  transform: translateY(-200%);
+  opacity: 0;
+  pointer-events: none;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
@@ -1872,12 +1879,17 @@ html[data-theme="dark"] .dropzyy-faq__item[open] summary { color: var(--brand); 
   font-weight: 700;
   z-index: 9999;
 }
-.skip-link:focus {
-  left: 0;
-  width: auto;
-  height: auto;
+.skip-link:focus-visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
   clip: auto;
   overflow: visible;
+}
+.skip-link:focus:not(:focus-visible) {
+  transform: translateY(-200%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ===========================================================================

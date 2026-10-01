@@ -6490,7 +6490,7 @@ document.addEventListener('click',e=>{if(e.target.closest('[data-notif-read]')){
 // Skip-to-content: preventDefault so the bare "#app" hash never collides with
 // the "#/route" router, and focus the routed main container without scrolling.
 const skipLink=document.getElementById('skipLink');
-if(skipLink){ skipLink.addEventListener('click',e=>{ e.preventDefault(); const main=document.getElementById('app'); if(main && typeof main.focus==='function') main.focus({ preventScroll: true }); }); }
+if(skipLink){ skipLink.addEventListener('click',e=>{ e.preventDefault(); const main=document.getElementById('app'); if(main && typeof main.focus==='function') main.focus({ preventScroll: true }); skipLink.blur(); }); }
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){setDropdownOpen('userBtn','userPanel',false); setDropdownOpen('notifBtn','notifPanel',false);}});
 
