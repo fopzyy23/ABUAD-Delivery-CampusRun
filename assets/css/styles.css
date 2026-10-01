@@ -682,7 +682,14 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 }
 .vcarousel__btn:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
 .vcarousel__btn svg { width: 16px; height: 16px; display: block; }
-.vcarousel__dots { display: flex; gap: 5px; align-items: center; min-height: 44px; }
+.vcarousel__dots {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  min-height: 44px;
+}
 .vcarousel__dot {
   width: 32px;
   height: 32px;
