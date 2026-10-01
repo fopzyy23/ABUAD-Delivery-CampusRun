@@ -6698,6 +6698,36 @@ supabase.auth.onAuthStateChange((event, session) => {
   // receive() invalidates stale work synchronously; SDK/database calls run on a timer.
   void authLifecycle.receive(event, session);
 });
+
+// Explicit authoritative bootstrap: call getSession() after registering the
+// onAuthStateChange listener. This ensures startup readiness even if
+// INITIAL_SESSION is delayed or lost. The lifecycle's sameLogicalSession
+// deduplicates the INITIAL_SESSION that follows.
+async function bootstrapAuth() {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error('Auth bootstrap getSession error:', error);
+      // Do not leave initialAuthReady=false forever. Treat as unauthenticated.
+      if (!authLifecycle.bootstrapComplete) {
+        authLifecycle.receive('INITIAL_SESSION', null);
+      }
+      return;
+    }
+    // Feed the session into the lifecycle. If INITIAL_SESSION already fired
+    // with the same session, receive() will deduplicate via sameLogicalSession.
+    // If INITIAL_SESSION hasn't fired yet, this establishes the initial state.
+    await authLifecycle.receive('INITIAL_SESSION', data?.session ?? null);
+  } catch (err) {
+    console.error('Auth bootstrap failed:', err);
+    // Ensure auth readiness resolves even on unexpected errors.
+    if (!authLifecycle.bootstrapComplete) {
+      authLifecycle.receive('INITIAL_SESSION', null);
+    }
+  }
+}
+void bootstrapAuth();
+
 // A destination query is not proof of confirmation, and never signs anyone out.
 if (new URLSearchParams(location.search).get('auth_return') === 'signup') {
   const clean = new URL(location.href);

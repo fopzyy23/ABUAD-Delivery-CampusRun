@@ -7,6 +7,7 @@
     const ttl = 15 * 60 * 1000;
     let session = null, profile = null, generation = 0, ready = false;
     let pending = null, recovery = null, recoveryVerified = false, updating = false;
+    let bootstrapComplete = false; // Tracks whether initial bootstrap has resolved
     function identity(value) {
       try {
         const payload = JSON.parse(atob(value.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
@@ -15,6 +16,15 @@
         // treating every token/session object as a new login.
         return value.user.id + ':' + (payload.session_id || 'user-session');
       } catch (_) { return null; }
+    }
+    // Compare two sessions for logical equivalence.
+    // null + null = same (unauthenticated state)
+    // Same user id + same session_id = same
+    // Different user id = different
+    function sameLogicalSession(a, b) {
+      if (!a && !b) return true;                    // both null = unauthenticated
+      if (!a || !b) return false;                   // one null, one not = different
+      return identity(a) === identity(b);           // compare stable identity
     }
     function clearRecovery() {
       recovery = null; recoveryVerified = false;
@@ -43,18 +53,19 @@
     }
     function receive(event, next) {
       if (!['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT', 'TOKEN_REFRESHED', 'USER_UPDATED', 'PASSWORD_RECOVERY', 'MFA_CHALLENGE_VERIFIED'].includes(event)) return Promise.resolve();
-      if (['TOKEN_REFRESHED', 'MFA_CHALLENGE_VERIFIED'].includes(event) && session?.user.id === next?.user.id) {
+      if (['TOKEN_REFRESHED', 'MFA_CHALLENGE_VERIFIED'].includes(event) && session?.user?.id === next?.user?.id) {
         session = next;
         if (recovery && recovery.identity !== identity(next)) clearRecovery();
         return Promise.resolve();
       }
       // INITIAL_SESSION can follow the recovery/sign-in event from URL exchange.
-      if (pending && identity(session) && identity(session) === identity(next) && event !== 'USER_UPDATED' && event !== 'PASSWORD_RECOVERY') return pending;
+      // Use sameLogicalSession to properly deduplicate null sessions.
+      if (pending && sameLogicalSession(session, next) && event !== 'USER_UPDATED' && event !== 'PASSWORD_RECOVERY') return pending;
       // Re-entry/visibility checks may replay SIGNED_IN with the same session.
       // Once that session is ready, it is already synchronized; do not clear
       // private state and refetch the profile just because the tab regained
       // focus. A genuinely new session still advances the generation below.
-      if (['INITIAL_SESSION', 'SIGNED_IN'].includes(event) && ready && identity(session) && identity(session) === identity(next)) return Promise.resolve();
+      if (['INITIAL_SESSION', 'SIGNED_IN'].includes(event) && ready && sameLogicalSession(session, next)) return Promise.resolve();
       const ticket = ++generation;
       session = event === 'SIGNED_OUT' ? null : next;
       profile = null; ready = false;
@@ -68,7 +79,13 @@
         if (!recovery || recovery.identity !== identity(session)) recovery = { identity: identity(session), until: now() + ttl };
         try { storage.setItem(key, JSON.stringify(recovery)); } catch (_) { /* memory-only fallback */ }
       }
-      publish({ ready, session, profile, generation });
+      // For INITIAL_SESSION with null session, mark bootstrap as complete immediately
+      // so we don't wait indefinitely for a profile that will never come.
+      if (event === 'INITIAL_SESSION' && !session) {
+        bootstrapComplete = true;
+        ready = true;
+      }
+      publish({ ready, session, profile, generation, bootstrapComplete });
       const work = new Promise(resolve => setTimeout(resolve, 0)).then(async () => {
         if (ticket !== generation) return;
         if (session) {
@@ -80,11 +97,12 @@
           if (ticket !== generation) return;
         }
         ready = true;
-        publish({ ready, session, profile, generation, recovery: canAccessPasswordRecovery() });
+        bootstrapComplete = true;
+        publish({ ready, session, profile, generation, recovery: canAccessPasswordRecovery(), bootstrapComplete });
       }).catch(error => {
         if (ticket !== generation) return;
-        profile = null; ready = true; clearRecovery(); clearPrivate();
-        publish({ ready, session, profile, generation, error });
+        profile = null; ready = true; bootstrapComplete = true; clearRecovery(); clearPrivate();
+        publish({ ready, session, profile, generation, error, bootstrapComplete });
       }).finally(() => { if (pending === work) pending = null; });
       pending = work;
       return work;
@@ -103,7 +121,7 @@
       } finally { updating = false; }
     }
     return { receive, canAccessPasswordRecovery, validateRecovery, updatePassword, clearRecovery,
-      get generation() { return generation; }, get session() { return session; }, get ready() { return ready; } };
+      get generation() { return generation; }, get session() { return session; }, get ready() { return ready; }, get bootstrapComplete() { return bootstrapComplete; } };
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = createAuthLifecycle;
   else root.createAuthLifecycle = createAuthLifecycle;
