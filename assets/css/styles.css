@@ -630,8 +630,8 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 }
 
 /* --- Popular on Campus — vendor carousel --- */
-.vcarousel { min-width: 0; }
-.vcarousel__viewport { overflow: hidden; }
+.vcarousel { min-width: 0; position: relative; overflow: visible; }
+.vcarousel__viewport { overflow: hidden; min-width: 0; }
 .vcarousel__track {
   --vper: 4; --vgap: 18px;
   display: flex; gap: var(--vgap);
@@ -645,18 +645,19 @@ html[data-theme="dark"] .badge--warn { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .vcarousel__track { transition: none; } }
 .vcarousel__controls {
   display: flex; align-items: center; justify-content: center;
-  gap: 14px; margin-top: 22px;
+  gap: 14px; margin: 18px 0 0; min-height: 44px;
+  position: relative; z-index: 1; visibility: visible; opacity: 1;
 }
 .vcarousel__btn {
-  width: 34px; height: 34px; border-radius: 50%;
-  border: 1px solid var(--line); background: var(--surface);
+  width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%;
+  border: 1px solid var(--ash-text); background: var(--surface);
   color: var(--ink-2); cursor: pointer;
   display: grid; place-items: center; padding: 0;
   transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
 }
 .vcarousel__btn:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
 .vcarousel__btn svg { width: 16px; height: 16px; display: block; }
-.vcarousel__dots { display: flex; gap: 7px; align-items: center; }
+.vcarousel__dots { display: flex; gap: 5px; align-items: center; min-height: 44px; }
 .vcarousel__dot {
   width: 32px;
   height: 32px;

@@ -2069,12 +2069,16 @@ function initVendorCarousel() {
     // cards never overflow the viewport edge.
     const offset = Math.min(page * (viewport.clientWidth + gap()), maxOffset());
     track.style.transform = `translateX(${-offset}px)`;
-    Array.from(dotsWrap.children).forEach((d, i) => d.classList.toggle('is-active', i === page));
+    Array.from(dotsWrap.children).forEach((d, i) => {
+      const active = i === page;
+      d.classList.toggle('is-active', active);
+      d.setAttribute('aria-current', active ? 'true' : 'false');
+    });
   }
   function goTo(p) { page = ((p % pageCount()) + pageCount()) % pageCount(); apply(); }
   function rebuildDots() {
     dotsWrap.innerHTML = Array.from({ length: pageCount() }, (_, i) =>
-      `<button class="vcarousel__dot${i === page ? ' is-active' : ''}" type="button" aria-label="Go to vendor group ${i + 1}"></button>`).join('');
+      `<button class="vcarousel__dot${i === page ? ' is-active' : ''}" type="button" aria-label="Go to vendor group ${i + 1}" aria-current="${i === page ? 'true' : 'false'}"></button>`).join('');
   }
   function startTimer() {
     clearInterval(st.timer);
@@ -2095,6 +2099,18 @@ function initVendorCarousel() {
       goTo(Array.from(dotsWrap.children).indexOf(d));
       startTimer();
     });
+    let touchStartX = null;
+    viewport.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0]?.clientX ?? null;
+    }, { passive: true });
+    viewport.addEventListener('touchend', e => {
+      if (touchStartX == null) return;
+      const delta = (e.changedTouches[0]?.clientX ?? touchStartX) - touchStartX;
+      touchStartX = null;
+      if (Math.abs(delta) < 35) return;
+      goTo(page + (delta < 0 ? 1 : -1));
+      startTimer();
+    }, { passive: true });
     root.addEventListener('mouseenter', () => { st.hovered = true; });
     root.addEventListener('mouseleave', () => { st.hovered = false; });
     if ('IntersectionObserver' in window) {
@@ -3776,12 +3792,12 @@ function subscribeRiderOrdersRealtime() {
     if (state !== currentAppState()) return;
     if (!session || riderOrdersChannel) { riderOrdersSubscriptionStarting = false; return; }
     const channel = supabase
-      .channel('rider-orders-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        scheduleRiderOrdersReload();
+      .channel(`customer-orders-live:${session.user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${session.user.id}` }, () => {
+        scheduleRiderOrdersReload(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        scheduleRiderOrdersReload();
+        scheduleRiderOrdersReload(true);
       })
       .subscribe(status => {
         if (status === 'SUBSCRIBED') {
@@ -3824,7 +3840,7 @@ function stopRiderOrdersPoll() {
 
 let riderOrdersReloadTimer = null;
 let riderOrdersReloadPending = false;
-function scheduleRiderOrdersReload() {
+function scheduleRiderOrdersReload(renderHome = false) {
   if (riderOrdersReloadTimer) {
     riderOrdersReloadPending = true;
     return;
@@ -3832,6 +3848,7 @@ function scheduleRiderOrdersReload() {
   riderOrdersReloadTimer = setTimeout(async () => {
     riderOrdersReloadTimer = null;
     await loadOrdersFromSupabase();
+    if (renderHome && (location.hash === '' || location.hash === '#/' || location.hash === '#')) render();
     if (location.hash.startsWith('#/rider')) render();
     if (riderOrdersReloadPending) {
       riderOrdersReloadPending = false;
@@ -4856,7 +4873,38 @@ function stopDemoTracking() {
 // starts the subscription there and tears it down everywhere else (no leaked
 // channel or timer).
 function initDemoTracking() {
-  if (!document.getElementById('waybillCard')) { stopDemoTracking(); return; }
+  const card = document.getElementById('waybillCard');
+  if (!card) { stopDemoTracking(); return; }
+  // The homepage tracker is personal: anonymous visitors do not receive a
+  // real order or a fabricated live-looking record. Select only the current
+  // customer's newest non-terminal order and keep the existing presentation.
+  if (!state.user) {
+    stopDemoTracking();
+    card.hidden = true;
+    return;
+  }
+  const terminal = new Set(['Delivered', 'Rated', 'Cancelled']);
+  const active = (state.orders || [])
+    // loadOrdersFromSupabase is already scoped with .eq('user_id', auth.uid()).
+    // Do not depend on the mapped presentation object retaining that column.
+    .filter(o => o && !terminal.has(o.status) && o.payment_status !== 'failed')
+    .sort((a, b) => new Date(b.created || b.created_at || 0) - new Date(a.created || a.created_at || 0));
+  const order = active[0];
+  if (!order) {
+    stopDemoTracking();
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  applyDemoTrackingStatus({ order_number: order.id, status: order.status, rider_assigned: Boolean(order.rider_id) }, 'customer-order');
+  // Customer order realtime is already maintained by the authenticated order
+  // subscription. Avoid the old public/demo channel and its global record.
+  stopDemoTracking();
+  demoTrack.active = true;
+  renderDemoTracking();
+  return;
+  /* legacy demo subscription retained below for reference only */
+/*
   if (demoTrack.active) { renderDemoTracking(); return; }
   demoTrack.active = true;
   // 1. Latest PERSISTED status first (page load / return to the home route).
@@ -4865,6 +4913,7 @@ function initDemoTracking() {
   ensureDemoTrackingChannel();
   // 3. …with a poll as the safety net.
   scheduleDemoTrackingPoll();
+*/
 }
 
 function scheduleDemoTrackingPoll() {
@@ -5285,11 +5334,23 @@ function setDocumentTitle(parts) {
 async function render() {
   const state = currentAppState();
   const renderGeneration = authLifecycle.generation;
-  if (!initialAuthReady) {
-    $('#app').innerHTML = '<section class="container"><p role="status">Restoring your session…</p></section>';
+  const [path] = location.hash.slice(1).split('?');
+  const earlyParts = path.split('/').filter(Boolean);
+  // Public home content is independent of session restoration. Paint it
+  // immediately and let the auth lifecycle enrich it when the session is ready.
+  // Protected routes retain an explicit wait so a valid session is never
+  // redirected before getSession/profile restoration completes.
+  if (!initialAuthReady && !earlyParts.length) {
+    setDocumentTitle(earlyParts);
+    $('#app').innerHTML = home();
+    initVendorCarousel();
+    updateChrome();
     return;
   }
-  const [path] = location.hash.slice(1).split('?');
+  if (!initialAuthReady) {
+    $('#app').innerHTML = '<section class="container"><p role="status">Loading…</p></section>';
+    return;
+  }
   if (authProfileError) {
     $('#app').innerHTML = '<section class="container"><h1>Account unavailable</h1><p>Your profile could not be loaded. Reload to retry, or sign out.</p><button id="logoutBtn" class="btn">Sign out</button></section>';
     updateChrome();

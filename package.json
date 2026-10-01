@@ -12,7 +12,8 @@
     "seed:catalog": "node scripts/seed_catalog.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.0.0"
+    "@supabase/supabase-js": "^2.0.0",
+    "openai": "^7.25.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
