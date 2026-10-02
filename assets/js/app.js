@@ -121,6 +121,19 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&' + 'amp;', 
 const catalogProducts = catalog => Array.isArray(catalog) ? catalog : Array.isArray(catalog?.products) ? catalog.products : [];
 
 // ============================================================
+const DROPZYY_RUNTIME_BUILD = 'vendor-product-trace-2026-10-02';
+console.debug('DROPZYY_RUNTIME_BUILD', DROPZYY_RUNTIME_BUILD);
+
+// Register the vendor form interception before the rest of the application
+// initialises. The form is rendered later, but event delegation means this
+// listener remains valid across SPA rerenders and cannot be bypassed by a
+// late startup exception.
+document.addEventListener('submit', e => {
+  if (e.target?.id !== 'vendorProductForm') return;
+  e.preventDefault();
+  submitVendorProductForm(e.target);
+}, true);
+
 // Bookshop removal (Dropzyy 1.0)
 // ============================================================
 // The Bookshop is deferred to Dropzyy 2.0. Until it is rebuilt it must not
@@ -3134,6 +3147,7 @@ async function nextVendorProductId(after) {
 // Handle the vendor Add/Edit product form. A hidden "id" field decides
 // between INSERT (new product) and UPDATE (own product only).
 async function submitVendorProductForm(form) {
+  console.debug('VP_TRACE: submitVendorProductForm entered');
   const state = currentAppState();
   // Vendor capability is the server-linked storefront id, not the profile
   // role string. This deliberately supports an admin account that has been
@@ -3143,6 +3157,7 @@ async function submitVendorProductForm(form) {
     toast('Your account is not linked to a vendor storefront.', 'error');
     return;
   }
+  console.debug('VP_TRACE: storefront resolved', { hasVendorId: Boolean(state.user?.vendor_id) });
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
   if (state.vendorProductSubmitting) return; // duplicate-submission guard
   const f = new FormData(form);
@@ -3152,6 +3167,7 @@ async function submitVendorProductForm(form) {
   const category = (f.get('category') || '').trim();
   const icon = (f.get('icon') || '').trim() || '🍽️';
   const desc = (f.get('desc') || '').trim();
+  console.debug('VP_TRACE: DOM fields resolved');
 
   // Validation runs BEFORE the upload and BEFORE any write, so an invalid form
   // can never upload a file or create a product row.
@@ -3159,6 +3175,7 @@ async function submitVendorProductForm(form) {
   const price = Number(priceRaw);
   if (priceRaw === '' || !Number.isFinite(price) || price < 0) { toast('Price must be a non-negative number', 'error'); return; }
   if (!category) { toast('Category cannot be blank', 'error'); return; }
+  console.debug('VP_TRACE: JS validation passed');
 
   state.vendorProductSubmitting = true;
   let uploaded = null; // { url, previousUrl } when this save uploaded a new file
@@ -3168,6 +3185,7 @@ async function submitVendorProductForm(form) {
     const picture = await resolveVendorProductImage();
     if (picture.uploadedPath) uploaded = { url: picture.url, previousUrl: picture.previousUrl };
     const image = picture.url;
+    console.debug('VP_TRACE: image stage completed');
 
     if (editId) {
       // UPDATE: .eq('vendor_id', ...) guarantees we only ever touch this
@@ -3184,6 +3202,8 @@ async function submitVendorProductForm(form) {
       // the id can never collide with a row this vendor is not allowed to see.
       // No upsert: an existing product is never overwritten.
       const row = { vendor_id: state.user.vendor_id, name, price, category, icon, desc, image: image || null, active: true };
+      console.debug('VP_TRACE: product payload prepared');
+      console.debug('VP_TRACE: product insert starting');
       // Request the inserted row back. This makes success contingent on a
       // committed, readable product rather than on an insert request that may
       // have been rejected by RLS/defaults or returned no row.
@@ -3193,6 +3213,7 @@ async function submitVendorProductForm(form) {
         || /null value in column "id"|not-null constraint/i.test(e.message || ''));
 
       let result = await insertOnce(row);
+      console.debug('VP_TRACE: product insert returned');
       if (result.error && idHasNoDefault(result.error)) {
         // Legacy database without the sequence default — fall back to
         // client-assigned ids, escalating past every conflicting value.
@@ -3214,6 +3235,7 @@ async function submitVendorProductForm(form) {
       if (!result.data || String(result.data.vendor_id) !== String(state.user.vendor_id)) {
         throw new Error('The product was not saved to your vendor storefront. Please try again.');
       }
+      console.debug('VP_TRACE: product save successful');
       toast('Product added');
     }
 
@@ -3234,6 +3256,7 @@ async function submitVendorProductForm(form) {
   } catch (err) {
     // The row was never written — remove the orphan this attempt uploaded.
     if (uploaded && uploaded.url) deleteProductImageIfOrphaned(uploaded.url, state.user.vendor_id);
+    console.error('VP_TRACE: save exception', { name: err?.name, message: err?.message });
     console.error('Vendor product save failed:', err);
     toast('Product save failed: ' + (err.message || 'unknown error'), 'error');
   } finally {
@@ -3478,29 +3501,25 @@ async function toggleVendorProductActive(productId) {
   }
 }
 
-// Delete = soft delete (active = false) with a confirmation step. Vendors
-// have no products DELETE RLS policy, so the row is kept for order_items
-// foreign-key integrity and simply hidden from the customer catalog.
+// Delete permanently removes the live product through the ownership-checked
+// server RPC. Availability remains a separate reversible active=false state.
 async function deleteVendorProduct(productId) {
   const state = currentAppState();
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
-  if (!(await DropzyyModal.confirm({ title:'Delete product', message:`Delete "${p.name}"? It will be removed from the customer menu. This cannot be undone from the vendor dashboard.`, confirmText:'Delete product', danger:true }))) return;
+  if (!(await DropzyyModal.confirm({ title:'Delete product', message:`Delete "${p.name}"? This permanently removes it from your catalog. If you sell it again, add it as a new product.`, confirmText:'Delete product', danger:true }))) return;
   try {
-    const { error } = await supabase
-      .from('products')
-      .update({ active: false })
-      .eq('id', p.id)
-      .eq('vendor_id', state.user.vendor_id);
+    const { error } = await supabase.rpc('delete_vendor_product', { p_product_id: p.id });
     if (error) throw error;
-    toast('Product deleted');
+    toast('Product permanently deleted');
     if (document.getElementById('vendorProductForm') && document.querySelector('#vendorProductForm input[name="id"]').value === String(p.id)) {
       resetVendorProductForm();
     }
     await refreshVendorProducts();
     await loadCatalogFromSupabase();
     render();
+    if (p.image) deleteProductImageIfOrphaned(p.image, state.user.vendor_id);
   } catch (err) {
     console.error('Vendor product delete failed:', err);
     toast('Delete failed: ' + (err.message || 'unknown error'), 'error');
@@ -3625,71 +3644,12 @@ function vendorOrderCard(o, activeTab) {
   </article>`;
 }
 
-function vendorDashboard() {
-  const vid = state.user && state.user.vendor_id;
-  const vobj = vendor(vid || '');
-  const name = vobj ? vobj.name : 'Your vendor storefront';
-  const orders = state.vendorOrders || [];
-
-  // Separate vendor requests (new vendor_request orders in 'Order confirmed') from regular orders
-  const vendorRequests = orders.filter(o =>
-    o.request_type === 'vendor_request' && o.status === 'Order confirmed'
-  );
-
-  // Regular pending orders (non-vendor_request or vendor_request that have been accepted)
-  const regularPending = orders.filter(o =>
-    o.status === 'Order confirmed' && !(o.request_type === 'vendor_request' && o.status === 'Order confirmed')
-  );
-
-  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
-  const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
-
-  const revenue = orders
-    .filter(o => o.status === 'Delivered')
-    .reduce((n, o) => n + (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0), 0);
-  const products = state.vendorProducts || [];
-
-  const vendorRequestsHtml = vendorRequests.length
-    ? vendorRequests.map(o => vendorOrderCard(o)).join('')
-    : empty('📥','No new vendor requests','Customer requests will appear here.');
-
-  const pendingHtml = regularPending.length
-    ? regularPending.map(o => vendorOrderCard(o)).join('')
-    : empty('📦','No pending orders','New orders will appear here when customers place them.');
-  const activeHtml = active.length
-    ? active.map(o => vendorOrderCard(o)).join('')
-    : empty('⏳','No active orders','Orders you accept will appear here.');
-  const completedHtml = completed.length
-    ? completed.map(o => vendorOrderCard(o)).join('')
-    : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
-
-  const productsHtml = products.length
-    ? products.map(p => `<tr><td><div class="prod-cell"><span class="prod-thumb">${safeImageUrl(p.image) ? `<img src="${esc(safeImageUrl(p.image))}" alt="" loading="lazy" data-img-guard>` : ''}<span class="prod-thumb__fallback">${esc(p.icon)}</span></span><span><b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</span></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
-    : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
-
-  return `<section class="section container">
-    <div class="page-head"><div><span class="badge badge--brand">Vendor</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage orders and products.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
-    <div class="grid grid--stats">
-      <div class="stat stat--brand"><span class="stat__label">New Requests</span><span class="stat__value">${vendorRequests.length}</span><span class="stat__hint">Awaiting your response</span></div>
-      <div class="stat"><span class="stat__label">Pending</span><span class="stat__value">${regularPending.length}</span><span class="stat__hint">Awaiting action</span></div>
-      <div class="stat"><span class="stat__label">Active</span><span class="stat__value">${active.length}</span><span class="stat__hint">Preparing / in transit</span></div>
-      <div class="stat"><span class="stat__label">Completed</span><span class="stat__value">${completed.length}</span><span class="stat__hint">Delivered or cancelled</span></div>
-      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,500 delivery fee</span></div>
-    </div>
-    <div class="page-head mt-3"><div><h2>New Vendor Requests</h2><p>Accept or decline customer requests.</p></div></div>${vendorRequestsHtml}
-    <div class="page-head mt-3"><div><h2>Pending Orders</h2><p>Accept or reject incoming orders.</p></div></div>${pendingHtml}
-    <div class="page-head mt-3"><div><h2>Active Orders</h2><p>Orders you are preparing or delivering.</p></div></div>${activeHtml}
-    <div class="page-head mt-3"><div><h2>Completed Orders</h2><p>Delivered and cancelled history.</p></div></div>${completedHtml}
-    <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or toggle the availability of your menu items.</p></div></div>
-    ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${esc(state.vendorLoadError)}</span></div>` : ''}
-    <div class="card mb-3">
+function renderVendorStoreSection({ state, vid }) {
+  const store = vendor(vid || {}) || {};
+  return `<div class="card mb-3">
       <div class="card__head"><h3>Pickup Location for Rider Deliveries</h3><span class="muted small">Required when choosing Dropzyy Rider for vendor requests. Shown to the rider for pickup.</span></div>
       <form class="card stack" id="vendorPickupLocationForm">
-        <div class="field">
-          <label for="vendorPickupLocation">Pickup Location</label>
-          <input class="input" name="pickup_location" id="vendorPickupLocation" maxlength="500" placeholder="e.g. Block A, Room 101, Main Campus" value="${esc(vendor(vid || '')?.pickup_location || '')}">
-          <p class="muted xs mt-1">This is where the rider will pick up the order. Required for rider delivery on vendor requests.</p>
-        </div>
+        <div class="field"><label for="vendorPickupLocation">Pickup Location</label><input class="input" name="pickup_location" id="vendorPickupLocation" maxlength="500" placeholder="e.g. Block A, Room 101, Main Campus" value="${esc(store.pickup_location || '')}"><p class="muted xs mt-1">This is where the rider will pick up the order. Required for rider delivery on vendor requests.</p></div>
         <button class="btn btn--block" type="submit">Save Pickup Location</button>
       </form>
     </div>
@@ -3697,16 +3657,48 @@ function vendorDashboard() {
       <div class="card__head"><h3>Payout Bank Account</h3><span class="muted small">Required for receiving payouts from your sales. Your bank details are securely stored with Paystack.</span></div>
       ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load bank info:</b> <span class="muted">${esc(state.vendorLoadError)}</span></div>` : ''}
       <form class="card stack" id="vendorBankAccountForm">
-        <div class="card__head"><h3 id="vendorBankAccountFormTitle">Add Bank Account</h3></div>
-        <input type="hidden" name="payee_type" value="vendor">
+        <div class="card__head"><h3 id="vendorBankAccountFormTitle">Add Bank Account</h3></div><input type="hidden" name="payee_type" value="vendor">
         <div class="field"><label for="vendorBankAccountName">Account Name</label><input class="input" name="account_name" id="vendorBankAccountName" required maxlength="120" placeholder="As it appears on your bank account"></div>
-        <div class="form-grid">
-          <div class="field"><label for="vendorBankAccountNumber">Account Number</label><input class="input" name="account_number" id="vendorBankAccountNumber" inputmode="numeric" maxlength="20" pattern="[0-9]{6,20}" required placeholder="10-20 digits"></div>
-          <div class="field"><label for="vendorBankCode">Bank</label><select class="select" name="bank_code" id="vendorBankCode" required>${RIDER_PAYOUT_BANKS.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select></div>
-        </div>
+        <div class="form-grid"><div class="field"><label for="vendorBankAccountNumber">Account Number</label><input class="input" name="account_number" id="vendorBankAccountNumber" inputmode="numeric" maxlength="20" pattern="[0-9]{6,20}" required placeholder="10-20 digits"></div><div class="field"><label for="vendorBankCode">Bank</label><select class="select" name="bank_code" id="vendorBankCode" required>${RIDER_PAYOUT_BANKS.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select></div></div>
         <button class="btn btn--block" type="submit">Save Bank Account</button>
       </form>
-    </div>
+    </div>`;
+}
+
+function renderVendorStoreWorkspace() {
+  const state = currentAppState();
+  const vid = state.user?.vendor_id || '';
+  const store = vendor(vid) || { name: 'Your storefront' };
+  return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">Vendor Dashboard</span><h1 class="mt-1">${esc(store.name)}</h1><p class="muted">Store settings and payout details.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>${renderVendorLocalNav('store')}${renderVendorStoreSection({ state, vid })}</section>`;
+}
+
+function renderVendorLocalNav(active) {
+  const links = [['overview','#/vendor','Overview'],['orders','#/vendor/orders','Orders'],['products','#/vendor/products','Products'],['store','#/vendor/store','Store']];
+  return `<nav class="vendor-local-nav" aria-label="Vendor dashboard">${links.map(([key, href, label]) => `<a class="${active === key ? 'active' : ''}" href="${href}"${active === key ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
+}
+
+function renderVendorOrdersSection({ orders }) {
+  const vendorRequests = orders.filter(o => o.request_type === 'vendor_request' && o.status === 'Order confirmed');
+  const regularPending = orders.filter(o => o.status === 'Order confirmed' && !(o.request_type === 'vendor_request' && o.status === 'Order confirmed'));
+  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
+  const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
+  const group = (items, icon, title, copy, emptyCopy) => `<div class="page-head mt-3"><div><h2>${title}</h2><p>${copy}</p></div></div>${items.length ? items.map(o => vendorOrderCard(o)).join('') : empty(icon, title === 'New Vendor Requests' ? 'No new vendor requests' : title === 'Pending Orders' ? 'No pending orders' : title === 'Active Orders' ? 'No active orders' : 'No completed orders', emptyCopy)}`;
+  return group(vendorRequests, '📥', 'New Vendor Requests', 'Accept or decline customer requests.', 'Customer requests will appear here.')
+    + group(regularPending, '📦', 'Pending Orders', 'Accept or reject incoming orders.', 'New orders will appear here when customers place them.')
+    + group(active, '⏳', 'Active Orders', 'Orders you are preparing or delivering.', 'Orders you accept will appear here.')
+    + group(completed, '✅', 'Completed Orders', 'Delivered and cancelled history.', 'Delivered and cancelled orders will appear here.');
+}
+
+function renderVendorOrdersWorkspace() {
+  const state = currentAppState();
+  const vid = state.user?.vendor_id || '';
+  const store = vendor(vid) || { name: 'Your storefront' };
+  return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">Vendor Dashboard</span><h1 class="mt-1">${esc(store.name)}</h1><p class="muted">Orders and customer requests.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>${renderVendorLocalNav('orders')}${renderVendorOrdersSection({ orders: state.vendorOrders || [] })}</section>`;
+}
+
+function renderVendorProductsSection({ productsHtml, state }) {
+  return `<div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or toggle the availability of your menu items.</p></div></div>
+    ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${esc(state.vendorLoadError)}</span></div>` : ''}
     <div class="page-head mt-3"><div><h2>Products</h2><p>Add, edit or toggle the availability of your menu items.</p></div></div>
     ${state.vendorLoadError ? `<div class="card mb-2"><b>Could not load your products:</b> <span class="muted">${esc(state.vendorLoadError)}</span></div>` : ''}
     <div class="split mt-1">
@@ -3739,7 +3731,63 @@ function vendorDashboard() {
         <button class="btn btn--block" type="submit">Save Product</button>
       </form>
       <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>${productsHtml}</tbody></table></div></div>
+    </div>`;
+}
+
+function renderVendorProductsWorkspace() {
+  const state = currentAppState();
+  const vid = state.user?.vendor_id || '';
+  const store = vendor(vid) || { name: 'Your storefront' };
+  const products = state.vendorProducts || [];
+  const productsHtml = products.length
+    ? products.map(p => `<tr><td><div class="prod-cell"><span class="prod-thumb">${safeImageUrl(p.image) ? `<img src="${esc(safeImageUrl(p.image))}" alt="" loading="lazy" data-img-guard>` : ''}<span class="prod-thumb__fallback">${esc(p.icon)}</span></span><span><b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</span></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
+  return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">Vendor Dashboard</span><h1 class="mt-1">${esc(store.name)}</h1><p class="muted">Manage your menu items.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>${renderVendorLocalNav('products')}${renderVendorProductsSection({ productsHtml, state })}</section>`;
+}
+
+function vendorDashboard() {
+  const vid = state.user && state.user.vendor_id;
+  const vobj = vendor(vid || '');
+  const name = vobj ? vobj.name : 'Your vendor storefront';
+  const orders = state.vendorOrders || [];
+
+  const vendorRequests = orders.filter(o => o.request_type === 'vendor_request' && o.status === 'Order confirmed');
+  const regularPending = orders.filter(o => o.status === 'Order confirmed' && !(o.request_type === 'vendor_request' && o.status === 'Order confirmed'));
+  const active = orders.filter(o => ['Preparing','Ready for pickup','Rider assigned','Picked up','On the Way'].includes(o.status));
+  const completed = orders.filter(o => ['Delivered','Cancelled'].includes(o.status));
+
+  const revenue = orders
+    .filter(o => o.status === 'Delivered')
+    .reduce((n, o) => n + (o.items || []).reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0), 0);
+
+  const vendorRequestsHtml = vendorRequests.length
+    ? vendorRequests.map(o => vendorOrderCard(o)).join('')
+    : empty('📥','No new vendor requests','Customer requests will appear here.');
+
+  const pendingHtml = regularPending.length
+    ? regularPending.map(o => vendorOrderCard(o)).join('')
+    : empty('📦','No pending orders','New orders will appear here when customers place them.');
+  const activeHtml = active.length
+    ? active.map(o => vendorOrderCard(o)).join('')
+    : empty('⏳','No active orders','Orders you accept will appear here.');
+  const completedHtml = completed.length
+    ? completed.map(o => vendorOrderCard(o)).join('')
+    : empty('✅','No completed orders','Delivered and cancelled orders will appear here.');
+  const recentOrders = orders.slice().sort((a,b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 5);
+  const recentOrdersHtml = recentOrders.length ? recentOrders.map(o => `<div class="vendor-recent-order"><div><b>#${esc(o.order_number || o.id || '')}</b><span class="muted small">${(o.items || []).length} item${(o.items || []).length === 1 ? '' : 's'}</span></div><span class="badge badge--${o.status === 'Delivered' || o.status === 'Cancelled' ? 'info' : 'warn'}">${esc(o.status)}</span><a class="link-btn" href="#/vendor/orders">View</a></div>`).join('') : empty('📦','No orders yet','New orders placed with your store will appear here.');
+
+  return `<section class="section container">
+    <div class="page-head"><div><span class="badge badge--brand">Vendor Dashboard</span><h1 class="mt-1">${esc(name)}</h1><p class="muted">Manage your orders, products and storefront.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>
+    ${renderVendorLocalNav('overview')}
+    <div class="grid grid--stats">
+      <div class="stat stat--brand"><span class="stat__label">New Orders</span><span class="stat__value">${vendorRequests.length + regularPending.length}</span><span class="stat__hint">Awaiting action</span></div>
+      <div class="stat"><span class="stat__label">Preparing</span><span class="stat__value">${active.filter(o => o.status === 'Preparing').length}</span><span class="stat__hint">In preparation</span></div>
+      <div class="stat"><span class="stat__label">Ready</span><span class="stat__value">${active.filter(o => o.status === 'Ready for pickup').length}</span><span class="stat__hint">Ready for pickup</span></div>
+      <div class="stat"><span class="stat__label">Active Products</span><span class="stat__value">${(state.vendorProducts || []).filter(p => p.active !== false).length}</span><span class="stat__hint">Currently available</span></div>
+      <div class="stat"><span class="stat__label">Product Revenue</span><span class="stat__value">${money(revenue)}</span><span class="stat__hint">Your own items on delivered orders · excludes the ₦1,500 delivery fee</span></div>
     </div>
+    <div class="vendor-quick-actions"><a class="btn" href="#/vendor/orders">View Orders</a><a class="btn btn--soft" href="#/vendor/products">Add Product</a><a class="btn btn--ghost" href="#/vendor/products">Manage Products</a></div>
+    <div class="card vendor-recent"><div class="card__head"><h2>Recent Orders</h2><a class="link-btn" href="#/vendor/orders">View all orders</a></div>${recentOrdersHtml}</div>
   </section>`;
 }
 
@@ -5671,6 +5719,18 @@ async function render() {
   else if (parts[0]==='browse') view = browse();
   else if (parts[0]==='vendors') view = vendors();
   else if (parts[0]==='vendor' && parts[1]==='apply') view = await vendorApplyView();
+  else if (parts[0]==='vendor' && parts[1]==='products') {
+    if (!state.user || !state.user.vendor_id) view = `<section class="section container"><div class="card center"><h1>Vendor dashboard</h1><p class="muted">This account does not currently have an assigned storefront.</p></div></section>`;
+    else { await ensureVendorLoaded(); view = renderVendorProductsWorkspace(); }
+  }
+  else if (parts[0]==='vendor' && parts[1]==='orders') {
+    if (!state.user || !state.user.vendor_id) view = `<section class="section container"><div class="card center"><h1>Vendor dashboard</h1><p class="muted">This account does not currently have an assigned storefront.</p></div></section>`;
+    else { await ensureVendorLoaded(); view = renderVendorOrdersWorkspace(); }
+  }
+  else if (parts[0]==='vendor' && parts[1]==='store') {
+    if (!state.user || !state.user.vendor_id) view = `<section class="section container"><div class="card center"><h1>Vendor dashboard</h1><p class="muted">This account does not currently have an assigned storefront.</p></div></section>`;
+    else { await ensureVendorLoaded(); view = renderVendorStoreWorkspace(); }
+  }
   else if (parts[0]==='vendor' && parts[1]) view = vendorView(parts[1]);
   else if (parts[0]==='product' && parts[1]) view = productView(parts[1]);
   else if (parts[0]==='cart') view = cart();
@@ -6261,7 +6321,19 @@ document.addEventListener('input', e => {
   if (t && (t.id === 'authPassword' || t.id === 'authConfirmPassword')) t.removeAttribute('aria-invalid');
 });
 
+document.addEventListener('click', e => {
+  const button = e.target?.closest?.('#vendorProductForm button[type="submit"]');
+  if (!button) return;
+  console.debug('VP_TRACE: save button clicked', { type: button.type, disabled: button.disabled, formId: button.closest('form')?.id || '' });
+});
+document.addEventListener('invalid', e => {
+  const form = e.target?.closest?.('#vendorProductForm');
+  if (!form) return;
+  const target = e.target;
+  console.debug('VP_TRACE: invalid field', { id: target.id, name: target.name, type: target.type, value: target.type === 'file' ? '[file input]' : target.value, validationMessage: target.validationMessage, validity: { valueMissing: target.validity?.valueMissing, typeMismatch: target.validity?.typeMismatch, patternMismatch: target.validity?.patternMismatch, rangeUnderflow: target.validity?.rangeUnderflow, rangeOverflow: target.validity?.rangeOverflow, stepMismatch: target.validity?.stepMismatch, customError: target.validity?.customError, valid: target.validity?.valid } });
+}, true);
 document.addEventListener('submit', e=>{
+  console.debug('VP_TRACE: submit event received', { formId: e.target?.id, defaultPrevented: e.defaultPrevented });
   const state = currentAppState();
   if(e.target.id==='passwordResetForm'){
     e.preventDefault();
@@ -6291,7 +6363,6 @@ document.addEventListener('submit', e=>{
   if(e.target.id==='profileForm'){e.preventDefault(); submitProfileForm(e.target); return;}
   if(e.target.id==='refundRecipientForm'){e.preventDefault(); submitRefundRecipientForm(e.target); return;}
   if(e.target.id==='riderRatingForm'){e.preventDefault(); submitRiderRatingForm(e.target); return;}
-  if(e.target.id==='vendorProductForm'){e.preventDefault(); submitVendorProductForm(e.target); return;}
   if(e.target.id==='vendorPickupLocationForm'){e.preventDefault(); submitVendorPickupLocationForm(e.target); return;}
   if(e.target.id==='vendorBankAccountForm'){e.preventDefault(); submitVendorBankAccountForm(e.target); return;}
   if(e.target.id==='heroSearch'||e.target.id==='browseSearch'){e.preventDefault(); location.hash=`#/browse?q=${encodeURIComponent(new FormData(e.target).get('q'))}`;}
