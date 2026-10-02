@@ -3135,7 +3135,14 @@ async function nextVendorProductId(after) {
 // between INSERT (new product) and UPDATE (own product only).
 async function submitVendorProductForm(form) {
   const state = currentAppState();
-  if (!state.user || !state.user.vendor_id) return; // vendor capability = linked vendor_id (multi-role)
+  // Vendor capability is the server-linked storefront id, not the profile
+  // role string. This deliberately supports an admin account that has been
+  // explicitly assigned to a storefront while still rejecting unassigned
+  // accounts before any upload or write is attempted.
+  if (!state.user || !state.user.vendor_id) {
+    toast('Your account is not linked to a vendor storefront.', 'error');
+    return;
+  }
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product changes could not be saved', 'error'); return; }
   if (state.vendorProductSubmitting) return; // duplicate-submission guard
   const f = new FormData(form);
