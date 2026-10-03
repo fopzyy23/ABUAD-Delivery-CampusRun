@@ -131,8 +131,12 @@ async function main() {
     await check('financial resolution queue is admin-only and hides direct cutoff table access',async()=>{
       const oid=await claimFixture();
       await q(`INSERT INTO automatic_cutoff_claims(order_id,status,last_error) VALUES($1,'failed','test failure')`,[oid]);
+      const mismatch=await order(); await payment(mismatch);
+      await db.exec(`BEGIN; SET LOCAL app.order_server_update='on'; UPDATE public.orders SET payment_status='pending' WHERE id='${mismatch}'; COMMIT;`);
       const queue=(await adminCall('SELECT admin_get_financial_resolution_queue() AS q')).rows[0].q;
       assert.ok(queue.cutoff_claims.some(row=>row.order_id===oid));
+      assert.ok(queue.payment_mismatches.some(row=>row.order_id===mismatch));
+      assert.ok(Array.isArray(queue.transfers) && Array.isArray(queue.withdrawals));
       await assert.rejects(customerCall('SELECT * FROM automatic_cutoff_claims'),/permission denied/);
       await assert.rejects(customerCall('SELECT admin_get_financial_resolution_queue()'),/admin authorization required/);
     });
@@ -270,12 +274,71 @@ async function main() {
       assert.equal(reassigned.status,'Picked up'); assert.equal(reassigned.rider_id,rider2);
       await asUser(db,riderUser2,'aal1',tx=>tx.query(`UPDATE orders SET status='On the Way' WHERE id=$1`,[oid]));
     });
+    await check('admin role management is AAL2-only, audited, and self-protected',async()=>{
+      const target=await user();
+      await assert.rejects(customerCall('SELECT admin_set_admin_role($1,true)',[target]),/admin authorization required|permission denied/);
+      await assert.rejects(adminCall('SELECT admin_set_admin_role($1,true)',[target],'aal1'),/AAL2/);
+      await assert.rejects(adminCall('SELECT admin_set_admin_role($1,false)',[admin]),/own admin access/);
+      await adminCall('SELECT admin_set_admin_role($1,true)',[target]);
+      assert.equal((await q('SELECT role FROM profiles WHERE id=$1',[target]))[0].role,'admin');
+      await adminCall('SELECT admin_set_admin_role($1,false)',[target]);
+      assert.equal((await q('SELECT role FROM profiles WHERE id=$1',[target]))[0].role,'user');
+      assert.equal(Number((await q(`SELECT count(*) AS n FROM admin_action_audit WHERE entity_type='profile' AND entity_id=$1`,[target]))[0].n),2);
+    });
+    await check('account suspension is AAL2-only, audited, enforced, and reversible',async()=>{
+      const oid=await order();
+      await assert.rejects(customerCall('SELECT admin_set_account_status($1,$2,$3)',[customer,'suspended','test']),/admin authorization required|permission denied/);
+      await assert.rejects(adminCall('SELECT admin_set_account_status($1,$2,$3)',[customer,'suspended','test'],'aal1'),/AAL2/);
+      await assert.rejects(adminCall('SELECT admin_set_account_status($1,$2,$3)',[admin,'suspended','test']),/own account status/);
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[customer,'suspended','security review']);
+      const suspended=(await q('SELECT account_status,suspension_reason FROM profiles WHERE id=$1',[customer]))[0];
+      assert.equal(suspended.account_status,'suspended'); assert.equal(suspended.suspension_reason,'security review');
+      await assert.rejects(customerCall(`UPDATE orders SET spot='blocked' WHERE id=$1`,[oid]),/account suspended/);
+      assert.notEqual((await q('SELECT spot FROM orders WHERE id=$1',[oid]))[0].spot,'blocked');
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[customer,'active',null]);
+      assert.equal((await q('SELECT account_status FROM profiles WHERE id=$1',[customer]))[0].account_status,'active');
+      assert.equal(Number((await q(`SELECT count(*) AS n FROM admin_action_audit WHERE entity_type='profile' AND entity_id=$1 AND action IN ('suspend_account','restore_account')`,[customer]))[0].n),2);
+    });
+    await check('suspension gates rider and vendor applications while preserving active-admin review and support',async()=>{
+      const activeRiderUser=await user(), suspendedRiderUser=await user();
+      const riderInsert=(id, suffix)=>asUser(db,id,'aal1',tx=>tx.query(`INSERT INTO riders(user_id,matric_number,phone,status,available) VALUES($1,$2,$3,'pending',false)`,[id,'APP-'+suffix,'08000000'+suffix]));
+      await riderInsert(activeRiderUser,'11');
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[suspendedRiderUser,'suspended','test']);
+      await assert.rejects(riderInsert(suspendedRiderUser,'12'),/account suspended/);
+      const activeRider=(await q('SELECT id FROM riders WHERE user_id=$1',[activeRiderUser]))[0].id;
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[activeRiderUser,'suspended','test']);
+      await assert.rejects(asUser(db,activeRiderUser,'aal1',tx=>tx.query('UPDATE riders SET available=true WHERE id=$1',[activeRider])),/account suspended/);
+      await adminCall('SELECT admin_set_rider_status($1,$2)',[activeRider,'approved']);
+      assert.equal((await q('SELECT status FROM riders WHERE id=$1',[activeRider]))[0].status,'approved');
+      const vendorValues=(id,suffix)=>[id,'Vendor '+suffix,'MAT-'+suffix,'College','Department',`${suffix}@test.invalid`,'08000000'+suffix,'Food','100-200'];
+      const vendorInsert=(id,suffix)=>asUser(db,id,'aal1',tx=>tx.query(`INSERT INTO vendor_applications(user_id,full_name,matric_number,college,department,email,phone,what_they_want_to_sell,expected_price_range) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,vendorValues(id,suffix)));
+      const activeVendorUser=await user(), suspendedVendorUser=await user(), reviewVendorUser=await user();
+      await vendorInsert(activeVendorUser,'21');
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[suspendedVendorUser,'suspended','test']);
+      await assert.rejects(vendorInsert(suspendedVendorUser,'22'),/account suspended/);
+      await vendorInsert(reviewVendorUser,'23');
+      const reviewApp=(await q('SELECT id FROM vendor_applications WHERE user_id=$1',[reviewVendorUser]))[0].id;
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[reviewVendorUser,'suspended','test']);
+      await adminCall('SELECT admin_review_vendor_application($1,$2,$3)',[reviewApp,'Rejected','reviewed']);
+      assert.equal((await q('SELECT status FROM vendor_applications WHERE id=$1',[reviewApp]))[0].status,'Rejected');
+      await asUser(db,suspendedVendorUser,'aal1',tx=>tx.query(`INSERT INTO issue_reports(user_id,subject,description) VALUES($1,'Appeal','Please review')`,[suspendedVendorUser]));
+      await adminCall('SELECT admin_set_account_status($1,$2,$3)',[suspendedVendorUser,'active',null]);
+      await vendorInsert(suspendedVendorUser,'24');
+    });
     await check('authoritative admin metrics exceed a single API response page',async()=>{
+      const qualifying=(await q('SELECT id FROM delivery_settlements WHERE order_id=$1',[earned]))[0].id;
+      await q(`INSERT INTO rider_daily_bonuses(rider_id,qualifying_date,qualifying_delivery_count,qualifying_settlement_id,amount) VALUES($1,'2020-01-01',5,$2,500)`,[rider,qualifying]);
       await q(`INSERT INTO orders(id,order_number,user_id,total,subtotal,fee,status,payment_status,delivery_method,request_type)
         SELECT gen_random_uuid(),'BULK-'||g,$1,10,10,0,'Order confirmed','pending','rider','restaurant' FROM generate_series(1,1105) g`,[customer]);
       const metrics=(await adminCall('SELECT admin_get_dashboard_metrics() AS m')).rows[0].m;
       const actual=Number((await q('SELECT count(*) AS n FROM orders'))[0].n);
       assert.equal(Number(metrics.total_orders),actual); assert.ok(actual>1000);
+      const expectedGross=Number((await q(`SELECT COALESCE(sum(ds.rider_amount),0)+COALESCE(sum(b.amount),0) AS total FROM delivery_settlements ds LEFT JOIN rider_daily_bonuses b ON b.qualifying_settlement_id=ds.id WHERE ds.status<>'reversed'`))[0].total);
+      const deliveryOnly=Number((await q(`SELECT COALESCE(sum(rider_amount),0) AS total FROM delivery_settlements WHERE status<>'reversed'`))[0].total);
+      assert.equal(Number(metrics.rider_earnings_total),expectedGross); assert.equal(expectedGross,deliveryOnly+500);
+      for(const key of ['total_users','active_accounts','suspended_accounts','successful_payment_count','successful_payment_volume','vendor_settlement_total','rider_earnings_total','platform_delivery_share','pending_withdrawals','pending_transfers','failed_transfers','pending_refunds','failed_reimbursements','open_reports','average_rider_rating']) {
+        assert.ok(Object.hasOwn(metrics,key),`missing metric ${key}`);
+      }
     });
     console.log(`${passed} executable database regression scenarios passed.`);
   } finally { await db.close(); }

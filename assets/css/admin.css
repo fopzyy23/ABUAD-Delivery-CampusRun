@@ -13,6 +13,15 @@
   padding: 14px 0;
 }
 
+/* Admin controls remain comfortably operable on touch screens. */
+.admin-nav__item,
+.admin-actions .btn,
+.attention-row,
+[data-user-detail],
+[data-assign-delivery] {
+  min-height: 44px;
+}
+
 .admin-header__inner {
   display: flex;
   align-items: center;

@@ -128,41 +128,11 @@ console.debug('DROPZYY_RUNTIME_BUILD', DROPZYY_RUNTIME_BUILD);
 // initialises. The form is rendered later, but event delegation means this
 // listener remains valid across SPA rerenders and cannot be bypassed by a
 // late startup exception.
-function handleVendorProductSubmit(e) {
+document.addEventListener('submit', e => {
   if (e.target?.id !== 'vendorProductForm') return;
   e.preventDefault();
   submitVendorProductForm(e.target);
-}
-
-function handleVendorProductControlClick(e) {
-  const save = e.target?.closest?.('[data-vp-save]');
-  if (save) {
-    // Fail closed: this is deliberately type="button", so even if application
-    // startup later fails it can never fall through to a native GET request.
-    e.preventDefault();
-    const form = save.form || save.closest('form');
-    if (!form || form.id !== 'vendorProductForm') return;
-    if (typeof form.requestSubmit === 'function') form.requestSubmit();
-    else if (typeof form.checkValidity !== 'function' || form.checkValidity()) {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    }
-    return;
-  }
-
-  const control = e.target?.closest?.('[data-vp-action][data-product-id]');
-  if (!control) return;
-  e.preventDefault();
-  const productId = control.dataset.productId;
-  if (control.dataset.vpAction === 'edit') editVendorProduct(productId);
-  else if (control.dataset.vpAction === 'availability') toggleVendorProductActive(productId);
-  else if (control.dataset.vpAction === 'delete') {
-    console.debug('VP_DELETE: click received');
-    deleteVendorProduct(productId);
-  }
-}
-
-document.addEventListener('submit', handleVendorProductSubmit, true);
-document.addEventListener('click', handleVendorProductControlClick, true);
+}, true);
 
 // Bookshop removal (Dropzyy 1.0)
 // ============================================================
@@ -3537,14 +3507,10 @@ async function deleteVendorProduct(productId) {
   const state = currentAppState();
   const p = (state.vendorProducts || []).find(x => x.id === Number(productId));
   if (!p) return;
-  console.debug('VP_DELETE: product resolved');
   if (typeof supabase === 'undefined' || !supabase) { toast('Supabase unavailable — product could not be deleted', 'error'); return; }
   if (!(await DropzyyModal.confirm({ title:'Delete product', message:`Delete "${p.name}"? This permanently removes it from your catalog. If you sell it again, add it as a new product.`, confirmText:'Delete product', danger:true }))) return;
-  console.debug('VP_DELETE: confirmation accepted');
   try {
-    console.debug('VP_DELETE: RPC starting');
-    const { error } = await supabase.rpc('delete_vendor_product', { p_product_id: Number(p.id) });
-    console.debug('VP_DELETE: RPC returned');
+    const { error } = await supabase.rpc('delete_vendor_product', { p_product_id: p.id });
     if (error) throw error;
     toast('Product permanently deleted');
     if (document.getElementById('vendorProductForm') && document.querySelector('#vendorProductForm input[name="id"]').value === String(p.id)) {
@@ -3762,7 +3728,7 @@ function renderVendorProductsSection({ productsHtml, state }) {
           </div>
           <div class="field col-2"><label for="vpDesc">Description</label><textarea class="textarea" name="desc" id="vpDesc" placeholder="A short description for customers."></textarea></div>
         </div>
-        <button class="btn btn--block" type="button" data-vp-save>Save Product</button>
+        <button class="btn btn--block" type="submit">Save Product</button>
       </form>
       <div class="card"><div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>${productsHtml}</tbody></table></div></div>
     </div>`;
@@ -3774,7 +3740,7 @@ function renderVendorProductsWorkspace() {
   const store = vendor(vid) || { name: 'Your storefront' };
   const products = state.vendorProducts || [];
   const productsHtml = products.length
-    ? products.map(p => `<tr><td><div class="prod-cell"><span class="prod-thumb">${safeImageUrl(p.image) ? `<img src="${esc(safeImageUrl(p.image))}" alt="" loading="lazy" data-img-guard>` : ''}<span class="prod-thumb__fallback">${esc(p.icon)}</span></span><span><b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</span></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button type="button" class="link-btn" data-vp-action="edit" data-product-id="${p.id}">Edit</button> · <button type="button" class="link-btn" data-vp-action="availability" data-product-id="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button type="button" class="link-btn btn--danger" data-vp-action="delete" data-product-id="${p.id}">Delete</button></td></tr>`).join('')
+    ? products.map(p => `<tr><td><div class="prod-cell"><span class="prod-thumb">${safeImageUrl(p.image) ? `<img src="${esc(safeImageUrl(p.image))}" alt="" loading="lazy" data-img-guard>` : ''}<span class="prod-thumb__fallback">${esc(p.icon)}</span></span><span><b>${esc(p.name)}</b>${p.desc?`<div class="muted small">${esc(p.desc)}</div>`:''}</span></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td><span class="badge badge--${p.active!==false?'success':'warn'}">${p.active!==false?'🟢 Available':'🔴 Not available'}</span></td><td><button class="link-btn" data-vp-edit="${p.id}">Edit</button> · <button class="link-btn" data-vp-toggle="${p.id}">${p.active!==false?'Turn off':'Turn on'}</button> · <button class="link-btn btn--danger" data-vp-delete="${p.id}">Delete</button></td></tr>`).join('')
     : '<tr><td colspan="5" class="muted center">No products yet — add your first item with the form.</td></tr>';
   return `<section class="section container"><div class="page-head"><div><span class="badge badge--brand">Vendor Dashboard</span><h1 class="mt-1">${esc(store.name)}</h1><p class="muted">Manage your menu items.</p></div><a class="btn btn--ghost btn--sm" href="#/">← Back to site</a></div>${renderVendorLocalNav('products')}${renderVendorProductsSection({ productsHtml, state })}</section>`;
 }
@@ -5713,11 +5679,6 @@ async function render() {
     updateChrome();
     return;
   }
-  if (state.user?.account_status === 'suspended') {
-    $('#app').innerHTML = '<section class="section container"><div class="card"><h1>Account suspended</h1><p>Your Dropzyy account is currently suspended. Contact support if you believe this is an error.</p><button id="logoutBtn" class="btn" type="button">Sign out</button></div></section>';
-    updateChrome();
-    return;
-  }
   const parts = path.split('/').filter(Boolean);
   const isLoginRoute = parts[0] === 'login';
   const isRecoveryRoute = parts[0] === 'reset-password';
@@ -6008,6 +5969,10 @@ document.addEventListener('click', async e=>{
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
   // Rider rating: star selection (visual only — submit is the only mutation)
   const star=e.target.closest('[data-star-order]'); if(star){ const orderId=star.dataset.starOrder; document.querySelectorAll(`[data-star-order="${orderId}"]`).forEach(b=>{ b.classList.toggle('is-on', Number(b.dataset.rating)<=Number(star.dataset.rating)); }); }
+  // Vendor product management (own products only, enforced by RLS + vendor_id filter)
+  const vpEdit=e.target.closest('[data-vp-edit]'); if(vpEdit){ editVendorProduct(vpEdit.dataset.vpEdit); }
+  const vpToggle=e.target.closest('[data-vp-toggle]'); if(vpToggle){ toggleVendorProductActive(vpToggle.dataset.vpToggle); }
+  const vpDelete=e.target.closest('[data-vp-delete]'); if(vpDelete){ deleteVendorProduct(vpDelete.dataset.vpDelete); }
   if(e.target.id==='vendorProductClear'){ resetVendorProductForm(); }
   const vpImgRemove=e.target.closest('#vendorProductImageRemove'); if(vpImgRemove){ dropVendorProductImageSelection(); }
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
@@ -6357,7 +6322,7 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('click', e => {
-  const button = e.target?.closest?.('#vendorProductForm [data-vp-save]');
+  const button = e.target?.closest?.('#vendorProductForm button[type="submit"]');
   if (!button) return;
   console.debug('VP_TRACE: save button clicked', { type: button.type, disabled: button.disabled, formId: button.closest('form')?.id || '' });
 });
@@ -6770,7 +6735,7 @@ function clearPrivateAuthState() {
 async function syncAuthenticatedUser(session) {
   const user = session.user;
   let { data: profile, error } = await supabase.from('profiles')
-    .select('full_name, role, vendor_id, account_status').eq('id', user.id).maybeSingle();
+    .select('full_name, role, vendor_id').eq('id', user.id).maybeSingle();
   if (error) throw error; // Never mistake a failed query for a missing profile.
   if (!profile) {
     const md = user.user_metadata || {};
@@ -6779,13 +6744,13 @@ async function syncAuthenticatedUser(session) {
       phone: md.phone || '', hostel: md.hostel || '', role: 'user'
     });
     if (result.error && result.error.code !== '23505') throw result.error;
-    const fetched = await supabase.from('profiles').select('full_name, role, vendor_id, account_status').eq('id', user.id).single();
+    const fetched = await supabase.from('profiles').select('full_name, role, vendor_id').eq('id', user.id).single();
     if (fetched.error) throw fetched.error;
     profile = fetched.data;
   }
   if (!profile) throw new Error('Profile unavailable');
   return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
-    email: user.email, role: profile.role, vendor_id: profile.vendor_id || null, account_status: profile.account_status || 'active' };
+    email: user.email, role: profile.role, vendor_id: profile.vendor_id || null };
 }
 const authLifecycle = createAuthLifecycle({
   auth: supabase.auth,

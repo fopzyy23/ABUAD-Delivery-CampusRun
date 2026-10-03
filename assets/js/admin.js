@@ -31,6 +31,7 @@ let state = {
   settlements: [],
   bonuses: [],
   transfers: [],
+  transferRecipients: [],
   settlementsLoading: false,
   settlementsError: null,
   reports: [],
@@ -54,6 +55,7 @@ let state = {
   cancellationsLoading: false,
   cancellationsError: null,
   automaticCutoffClaims: [],
+  financialResolutionQueue: null,
   automaticCutoffClaimsLoading: false,
   automaticCutoffClaimsError: null,
   adminMetrics: null
@@ -680,7 +682,8 @@ async function fetchAdminProfile() {
       id: data.id,
       name: data.full_name || supabaseAdminUser.email.split('@')[0],
       email: data.email,
-      role: data.role
+      role: data.role,
+      account_status: data.account_status || 'active'
     };
     return data;
   } catch (err) {
@@ -711,8 +714,8 @@ async function checkAuth() {
     supabaseAdminUser = session.user;
     const profile = await fetchAdminProfile();
     if (state !== currentAdminState()) return false;
-    if (!profile || profile.role !== 'admin') {
-      console.error('Admin auth denied: profile role is not exactly "admin".');
+    if (!profile || profile.role !== 'admin' || profile.account_status === 'suspended') {
+      console.error('Admin auth denied: an active admin profile is required.');
       clearAuthState();
       renderLogin();
       return false;
@@ -749,12 +752,12 @@ async function login(email, password) {
     supabaseAdminUser = data.user;
     const profile = await fetchAdminProfile();
     if (state !== currentAdminState()) return false;
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || profile.role !== 'admin' || profile.account_status === 'suspended') {
       // The user authenticated with Supabase but is not an admin — deny access.
       await supabase.auth.signOut().catch(() => {});
       state.isAuthenticated = false;
       supabaseAdminUser = null;
-      toast('Access denied: this account does not have admin privileges.', 'error');
+      toast(profile?.account_status === 'suspended' ? 'Access denied: this account is suspended.' : 'Access denied: this account does not have admin privileges.', 'error');
       return false;
     }
 
@@ -855,7 +858,7 @@ async function addVendor(formData) {
 
 async function deleteVendor(vendorId) {
   const state = currentAdminState();
-  if (await DropzyyModal.confirm({ title:'Deactivate vendor', message:'Deactivate this vendor and all its products? Historical orders will be preserved.', confirmText:'Deactivate vendor', danger:true })) {
+  if (await DropzyyModal.confirm({ title:'Deactivate Vendor', message:'Deactivate this vendor? The storefront and its products become unavailable. Historical orders and finance records remain, and the vendor can be reactivated later.', confirmText:'Deactivate Vendor', danger:true })) {
     const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
     // Sync to Supabase
     const synced = await deleteVendorFromSupabase(vendorId);
@@ -928,7 +931,7 @@ async function addProduct(formData) {
 
 async function deleteProduct(productId) {
   const state = currentAdminState();
-  if (await DropzyyModal.confirm({ title:'Delete product', message:'Delete this product?', confirmText:'Delete product', danger:true })) {
+  if (await DropzyyModal.confirm({ title:'Deactivate Product', message:'Deactivate this product? It becomes unavailable to customers while historical order records remain.', confirmText:'Deactivate Product', danger:true })) {
     const previousProducts = clone(state.catalog.products);
     state.catalog.products = state.catalog.products.filter(p => p.id !== Number(productId));
     // Remove any cart entries that referenced the deleted product
@@ -945,7 +948,7 @@ async function deleteProduct(productId) {
       saveCatalog();
       toast('Product deactivation failed; no local changes were made', 'error');
     } else {
-      toast('Product deleted');
+      toast('Product deactivated');
     }
 
     renderAdminWorkspace();
@@ -1093,7 +1096,7 @@ async function loadGovernanceData() {
   const s = currentAdminState();
   s.auditLogsLoading = true; s.adminUsersLoading = true;
   try { const q = await supabase.from('admin_action_audit').select('*').order('created_at',{ascending:false}).limit(500); if (q.error) throw q.error; s.auditLogs=q.data||[]; } catch(e) { s.auditLogs=[]; s.auditLogsError=e.message||'Audit log load failed'; } finally { s.auditLogsLoading=false; }
-  try { const q = await supabase.from('profiles').select('id,full_name,email,role,created_at').eq('role','admin').order('created_at',{ascending:false}); if(q.error) throw q.error; s.adminUsers=q.data||[]; } catch(e) { s.adminUsers=[]; s.adminUsersError=e.message||'Admin list load failed'; } finally { s.adminUsersLoading=false; }
+  try { const q = await supabase.from('profiles').select('id,full_name,email,role,account_status,created_at').eq('role','admin').order('created_at',{ascending:false}); if(q.error) throw q.error; s.adminUsers=q.data||[]; } catch(e) { s.adminUsers=[]; s.adminUsersError=e.message||'Admin list load failed'; } finally { s.adminUsersLoading=false; }
 }
 
 async function updateMaintenanceMode(enabled) {
@@ -1221,7 +1224,8 @@ let financeFilter = { query: '', status: 'all', page: 1 };
 const supportFilters = {
   adminUserSearch: '', auditSearch: '', ratingSearch: '', ratingFilter: 'all',
   supportSearch: '', supportStatus: 'all', supportType: 'all',
-  notificationSearch: '', notificationType: 'all', notificationAudience: 'all'
+  notificationSearch: '', notificationType: 'all', notificationAudience: 'all',
+  userSearch: '', userRole: 'all', userVendor: 'all', userStatus: 'all', userPage: 1
 };
 
 // Sidebar navigation with at-a-glance pending-count badges (presentational).
@@ -1230,10 +1234,13 @@ function adminSidebar() {
   // Related views reuse the existing, audited management workflows below.
   const sections = [
     { key: 'dashboard', label: 'Dashboard', icon: '⌂', group: 'Overview' },
+    { key: 'financial', label: 'Financial Resolution', icon: '⚖', group: 'Overview' },
     { key: 'orders', label: 'Orders', icon: '▤', group: 'Operations' },
     { key: 'deliveries', label: 'Deliveries', icon: '⌁', group: 'Operations' },
-    { key: 'customers', label: 'Customers', icon: '♙', group: 'Operations' },
-    { key: 'riders', label: 'Riders', icon: '◉', group: 'Operations', count: (state.riders || []).filter(r => r.status === 'pending').length },
+    { key: 'users', label: 'Users', icon: '♟', group: 'People' },
+    { key: 'customers', label: 'Customers', icon: '♙', group: 'People' },
+    { key: 'riders', label: 'Riders', icon: '◉', group: 'People', count: (state.riders || []).filter(r => r.status === 'pending').length },
+    { key: 'admin-management', label: 'Admin Management', icon: '♟', group: 'People' },
     { key: 'vendors', label: 'Vendors', icon: '▣', group: 'Marketplace', count: (state.vendorApplications || []).filter(a => a.status === 'Pending').length },
     { key: 'restaurants', label: 'Restaurants', icon: '⌂', group: 'Marketplace' },
     { key: 'products', label: 'Products', icon: '□', group: 'Marketplace' },
@@ -1247,7 +1254,6 @@ function adminSidebar() {
     { key: 'reports', label: 'Reports', icon: '▥', group: 'Insights', count: (state.reports || []).filter(r => r.status === 'Open').length },
     { key: 'notifications', label: 'Notifications', icon: '◌', group: 'System' },
     { key: 'settings', label: 'Platform Settings', icon: '⚙', group: 'System' },
-    { key: 'admin-management', label: 'Admin Management', icon: '♟', group: 'System' },
     { key: 'audit-logs', label: 'Audit Logs', icon: '⌕', group: 'System' },
     { key: 'security', label: 'Security', icon: '◇', group: 'System' }
   ];
@@ -1306,7 +1312,7 @@ function renderAdminUtilitySection(key) {
 }
 function renderAdminManagementWorkspace() {
   const q=supportFilters.adminUserSearch.toLowerCase(); const rows=(state.adminUsers||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
-  return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Admin Management</h1><p class="muted">Read-only administrator roster. Role changes remain server-controlled.</p></div><button class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="adminUserSearch" placeholder="Search admins"></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th>MFA</th></tr></thead><tbody>${adminSupportTableState(rows,state.adminUsersLoading,state.adminUsersError,5,'No administrators found.')||rows.map(x=>`<tr><td>${escHtml(x.full_name||'—')}</td><td>${escHtml(x.email||'—')}</td><td>${escHtml(x.role)}</td><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>Session MFA required for protected actions</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="page-head"><div><span class="badge badge--brand">Governance</span><h1 class="mt-1">Admin Management</h1><p class="muted">Controlled administrator access. Every change requires AAL2 and is audited.</p></div><button type="button" class="btn btn--soft" data-governance-refresh>Refresh</button></div><div class="card mt-2"><div class="toolbar"><input class="input" id="adminUserSearch" placeholder="Search admins"><button type="button" class="btn btn--ghost" data-admin-nav="users">Promote from Users</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Access</th><th>Created</th><th>MFA</th><th></th></tr></thead><tbody>${adminSupportTableState(rows,state.adminUsersLoading,state.adminUsersError,6,'No administrators found.')||rows.map(x=>`<tr><td>${escHtml(x.full_name||'—')}</td><td>${escHtml(x.email||'—')}</td><td>${escHtml(x.account_status||'active')}</td><td>${x.created_at?formatDate(x.created_at):'—'}</td><td>Protected actions require AAL2</td><td>${x.id===supabaseAdminUser?.id?'<span class="muted small">Current admin</span>':`<button type="button" class="link-btn btn--danger" data-demote-admin="${x.id}">Remove Admin Access</button>`}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 function renderAuditLogsWorkspace() {
   const q=supportFilters.auditSearch.toLowerCase(); const rows=(state.auditLogs||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
@@ -1338,11 +1344,14 @@ function settlementReconciliation(s) {
 }
 function renderRefundWorkspace() { return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Refunds / Reimbursements</h1><p class="muted">Provider-authoritative refunds and reimbursement recovery.</p></div></div>${renderPaymentsSection()}`; }
 function renderFinancialResolutionWorkspace() {
-  const cases = [];
-  state.transfers.filter(t => ['failed','reversed'].includes(t.status)).forEach(t => cases.push({ id:t.id, type:'Transfer', reason:t.status, target:'transfers' }));
-  state.payments.filter(p => paymentReconciliation(p).includes('danger')).forEach(p => cases.push({ id:p.id, type:'Payment', reason:'payment/order mismatch', target:'payments' }));
-  state.withdrawals.filter(w => withdrawalReconciliation(w).includes('danger')).forEach(w => cases.push({ id:w.id, type:'Withdrawal', reason:'transfer missing', target:'withdrawals' }));
-  (state.cancellations || []).filter(c => ['admin_resolution_required','reimbursement_failed'].includes(c.stage)).forEach(c => cases.push({ id:c.id, type:'Reimbursement', reason:c.stage, target:'refunds' }));
+  const queue = state.financialResolutionQueue || {};
+  const cases = [
+    ...(queue.transfers || []).map(x => ({ id:x.id, type:'Transfer', reason:x.status, target:'transfers' })),
+    ...(queue.payment_mismatches || []).map(x => ({ id:x.id, type:'Payment', reason:'payment/order mismatch', target:'payments' })),
+    ...(queue.withdrawals || []).map(x => ({ id:x.id, type:'Withdrawal', reason:'transfer missing', target:'withdrawals' })),
+    ...(queue.cancellations || []).map(x => ({ id:x.id, type:'Reimbursement', reason:x.stage, target:'refunds' })),
+    ...(queue.cutoff_claims || []).map(x => ({ id:x.id, type:'Reimbursement recovery', reason:x.status, target:'refunds' }))
+  ];
   return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Financial Resolution</h1><p class="muted">Read-only exception queue. Use the linked workspace for supported recovery actions.</p></div><button class="btn btn--ghost btn--sm" data-finance-refresh>Refresh</button></div><div class="card"><div class="card__head"><h3>Exceptions requiring attention</h3><span class="muted small">${cases.length} detected</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Type</th><th>Record</th><th>Reason</th><th>Workspace</th></tr></thead><tbody>${cases.length ? cases.map(c => `<tr><td>${escHtml(c.type)}</td><td>${escHtml(c.id)}</td><td><span class="badge badge--danger">${escHtml(c.reason)}</span></td><td><button class="link-btn" data-admin-nav="${c.target}">Open</button></td></tr>`).join('') : '<tr><td colspan="4" class="muted center">No financial exceptions detected.</td></tr>'}</tbody></table></div></div>`;
 }
 function renderFinanceWorkspace(kind) {
@@ -1397,6 +1406,7 @@ function renderAdminWorkspace() {
   if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
   else if (adminSection === 'deliveries') view = renderDeliveriesSection(shared);
+  else if (adminSection === 'users') view = renderUsersWorkspace(shared);
   else if (adminSection === 'vendors') view = renderVendorsSection(shared);
   else if (adminSection === 'riders') view = renderRidersSection(shared);
   else if (adminSection === 'customers') view = renderCustomerOperationsSection(shared);
@@ -1452,6 +1462,8 @@ function renderDeliveriesSection({ orders, riders, vendors }) {
 }
 
 function renderDashboardSection({ vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue }) {
+  const metrics = state.adminMetrics || {};
+  const metricCard = (label, value, hint = '') => `<div class="stat"><span class="stat__label">${label}</span><span class="stat__value">${value}</span>${hint ? `<span class="stat__hint">${hint}</span>` : ''}</div>`;
   const pendingNow = orders.filter(o => (o.status || 'Order confirmed') === 'Order confirmed').length;
   const attention = [
     { key: 'orders', icon: '🧾', label: 'Orders awaiting action', count: pendingNow },
@@ -1483,6 +1495,23 @@ function renderDashboardSection({ vendors, products, orders, riders, totalOrders
       </div>
     </div>
 
+    <h2 class="admin-section-title">Authoritative platform metrics</h2>
+    <div class="grid grid--stats">
+      ${metricCard('Users', metrics.total_users ?? '—', `${metrics.suspended_accounts ?? 0} suspended`)}
+      ${metricCard('Active vendors', metrics.active_vendors ?? vendors.length, `${metrics.total_vendors ?? vendors.length} total`)}
+      ${metricCard('Approved riders', metrics.approved_riders ?? riders.filter(r => r.status === 'approved').length, `${metrics.pending_rider_applications ?? 0} pending`)}
+      ${metricCard('Successful payments', metrics.successful_payment_count ?? 0, money(metrics.successful_payment_volume || 0))}
+      ${metricCard('Vendor settlements', money(metrics.vendor_settlement_total || 0))}
+      ${metricCard('Rider earnings', money(metrics.rider_earnings_total || 0), `${money(metrics.platform_delivery_share || 0)} platform share`)}
+      ${metricCard('Pending withdrawals', metrics.pending_withdrawals ?? 0)}
+      ${metricCard('Pending transfers', metrics.pending_transfers ?? 0, `${metrics.failed_transfers ?? 0} failed/reversed`)}
+      ${metricCard('Pending refunds', metrics.pending_refunds ?? 0)}
+      ${metricCard('Failed reimbursements', metrics.failed_reimbursements ?? 0)}
+      ${metricCard('Open reports', metrics.open_reports ?? 0)}
+      ${metricCard('Average rider rating', Number(metrics.average_rider_rating || 0).toFixed(1))}
+    </div>
+
+    <h2 class="admin-section-title mt-3">Orders &amp; catalog</h2>
     <!-- Stats -->
     <div class="grid grid--stats">
       <div class="stat stat--brand">
@@ -1853,7 +1882,7 @@ function renderVendorsSection({ vendors }) {
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
                   <td>
                     <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> ·
-                    <button class="link-btn" data-delete-vendor="${v.id}">Delete</button>
+                    <button type="button" class="link-btn" data-delete-vendor="${v.id}">Deactivate Vendor</button>
                   </td>
                 </tr>
               `).join('')}
@@ -2002,6 +2031,14 @@ function renderProductsOperationsSection({ vendors, products }) {
   return `<div class="page-head"><div><span class="badge badge--brand">Catalog</span><h1 class="mt-1">Products</h1><p class="muted">Server-authoritative products. Historical order items are preserved.</p></div><button class="btn btn--ghost btn--sm" data-product-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-product-search placeholder="Search products" value="${escHtml(q)}"><select class="select" data-product-vendor><option value="all">All vendors</option>${vendors.map(v=>`<option value="${escHtml(v.id)}" ${vf===v.id?'selected':''}>${escHtml(v.name)}</option>`).join('')}</select><select class="select" data-product-category><option value="all">All categories</option>${categories.map(c=>`<option value="${escHtml(c)}" ${cf===c?'selected':''}>${escHtml(c)}</option>`).join('')}</select><select class="select" data-product-availability><option value="all">All availability</option><option value="active" ${af==='active'?'selected':''}>Active</option><option value="inactive" ${af==='inactive'?'selected':''}>Deactivated</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th>Vendor</th><th>Category</th><th>Price</th><th>Availability</th><th>Image</th><th></th></tr></thead><tbody>${visible.length?visible.map(p=>`<tr><td><b>${escHtml(p.name)}</b></td><td>${escHtml(vendors.find(v=>v.id===p.vendor)?.name||p.vendor)}</td><td>${escHtml(p.category||'—')}</td><td>${money(p.price)}</td><td>${p.active===false?'Deactivated':'Active'}</td><td>${p.image?'Yes':'—'}</td><td><button class="link-btn" data-product-detail="${p.id}">Details</button></td></tr>`).join(''):'<tr><td colspan="7" class="muted center">No products match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-product-page="next" ${page>=pages?'disabled':''}>Next</button></div></div>`;
 }
 function renderCategoriesOperationsSection({ products }) { const q=financeFilter.categoryQuery||'', all=[...new Set(products.map(p=>p.category).filter(Boolean))].filter(c=>c.toLowerCase().includes(q.toLowerCase())), page=financeFilter.categoryPage||1,size=20,pages=Math.max(1,Math.ceil(all.length/size)); return `<div class="page-head"><div><span class="badge badge--brand">Catalog</span><h1 class="mt-1">Categories</h1><p class="muted">Categories remain product strings; no normalization migration was introduced.</p></div><button class="btn btn--ghost btn--sm" data-product-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-category-search placeholder="Search categories" value="${escHtml(q)}"></div><div class="table-wrap"><table class="table"><thead><tr><th>Category</th><th>Product count</th><th>Vendor usage</th><th>Visibility</th></tr></thead><tbody>${all.slice((page-1)*size,page*size).map(c=>{const ps=products.filter(p=>p.category===c);return `<tr><td><b>${escHtml(c)}</b></td><td>${ps.length}</td><td>${new Set(ps.map(p=>p.vendor)).size}</td><td>Supported through product availability</td></tr>`}).join('')||'<tr><td colspan="4" class="muted center">No categories found.</td></tr>'}</tbody></table></div></div>`; }
+
+function renderUsersWorkspace() {
+  const q=supportFilters.userSearch.toLowerCase(), role=supportFilters.userRole, vendorId=supportFilters.userVendor, status=supportFilters.userStatus;
+  const rows=(state.users||[]).filter(u=>(!q||JSON.stringify(u).toLowerCase().includes(q))&&(role==='all'||u.role===role)&&(vendorId==='all'||(vendorId==='assigned'?Boolean(u.vendor_id):vendorId==='unassigned'?!u.vendor_id:u.vendor_id===vendorId))&&(status==='all'||(u.account_status||'active')===status));
+  const size=20,pages=Math.max(1,Math.ceil(rows.length/size)); supportFilters.userPage=Math.min(supportFilters.userPage,pages); const visible=rows.slice((supportFilters.userPage-1)*size,supportFilters.userPage*size);
+  const vendors=state.catalog?.vendors||[];
+  return `<div class="page-head"><div><span class="badge badge--brand">People</span><h1 class="mt-1">Users</h1><p class="muted">Identity, access, storefront assignment and account status.</p></div><button type="button" class="btn btn--ghost btn--sm" data-users-refresh>Refresh</button></div><div class="card"><div class="admin-filters"><label class="sr-only" for="userSearch">Search users</label><input class="input" id="userSearch" placeholder="Search name, email or phone" value="${escHtml(supportFilters.userSearch)}"><select class="select" id="userRole"><option value="all">All roles</option>${['user','vendor','admin'].map(x=>`<option value="${x}" ${role===x?'selected':''}>${x}</option>`).join('')}</select><select class="select" id="userVendor"><option value="all">All vendor assignments</option><option value="assigned" ${vendorId==='assigned'?'selected':''}>Assigned</option><option value="unassigned" ${vendorId==='unassigned'?'selected':''}>Unassigned</option>${vendors.map(v=>`<option value="${escHtml(v.id)}" ${vendorId===v.id?'selected':''}>${escHtml(v.name)}</option>`).join('')}</select><select class="select" id="userStatus"><option value="all">All account states</option><option value="active" ${status==='active'?'selected':''}>Active</option><option value="suspended" ${status==='suspended'?'selected':''}>Suspended</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>User</th><th>Phone</th><th>Role</th><th>Vendor</th><th>Account</th><th>Created</th><th></th></tr></thead><tbody>${visible.map(u=>`<tr><td><b>${escHtml(u.full_name||'Unnamed')}</b><div class="muted small">${escHtml(u.email||u.id)}</div></td><td>${escHtml(u.phone||'—')}</td><td>${escHtml(u.role||'user')}</td><td>${escHtml(vendors.find(v=>v.id===u.vendor_id)?.name||u.vendor_id||'—')}</td><td><span class="badge badge--${(u.account_status||'active')==='active'?'success':'danger'}">${escHtml(u.account_status||'active')}</span></td><td>${u.created_at?formatDate(u.created_at):'—'}</td><td><button type="button" class="link-btn" data-user-detail="${u.id}">Details</button></td></tr>`).join('')||'<tr><td colspan="7" class="muted center">No users match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">${rows.length} users · page ${supportFilters.userPage} of ${pages}</span><div><button type="button" class="btn btn--ghost btn--sm" data-user-page="prev" ${supportFilters.userPage<=1?'disabled':''}>Previous</button> <button type="button" class="btn btn--ghost btn--sm" data-user-page="next" ${supportFilters.userPage>=pages?'disabled':''}>Next</button></div></div></div>`;
+}
 function renderCustomerOperationsSection({ orders }) { const q=financeFilter.customerQuery||'', rows=state.users.filter(u=>!q||JSON.stringify(u).toLowerCase().includes(q.toLowerCase())); const page=financeFilter.customerPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)); return `<div class="page-head"><div><span class="badge badge--brand">Accounts</span><h1 class="mt-1">Customers</h1><p class="muted">Read-only customer operations; order and financial history is preserved.</p></div><button class="btn btn--ghost btn--sm" data-customer-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-customer-search placeholder="Search name, email or phone" value="${escHtml(q)}"></div><div class="table-wrap"><table class="table"><thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>Orders</th><th>Active</th><th>Completed</th><th>Cancelled</th><th></th></tr></thead><tbody>${rows.slice((page-1)*size,page*size).map(u=>{const os=orders.filter(o=>o.user_id===u.id);return `<tr><td><b>${escHtml(u.full_name||u.id)}</b></td><td>${escHtml(u.email||'—')}</td><td>${escHtml(u.phone||'—')}</td><td>${os.length}</td><td>${os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length}</td><td>${os.filter(o=>['Delivered','Rated'].includes(o.status)).length}</td><td>${os.filter(o=>o.status==='Cancelled').length}</td><td><button class="link-btn" data-customer-detail="${u.id}">Details</button></td></tr>`}).join('')||'<tr><td colspan="8" class="muted center">No customers found.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-customer-page="next" ${page>=pages?'disabled':''}>Next</button></div></div>`; }
 
 function renderCustomersSection({ vendors }) {
@@ -2138,7 +2175,7 @@ function renderCatalogSection({ vendors, products }) {
                     <td>${money(p.price)}</td>
                     <td>
                       <button class="link-btn" data-edit-product="${p.id}">Edit</button> ·
-                      <button class="link-btn" data-delete-product="${p.id}">Delete</button>
+                      <button type="button" class="link-btn" data-delete-product="${p.id}">Deactivate Product</button>
                     </td>
                   </tr>
                 `;
@@ -2229,15 +2266,16 @@ async function loadSettlementsFromSupabase() {
   if (!supabaseAvailable()) return null;
   state.settlementsLoading = true; state.settlementsError = null;
   try {
-    const [v, d, t, b] = await Promise.all([
+    const [v, d, t, b, recipients] = await Promise.all([
       supabase.from('vendor_settlements').select('id,order_id,vendor_id,amount,status,created_at').order('created_at', { ascending: false }),
       supabase.from('delivery_settlements').select('id,order_id,rider_id,delivery_fee,rider_amount,platform_amount,status,created_at').order('created_at', { ascending: false }),
       supabase.from('transfers').select('id,vendor_settlement_id,delivery_settlement_id,withdrawal_request_id,payee_type,amount,currency,status,paystack_reference,created_at').order('created_at', { ascending: false }),
-      supabase.from('rider_daily_bonuses').select('id,rider_id,qualifying_date,amount,bonus_type,reason,created_at').order('qualifying_date', { ascending: false })
+      supabase.from('rider_daily_bonuses').select('id,rider_id,qualifying_date,amount,bonus_type,reason,created_at').order('qualifying_date', { ascending: false }),
+      supabase.from('transfer_recipients').select('id,payee_type,vendor_id,recipient_status,is_active,created_at').eq('payee_type','vendor')
     ]);
-    if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error; if (b.error) throw b.error;
+    if (v.error) throw v.error; if (d.error) throw d.error; if (t.error) throw t.error; if (b.error) throw b.error; if (recipients.error) throw recipients.error;
     state.settlements = [...(v.data || []).map(x => ({ ...x, kind: 'vendor', authoritative_amount: Number(x.amount) })), ...(d.data || []).map(x => ({ ...x, kind: 'rider', authoritative_amount: Number(x.rider_amount) }))];
-    state.transfers = t.data || []; state.bonuses = b.data || []; state.settlementsLoading = false; return state.settlements;
+    state.transfers = t.data || []; state.bonuses = b.data || []; state.transferRecipients = recipients.data || []; state.settlementsLoading = false; return state.settlements;
   } catch (err) { state.settlementsLoading = false; state.settlementsError = err.message || 'Load failed'; state.settlements = []; state.transfers = []; return null; }
 }
 
@@ -2536,6 +2574,12 @@ function attachAdminEventListeners() {
     const r = state.reports.find(x => x.id === btn.dataset.reportDetail); if (r) showAdminSupportDetail('Report', r);
   }));
   document.querySelectorAll('[data-customer-detail]').forEach(b=>b.addEventListener('click',()=>showCustomerDetail(b.dataset.customerDetail)));
+  document.querySelectorAll('[data-user-detail]').forEach(b=>b.addEventListener('click',()=>showUserDetail(b.dataset.userDetail)));
+  ['userSearch','userRole','userVendor','userStatus'].forEach(id=>document.getElementById(id)?.addEventListener(id==='userSearch'?'input':'change',e=>{supportFilters[id]=e.target.value;supportFilters.userPage=1;renderAdminWorkspace();}));
+  document.querySelector('[data-user-page="prev"]')?.addEventListener('click',()=>{supportFilters.userPage--;renderAdminWorkspace();});
+  document.querySelector('[data-user-page="next"]')?.addEventListener('click',()=>{supportFilters.userPage++;renderAdminWorkspace();});
+  document.querySelector('[data-users-refresh]')?.addEventListener('click',async()=>{await loadAssignableUsers();renderAdminWorkspace();});
+  document.querySelectorAll('[data-demote-admin]').forEach(b=>b.addEventListener('click',async()=>{if(!await DropzyyModal.confirm({title:'Remove Admin Access',message:'Remove administrator access for this user? At least one active admin must remain.',confirmText:'Remove access',danger:true}))return;if(await setAdminRole(b.dataset.demoteAdmin,false))renderAdminWorkspace();}));
   document.querySelectorAll('[data-product-detail]').forEach(b=>b.addEventListener('click',()=>showProductDetail(b.dataset.productDetail)));
   document.querySelector('[data-product-search]')?.addEventListener('input',e=>{financeFilter.productQuery=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
   document.querySelector('[data-product-vendor]')?.addEventListener('change',e=>{financeFilter.productVendor=e.target.value;financeFilter.productPage=1;renderAdminWorkspace();});
@@ -2561,9 +2605,9 @@ function attachAdminEventListeners() {
 
   document.querySelectorAll('[data-delivery-detail]').forEach(btn => btn.addEventListener('click', () => showDeliveryDetail(btn.dataset.deliveryDetail)));
   document.querySelectorAll('[data-assign-delivery]').forEach(btn => btn.addEventListener('click', async () => {
-    const riderId = await DropzyyModal.prompt({ title:'Assign rider', message:'Enter an approved rider ID. The server validates eligibility, payment state and the active-delivery cap.', label:'Rider ID', placeholder:'UUID', confirmText:'Assign' });
+    const riderId = await chooseEligibleRider(btn.dataset.assignDelivery);
     if (!riderId) return;
-    const { error } = await supabase.rpc('admin_assign_delivery_rider', { p_order_id: btn.dataset.assignDelivery, p_rider_id: riderId.trim() });
+    const { error } = await supabase.rpc('admin_assign_delivery_rider', { p_order_id: btn.dataset.assignDelivery, p_rider_id: riderId });
     if (error) { toast('Assignment failed: ' + (error.message || 'unknown error'), 'error'); return; }
     toast('Rider assigned'); await loadOrders(); renderAdminWorkspace();
   }));
@@ -2889,7 +2933,33 @@ function attachAdminEventListeners() {
 function showProductDetail(id){const p=state.catalog?.products?.find(x=>String(x.id)===String(id));if(!p)return;const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(p.name)}</h3><button class="btn btn--ghost btn--sm" data-close-product>Close</button></div><dl class="settings-list">${[['Vendor',p.vendor],['Category',p.category],['Price',money(p.price)],['Status',p.active===false?'Deactivated':'Active'],['Image',p.image||'—'],['Description',p.desc||'—']].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl></div></div>`;root.querySelector('[data-close-product]')?.addEventListener('click',()=>root.innerHTML='');}
 function showCustomerDetail(id){const u=state.users.find(x=>x.id===id);if(!u)return;const os=state.orders.filter(o=>o.user_id===id);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(u.full_name||u.id)}</h3><button class="btn btn--ghost btn--sm" data-close-customer>Close</button></div><dl class="settings-list">${[['Email',u.email||'—'],['Phone',u.phone||'—'],['Profile status',u.role||'user'],['Orders',os.length],['Active',os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed',os.filter(o=>['Delivered','Rated'].includes(o.status)).length],['Cancelled',os.filter(o=>o.status==='Cancelled').length]].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl><h4>Recent orders</h4><p class="muted small">${os.slice(0,10).map(o=>`#${escHtml(o.id)} · ${escHtml(o.status)}`).join('<br>')||'No orders.'}</p><p class="muted small">Account controls are read-only because no safe customer suspension model exists in the current schema.</p></div></div>`;root.querySelector('[data-close-customer]')?.addEventListener('click',()=>root.innerHTML='');}
 
-function showVendorDetail(vendorId){const v=state.catalog?.vendors?.find(x=>x.id===vendorId);if(!v)return;const products=state.catalog.products.filter(p=>p.vendor===vendorId),orders=state.orders.filter(o=>o.vendor_id===vendorId);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true"><div class="card finance-detail-drawer"><div class="card__head"><h3>${escHtml(v.name)}</h3><button class="btn btn--ghost btn--sm" data-close-vendor>Close</button></div><dl class="settings-list">${[['Type',v.type],['Store',v.open?'Open':'Closed'],['Delivery',v.delivery_method],['Products',products.length],['Active orders',orders.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed orders',orders.filter(o=>['Delivered','Rated'].includes(o.status)).length]].map(([k,x])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(x)}</dd></div>`).join('')}</dl><h4>Products</h4><p class="muted small">${products.map(p=>escHtml(p.name)).join(', ')||'No products'}</p><h4>Application</h4><p class="muted small">${escHtml(state.vendorApplications.find(a=>a.vendor_id===vendorId)?.status||'No linked application')}</p></div></div>`;root.querySelector('[data-close-vendor]')?.addEventListener('click',()=>root.innerHTML='');}
+function closeAdminDrawer(){ const root=$('#modalRoot'); if(root) root.innerHTML=''; }
+async function setAdminRole(userId,makeAdmin){
+  if(!await ensureAdminAal2()) return false;
+  const {error}=await supabase.rpc('admin_set_admin_role',{p_target_user_id:userId,p_make_admin:Boolean(makeAdmin)});
+  if(error){toast(adminMfaMessage(error.message),'error');return false;} toast(makeAdmin?'Admin access granted':'Admin access removed'); await loadAssignableUsers(); await loadGovernanceData(); return true;
+}
+async function setAccountStatus(userId,status,reason=null){
+  if(!await ensureAdminAal2()) return false;
+  const {error}=await supabase.rpc('admin_set_account_status',{p_target_user_id:userId,p_status:status,p_reason:reason});
+  if(error){toast(adminMfaMessage(error.message),'error');return false;} toast(status==='suspended'?'Account suspended':'Account restored'); await loadAssignableUsers(); return true;
+}
+function showUserDetail(id){
+  const u=state.users.find(x=>x.id===id); if(!u)return; const vendors=state.catalog?.vendors||[], orders=state.orders.filter(o=>o.user_id===id), vendor=vendors.find(v=>v.id===u.vendor_id), rider=state.riders.find(r=>r.user_id===id||r.profile_id===id);
+  const root=$('#modalRoot'); root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="userDetailTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="userDetailTitle">${escHtml(u.full_name||u.email||u.id)}</h3><button type="button" class="btn btn--ghost btn--sm" data-close-user>Close</button></div><dl class="settings-list">${[['Email',u.email||'—'],['Phone',u.phone||'—'],['Role',u.role||'user'],['Vendor assignment',vendor?.name||u.vendor_id||'None'],['Account status',u.account_status||'active'],['Orders',orders.length],['Rider relationship',rider?rider.status:'None'],['Created',u.created_at?formatDate(u.created_at):'—']].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl><div class="field"><label for="userVendorAssignment">Vendor assignment</label><select class="select" id="userVendorAssignment"><option value="">No vendor assignment</option>${vendors.map(v=>`<option value="${escHtml(v.id)}" ${u.vendor_id===v.id?'selected':''}>${escHtml(v.name)}</option>`).join('')}</select></div><div class="admin-actions"><button type="button" class="btn btn--soft" data-save-user-vendor>Save Vendor Assignment</button>${u.role==='admin'?`<button type="button" class="btn btn--dangerSoft" data-user-admin="remove">Remove Admin Access</button>`:`<button type="button" class="btn btn--soft" data-user-admin="promote">Promote to Admin</button>`}${(u.account_status||'active')==='active'?`<button type="button" class="btn btn--dangerSoft" data-user-status="suspended">Suspend Account</button>`:`<button type="button" class="btn btn--soft" data-user-status="active">Restore Account</button>`}<button type="button" class="btn btn--ghost" data-user-link="customers">Customer Orders</button>${u.vendor_id?'<button type="button" class="btn btn--ghost" data-user-link="vendors">Vendor</button>':''}${rider?'<button type="button" class="btn btn--ghost" data-user-link="riders">Rider</button>':''}</div></div></div>`;
+  const close=()=>closeAdminDrawer(); root.querySelector('[data-close-user]')?.addEventListener('click',close);
+  root.querySelector('[data-save-user-vendor]')?.addEventListener('click',async()=>{if(await assignUserToVendor(id,root.querySelector('#userVendorAssignment').value||null)){close();renderAdminWorkspace();}});
+  root.querySelector('[data-user-admin]')?.addEventListener('click',async e=>{const make=e.currentTarget.dataset.userAdmin==='promote';if(!await DropzyyModal.confirm({title:make?'Promote to Admin':'Remove Admin Access',message:`${make?'Grant':'Remove'} administrator access for ${u.email||u.full_name||u.id}?`,confirmText:make?'Promote':'Remove access',danger:!make}))return;if(await setAdminRole(id,make)){close();renderAdminWorkspace();}});
+  root.querySelector('[data-user-status]')?.addEventListener('click',async e=>{const next=e.currentTarget.dataset.userStatus;let reason=null;if(next==='suspended')reason=await DropzyyModal.prompt({title:'Suspend account',message:'Critical platform mutations will be blocked. Historical records remain.',label:'Reason (optional)',confirmText:'Suspend'});if(next==='suspended'&&reason===null)return;if(await setAccountStatus(id,next,reason)){close();renderAdminWorkspace();}});
+  root.querySelectorAll('[data-user-link]').forEach(b=>b.addEventListener('click',()=>{adminSection=b.dataset.userLink;close();renderAdminWorkspace();}));
+  root.querySelector('[data-close-user]')?.focus();
+}
+
+function chooseEligibleRider(orderId){
+  return new Promise(resolve=>{const root=$('#modalRoot'),eligible=state.riders.filter(r=>r.status==='approved'&&r.available);root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="riderPickerTitle"><form class="card finance-detail-drawer" id="riderPickerForm"><div class="card__head"><h3 id="riderPickerTitle">Assign rider</h3><button type="button" class="btn btn--ghost btn--sm" data-rider-picker-cancel>Cancel</button></div><div class="field"><label for="eligibleRider">Eligible rider</label><select class="select" id="eligibleRider" required><option value="">Select an approved, available rider</option>${eligible.map(r=>{const active=state.orders.filter(o=>o.rider_id===r.id&&['Rider assigned','Picked up','On the Way'].includes(o.status)).length;return `<option value="${r.dbId||r.id}" ${active>=2?'disabled':''}>${escHtml(r.full_name||r.matric_number||r.id)} — ${active}/2 active${active>=2?' — cap reached':''}</option>`}).join('')}</select><p class="muted small">The server rechecks payment, eligibility, availability, lifecycle and the two-delivery cap.</p></div><button class="btn" type="submit">Assign / Reassign</button></form></div>`;const done=v=>{root.innerHTML='';resolve(v)};root.querySelector('[data-rider-picker-cancel]').addEventListener('click',()=>done(null));root.querySelector('#riderPickerForm').addEventListener('submit',e=>{e.preventDefault();done(root.querySelector('#eligibleRider').value||null)});root.querySelector('#eligibleRider').focus();});
+}
+
+function showVendorDetail(vendorId){const v=state.catalog?.vendors?.find(x=>x.id===vendorId);if(!v)return;const products=state.catalog.products.filter(p=>p.vendor===vendorId),orders=state.orders.filter(o=>o.vendor_id===vendorId),owners=state.users.filter(u=>u.vendor_id===vendorId),settlements=state.settlements.filter(s=>s.kind==='vendor'&&s.vendor_id===vendorId),settlementIds=new Set(settlements.map(s=>s.id)),transfers=state.transfers.filter(t=>settlementIds.has(t.vendor_settlement_id)),recipient=state.transferRecipients.find(r=>r.vendor_id===vendorId&&r.is_active);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="vendorDetailTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="vendorDetailTitle">${escHtml(v.name)}</h3><button type="button" class="btn btn--ghost btn--sm" data-close-vendor>Close</button></div><dl class="settings-list">${[['Type',v.type],['Store',v.open?'Open':'Closed'],['Pickup location',v.pickup_location||'Not configured'],['Delivery',v.delivery_method],['Products',`${products.filter(p=>p.active!==false).length} active / ${products.filter(p=>p.active===false).length} inactive`],['Active orders',orders.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed orders',orders.filter(o=>['Delivered','Rated'].includes(o.status)).length],['Payout readiness',recipient?`${recipient.recipient_status||'configured'} recipient`:'Recipient missing'],['Settlements',settlements.length],['Transfers',transfers.length]].map(([k,x])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(x)}</dd></div>`).join('')}</dl><h4>Owners</h4><p class="muted small">${owners.map(u=>`<button type="button" class="link-btn" data-vendor-owner="${u.id}">${escHtml(u.full_name||u.email||u.id)} · ${escHtml(u.role)}</button>`).join('<br>')||'No assigned owner'}</p><h4>Catalog</h4><p class="muted small">${products.slice(0,20).map(p=>escHtml(p.name)).join(', ')||'No products'}</p><h4>Recent orders</h4><p class="muted small">${orders.slice(0,10).map(o=>`#${escHtml(o.id)} · ${escHtml(o.status)}`).join('<br>')||'No orders'}</p><div class="admin-actions"><button type="button" class="btn btn--ghost" data-vendor-link="products">Products</button><button type="button" class="btn btn--ghost" data-vendor-link="orders">Orders</button><button type="button" class="btn btn--ghost" data-vendor-link="settlements">Settlements</button><button type="button" class="btn btn--ghost" data-vendor-link="transfers">Transfers</button></div></div></div>`;const close=()=>root.innerHTML='';root.querySelector('[data-close-vendor]')?.addEventListener('click',close);root.querySelectorAll('[data-vendor-owner]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.vendorOwner;close();showUserDetail(id);}));root.querySelectorAll('[data-vendor-link]').forEach(b=>b.addEventListener('click',()=>{adminSection=b.dataset.vendorLink;close();renderAdminWorkspace();}));root.querySelector('[data-close-vendor]')?.focus();}
 
 function showRiderDetail(riderId) {
   const rider = state.riders.find(r => String(r.id) === String(riderId)); if (!rider) return;
@@ -2968,7 +3038,7 @@ async function loadAssignableUsers() {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role, vendor_id')
+      .select('id, full_name, email, phone, role, vendor_id, account_status, suspended_at, created_at')
       // No role filter: any existing account (user/admin/rider) may be
       // assigned a vendor capability — capabilities are additive, so an
       // admin assigned as a vendor keeps the admin role.
@@ -3452,6 +3522,7 @@ async function loadAutomaticCutoffClaimsFromSupabase() {
   try {
     const { data, error } = await supabase.rpc('admin_get_financial_resolution_queue');
     if (error) throw error;
+    state.financialResolutionQueue = data || {};
     state.automaticCutoffClaims = Array.isArray(data?.cutoff_claims) ? data.cutoff_claims : [];
     if (Array.isArray(data?.cancellations)) state.cancellations = data.cancellations;
     state.automaticCutoffClaimsLoading = false;
@@ -3460,7 +3531,7 @@ async function loadAutomaticCutoffClaimsFromSupabase() {
     console.error('Supabase automatic cutoff claims load failed:', err);
     state.automaticCutoffClaimsLoading = false;
     state.automaticCutoffClaimsError = err.message || 'Load failed';
-    state.automaticCutoffClaims = [];
+    state.financialResolutionQueue = null; state.automaticCutoffClaims = [];
     return null;
   }
 }

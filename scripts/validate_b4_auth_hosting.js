@@ -14,7 +14,7 @@ assert.match(app, /if \(!initialAuthReady\)/);
 assert.match(app, /initialAuthReady = result.ready/);
 assert.match(app, /if \(!canAccessPasswordRecovery\(\)\)/);
 assert.match(app, /authLifecycle.updatePassword\(password\)/);
-assert.equal((app.match(/select\('full_name, role, vendor_id'\)/g) || []).length, 2, 'one profile loader plus missing-row refetch');
+assert.equal((app.match(/select\('full_name, role, vendor_id(?:, account_status)?'\)/g) || []).length, 2, 'one profile loader plus missing-row refetch');
 assert.match(app, /authLifecycle.receive\(event, session\)/);
 assert.match(app, /ticket !== authLifecycle.generation/);
 assert.match(app, /state !== currentAppState\(\)/);
