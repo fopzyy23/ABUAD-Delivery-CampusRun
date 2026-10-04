@@ -383,7 +383,7 @@ const data = () => {
 async function loadCatalogFromSupabase() {
   try {
     const [vendorsRes, productsRes] = await Promise.all([
-      supabase.from('vendors').select('*'),
+      supabase.from('vendors').select('*').eq('active', true),
       supabase.from('products').select('*')
     ]);
     if (vendorsRes.error) throw vendorsRes.error;
@@ -397,7 +397,7 @@ async function loadCatalogFromSupabase() {
       time: v.time, cover: v.cover, open: v.open,
       is_restaurant: v.is_restaurant === true,
       image: v.image || '', description: v.description || '',
-      opening_hours: v.opening_hours || ''
+      opening_hours: v.opening_hours || '', active: v.active !== false
     }));
     const products = productsRes.data.map(p => ({
       id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc, price: p.price,
@@ -518,6 +518,9 @@ function toast(message, kind = 'success') {
   $('#toastRoot').append(el);
   setTimeout(() => el.remove(), kind === 'error' ? 9000 : 3400);
 }
+window.toast = toast;
+const handleAppError = (error, options) => window.DropzyyErrors?.handleAppError(error, options);
+window.DropzyyErrors?.installGlobalErrorCapture();
 function addCart(id) { const p = product(id); if (!p || p.active === false) { toast('That item is currently unavailable — please choose another.', 'error'); return; } const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
@@ -705,7 +708,7 @@ async function submitRiderApplication(formData) {
         toast('You have already submitted an application', 'info');
       } else {
         console.error('Rider application insert failed:', error);
-        toast('Application failed: ' + error.message, 'error');
+        void handleAppError(error,{action:'rider_application',source:'rider',userMessage:'We could not submit your rider application. Please try again.'});
       }
       return;
     }
@@ -884,7 +887,7 @@ async function requestWithdrawal(amount, bankDetails) {
   } catch (err) {
     console.error('Withdrawal request failed:', err);
     state.withdrawalSubmitting = false;
-    toast('Withdrawal request failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'request_withdrawal',source:'payment',financial:true,riderId:state.rider?.dbId});
     render();
     return false;
   }
@@ -938,7 +941,7 @@ async function submitRiderRating(orderId, riderId, rating, review) {
         toast('You have already rated this delivery', 'info');
       } else {
         console.error('Rating insert failed:', error);
-        toast('Rating failed: ' + error.message, 'error');
+        void handleAppError(error,{action:'submit_rating',source:'order',userMessage:'We could not save your rating. Please try again.',orderId:order.dbId});
       }
       return false;
     }
@@ -1377,7 +1380,7 @@ async function requestRefund(orderDbId, reason, paymentType) {
         toast('Order not found', 'error');
       } else {
         console.error('Refund request failed:', error);
-        toast('Refund request failed: ' + (error.message || 'Unknown error'), 'error');
+        void handleAppError(error,{action:'request_refund',source:'payment',financial:true,orderId:order.dbId});
       }
       return false;
     }
@@ -1588,7 +1591,8 @@ async function submitIssueReport(formData) {
     render();
   } catch (err) {
     console.error('Issue report submit failed:', err);
-    fail('Could not submit: ' + ((err && err.message) || 'please try again'));
+    void handleAppError(err,{action:'submit_issue_report',source:'frontend',userMessage:'We could not submit your report. Please try again.',notify:false});
+    fail('We could not submit your report. Please try again.');
   } finally {
     state.reportSubmitting = false;
     if (submitBtn && document.body.contains(submitBtn)) {
@@ -1741,7 +1745,8 @@ async function submitVendorApplication(formData) {
         fail('You already have an application on file — our team will reach out once it is reviewed.');
       } else {
         console.error('Vendor application insert failed:', error);
-        fail('Application failed: ' + error.message);
+        void handleAppError(error,{action:'vendor_application',source:'vendor',userMessage:'We could not submit your vendor application. Please try again.',notify:false});
+        fail('We could not submit your vendor application. Please try again.');
       }
       return;
     }
@@ -2980,9 +2985,9 @@ async function loadVendorDataFromSupabase() {
     state.vendorLoaded = true;
     return true;
   } catch (err) {
-    console.error('Vendor data load failed:', err);
-    state.vendorLoadError = err.message || 'Unknown error';
+    state.vendorLoadError = 'Please try refreshing this page.';
     state.vendorLoaded = false;
+    void handleAppError(err,{action:'load_vendor_dashboard',source:'vendor',userMessage:'We could not load your vendor dashboard. Please try again.',vendorId:state.user?.vendor_id,notify:false});
     return false;
   }
 }
@@ -3138,7 +3143,7 @@ async function refreshVendorProducts() {
     return true;
   } catch (err) {
     console.error('Vendor products refresh failed:', err);
-    toast('Could not refresh your products: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'load_vendor_products',source:'vendor',userMessage:'We could not refresh your products. Please try again.',vendorId:state.user?.vendor_id});
     return false;
   }
 }
@@ -3288,7 +3293,7 @@ async function submitVendorProductForm(form) {
     if (uploaded && uploaded.url) deleteProductImageIfOrphaned(uploaded.url, state.user.vendor_id);
     console.error('VP_TRACE: save exception', { name: err?.name, message: err?.message });
     console.error('Vendor product save failed:', err);
-    toast('Product save failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'save_vendor_product',source:'vendor',userMessage:'We could not save this product. Please try again.',vendorId:state.user?.vendor_id});
   } finally {
     state.vendorProductSubmitting = false;
   }
@@ -3314,7 +3319,7 @@ async function submitVendorPickupLocationForm(form) {
     render();
   } catch (err) {
     console.error('Vendor pickup location save failed:', err);
-    toast('Pickup location save failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'save_vendor_pickup_location',source:'vendor',userMessage:'We could not save the pickup location. Please try again.',vendorId:state.user?.vendor_id});
   }
 }
 
@@ -3354,7 +3359,7 @@ async function submitVendorBankAccountForm(form) {
     }
   } catch (err) {
     console.error('Vendor bank account save failed:', err);
-    toast('Bank account save failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'save_vendor_bank_account',source:'payment',financial:true,vendorId:state.user?.vendor_id});
   }
 }
 
@@ -3527,7 +3532,7 @@ async function toggleVendorProductActive(productId) {
     render();
   } catch (err) {
     console.error('Vendor product availability toggle failed:', err);
-    toast('Could not update availability: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'update_vendor_product_availability',source:'vendor',userMessage:'We could not update product availability. Please try again.',vendorId:state.user?.vendor_id});
   }
 }
 
@@ -3556,7 +3561,7 @@ async function deleteVendorProduct(productId) {
     if (p.image) deleteProductImageIfOrphaned(p.image, state.user.vendor_id);
   } catch (err) {
     console.error('Vendor product delete failed:', err);
-    toast('Delete failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'delete_vendor_product',source:'vendor',userMessage:'We could not delete this product. Please try again.',vendorId:state.user?.vendor_id});
   }
 }
 
@@ -4523,6 +4528,13 @@ function reorder(orderId) {
 
 function auth(kind) { const login = kind==='login'; return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">${login?'Welcome back':'Create your account'}</h1><p class="muted">${login?'Sign in to order, track and earn.':'Join Dropzyy to order, track and earn.'}</p></div><form id="authForm" class="stack mt-2"><div class="field"><label for="authEmail">University email</label><input required class="input" type="email" name="email" id="authEmail" placeholder="you@dropzyy.app"></div>${!login?'<div class="field"><label for="authName">Full name</label><input required class="input" name="name" id="authName" placeholder="Your full name"></div><div class="field"><label for="authPhone">Phone (optional)</label><input class="input" name="phone" id="authPhone" placeholder="080..."></div><div class="field"><label for="authHostel">Hostel / Residence (optional)</label><input class="input" name="hostel" id="authHostel" placeholder="e.g. Adams Hall"></div>':''}<div class="field"><label for="authPassword">Password</label><input required class="input" type="password" name="password" id="authPassword" placeholder="••••••••" autocomplete="${login?'current-password':'new-password'}"${login?'':' aria-describedby="authPasswordHint"'}${login?'':'<small id="authPasswordHint">At least 6 characters.</small>'}</div>${!login?'<div class="field"><label for="authConfirmPassword">Confirm password</label><input required class="input" type="password" name="confirmPassword" id="authConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password"></div>':''}<button class="btn btn--block btn--lg" type="submit">${login?'Sign in':'Create student account'}</button></form>${login?'<p class="center small mt-2 mb-0"><a class="link-btn" href="#/forgot-password">Forgot password?</a></p>':''}<p class="center small muted mt-2 mb-0">${login?'New here? <a class="link-btn" href="#/register">Create an account</a>':'Already have an account? <a class="link-btn" href="#/login">Sign in</a>'}</p></div></div></section>`; }
 
+function accountAuth(kind, markup = auth(kind)) {
+  return markup
+    .replace('<span class="brand__logo" style="display:inline-grid">🛵</span>', '<img class="auth-logo" src="/images/dropzyy-logo-tight.png" alt="Dropzyy" width="132" height="68">')
+    .replace('University email', 'User Email')
+    .replace('placeholder="you@dropzyy.app"', 'placeholder="Enter your email address" autocomplete="email"');
+}
+
 function passwordReset() {
   if (!canAccessPasswordRecovery()) return `<section class="container"><div class="auth-wrap"><div class="card"><h1>Reset link required</h1><p>Open the password-reset link sent to your email, or request a new one.</p><a href="#/forgot-password">Request reset link</a></div></div></section>`;
   return `<section class="container"><div class="auth-wrap"><div class="card"><div class="center"><span class="brand__logo" style="display:inline-grid">🛵</span><h1 class="mt-1">Reset your password</h1><p class="muted">Choose a new password for your Dropzyy account.</p></div><form id="passwordResetForm" class="stack mt-2"><div class="field"><label for="resetPassword">New password</label><input required minlength="6" class="input" type="password" name="password" id="resetPassword" autocomplete="new-password"></div><div class="field"><label for="resetConfirmPassword">Confirm new password</label><input required minlength="6" class="input" type="password" name="confirmPassword" id="resetConfirmPassword" autocomplete="new-password"></div><button class="btn btn--block btn--lg" type="submit">Update password</button></form><p class="center small muted mt-2 mb-0"><a class="link-btn" href="#/login">Back to sign in</a></p></div></div></section>`;
@@ -4601,11 +4613,10 @@ async function submitProfileForm(form) {
     toast('Profile updated');
     render();
   } catch (err) {
-    console.error('Profile update failed:', err);
-    state.profileError = err.message || 'Unknown error';
+    state.profileError = 'Please try again.';
     state.profileSaved = false;
     render();
-    toast('Profile update failed: ' + (err.message || 'unknown error'), 'error');
+    void handleAppError(err,{action:'update_profile',source:'frontend',userMessage:'We could not update your profile. Please try again.'});
   }
 }
 
@@ -5627,7 +5638,7 @@ async function ensureDeliveryOpenForOrdering() {
     return false;
   } catch (err) {
     console.error('Delivery-hours check failed:', err);
-    toast(err.message || 'Delivery hours are currently unavailable. Please try again.', 'error');
+    void handleAppError(err,{action:'load_delivery_hours',source:'database',userMessage:'Delivery hours are currently unavailable. Please try again.'});
     return false;
   }
 }
@@ -5724,7 +5735,7 @@ async function render() {
   if (isLoginRoute && !state.user) {
     setMaintenanceChrome(false);
     setDocumentTitle(parts);
-    $('#app').innerHTML = auth('login');
+    $('#app').innerHTML = accountAuth('login', auth('login'));
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
     return;
@@ -5783,7 +5794,7 @@ async function render() {
   else if (parts[0]==='pay' && parts[1]) view = await pay(parts[1]);
   else if (parts[0]==='vendor-requests') view = await vendorRequestsView();
   else if (parts[0]==='profile') view = profile();
-  else if (parts[0]==='login' || parts[0]==='register') view = auth(parts[0]);
+  else if (parts[0]==='login' || parts[0]==='register') view = accountAuth(parts[0]);
   else if (parts[0]==='forgot-password') view = forgotPassword();
   else if (parts[0]==='rider' && parts[1]==='apply') view = riderApply();
   else if (parts[0]==='rider') view = rider();
@@ -6097,8 +6108,7 @@ document.addEventListener('click', async e=>{
     availability.disabled=true;
     const { error }=await supabase.rpc('record_product_availability_check',{p_order_item_id:itemId,p_available:available});
     if(error) {
-      console.error('record_product_availability_check failed:', error);
-      toast('Could not save product availability: ' + (error.message || 'unknown error'), 'error');
+      void handleAppError(error,{action:'record_product_availability',source:'rpc',userMessage:'We could not save this product availability. Please try again.',orderId:state.riderPool.find(o=>(o.items||[]).some(i=>String(i.dbId||i.id)===String(itemId)))?.dbId});
     }
     else { toast(available?'Product marked available':'Product marked unavailable'); }
     render();
@@ -6121,7 +6131,7 @@ document.addEventListener('click', async e=>{
       const result=await supabaseEdgeFunctionRequest('paystack-transfer',{order_id:(state.riderPool.find(x=>x.id===orderId)||{}).dbId});
       if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
       else toast('Purchase funding request submitted');
-    } catch (error) { toast(error.message && /eligible|confirmed|unavailable|decision/i.test(error.message) ? error.message : 'Purchase funding could not be released.','error'); }
+    } catch (error) { void handleAppError(error,{action:'release_purchase_funding',source:'payment',financial:true,orderId:o.dbId}); }
     render();
   }
   // Customer cancellation: only while the order is still cancellable
@@ -6148,7 +6158,7 @@ document.addEventListener('click', async e=>{
       }
       // Optimistically update local state
       updateOrderInState({ dbId: o.dbId, id: o.id, status: 'Cancelled' });
-    } catch (err) { toast(err?.message || 'Cancellation failed', 'error'); }
+    } catch (err) { void handleAppError(err,{action:'cancel_order',source:'order',userMessage:'We could not cancel this order. Check its current status before trying again.',orderId:o.dbId}); }
     render();
   }}
   // Refund request: navigate to the dedicated Refund Request page (shared by
@@ -6222,8 +6232,8 @@ document.addEventListener('click', async e=>{
     if(typeof supabase!=='undefined' && supabase && order.dbId){
       const rpcName = order.request_type === 'vendor_request' ? 'vendor_update_order_status' : 'restaurant_vendor_update_order_status';
       supabase.rpc(rpcName, { p_order_id: order.dbId, p_status: to })
-        .then(({ error })=>{ if(error){ console.error('Vendor status update failed:', error); order.status=prev; save(); render(); toast('Failed to update order: ' + (error.message || 'unknown error'), 'error'); } else { toast(`Order #${order.id}: ${to}`); } })
-        .catch(err=>{ console.error('Vendor status update error:', err); order.status=prev; save(); render(); toast('Failed to update order: ' + (err.message || 'unknown error'), 'error'); });
+        .then(({ error })=>{ if(error){ order.status=prev; save(); render(); void handleAppError(error,{action:'vendor_update_order_status',source:'vendor',userMessage:'We could not update this order. Please try again.',orderId:order.dbId,vendorId:state.user?.vendor_id}); } else { toast(`Order #${order.id}: ${to}`); } })
+        .catch(err=>{ order.status=prev; save(); render(); void handleAppError(err,{action:'vendor_update_order_status',source:'vendor',userMessage:'We could not update this order. Please try again.',orderId:order.dbId,vendorId:state.user?.vendor_id}); });
     } else {
       toast(`Order #${order.id}: ${to}`);
     }
@@ -6244,8 +6254,8 @@ document.addEventListener('click', async e=>{
       supabase.rpc('set_vendor_delivery_method', {
         p_order_id: order.dbId,
         p_delivery_method: method
-      }).then(({ error })=>{ if(error){ console.error('Vendor delivery-method update failed:', error); order.delivery_method=prevMethod; order.status=prevStatus; save(); render(); toast('Failed to set delivery method: ' + (error.message || 'unknown error'), 'error'); } else { toast(`Order #${order.id}: ${method==='rider'?'Rider will deliver':'You will deliver this order'}`); render(); } })
-        .catch(err=>{ console.error('Vendor delivery-method update error:', err); order.delivery_method=prevMethod; order.status=prevStatus; save(); render(); toast('Failed to set delivery method: ' + (err.message || 'unknown error'), 'error'); });
+      }).then(({ error })=>{ if(error){ order.delivery_method=prevMethod; order.status=prevStatus; save(); render(); void handleAppError(error,{action:'vendor_set_delivery_method',source:'vendor',userMessage:'We could not set the delivery method. Please try again.',orderId:order.dbId,vendorId:state.user?.vendor_id}); } else { toast(`Order #${order.id}: ${method==='rider'?'Rider will deliver':'You will deliver this order'}`); render(); } })
+        .catch(err=>{ order.delivery_method=prevMethod; order.status=prevStatus; save(); render(); void handleAppError(err,{action:'vendor_set_delivery_method',source:'vendor',userMessage:'We could not set the delivery method. Please try again.',orderId:order.dbId,vendorId:state.user?.vendor_id}); });
     } else {
       render();
     }
@@ -6289,10 +6299,9 @@ document.addEventListener('click', async e=>{
       toast(data.delivery_method === 'rider' ? 'Rider requested — awaiting rider' : 'Self delivery confirmed');
       render();
     } catch (err) {
-      console.error('Vendor delivery choice failed:', err);
       order.delivery_method = prevMethod;
       save();
-      toast('Failed: ' + (err.message || 'unknown error'), 'error');
+      void handleAppError(err,{action:'vendor_delivery_choice',source:'vendor',financial:method==='rider',orderId:order.dbId,vendorId:state.user?.vendor_id,userMessage:method==='rider'?undefined:'We could not save the delivery choice. Please try again.'});
       render();
     }
   }
@@ -6318,7 +6327,7 @@ document.addEventListener('click', async e=>{
       console.error('Vendor respond failed:', err);
       order.status = prev;
       save();
-      toast('Failed to ' + action + ': ' + (err.message || 'unknown error'), 'error');
+      void handleAppError(err,{action:`vendor_${action}_request`,source:'vendor',userMessage:`We could not ${action} this request. Please try again.`,orderId:order.dbId,vendorId:state.user?.vendor_id});
       render();
     }
   }
@@ -6382,7 +6391,7 @@ document.addEventListener('submit', e=>{
       history.replaceState(null,'','/login#/profile');
       toast('Password updated.','success');
       render();
-    }).catch(err=>toast(err.message || 'Password reset failed','error')).finally(()=>{if(button)button.disabled=false;});
+    }).catch(err=>handleAppError(err,{action:'reset_password',source:'auth',userMessage:'We could not reset your password. Request a new reset link and try again.'})).finally(()=>{if(button)button.disabled=false;});
     return;
   }
   if(e.target.id==='forgotPasswordForm'){
@@ -6390,7 +6399,7 @@ document.addEventListener('submit', e=>{
     const email=String(new FormData(e.target).get('email')||'').trim();
     const redirectTo=new URL('/login',window.location.origin).href;
     supabase.auth.resetPasswordForEmail(email,{ redirectTo }).then(({ error })=>{
-      if(error){ toast(error.message,'error'); return; }
+      if(error){ void handleAppError(error,{action:'request_password_reset',source:'auth',userMessage:'We could not send a password-reset email. Please try again.'}); return; }
       toast('Check your email for a password reset link.','success');
     });
     return;
@@ -6427,7 +6436,7 @@ document.addEventListener('submit', e=>{
       const phone=f.get('phone')||'';
       const hostel=f.get('hostel')||'';
       supabase.auth.signUp({ email, password, options: {
-        emailRedirectTo: new URL('/login?auth_return=signup', location.origin).href,
+        emailRedirectTo: new URL('/?email_confirmed=1', location.origin).href,
         data: { full_name, phone, hostel }
       } }).then(({ data, error }) => {
         if (error) throw error;
@@ -6438,13 +6447,13 @@ document.addEventListener('submit', e=>{
           location.hash = '#/';
           // SIGNED_IN performs the single profile synchronization.
         }
-      }).catch(error => toast(error.message || 'Signup unavailable', 'error'));
+      }).catch(error => handleAppError(error, { action: 'signup', source: 'auth', userMessage: 'We could not create your account. Please try again.' }));
     } else {
       loginRoutePending = true;
       supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
         if (error) { loginRoutePending = false; throw error; }
         // SIGNED_IN owns profile, routing and payment-return resumption.
-      }).catch(error => toast(error.message || 'Sign in failed', 'error'));
+      }).catch(error => handleAppError(error, { action: 'login', source: 'auth', expected: /invalid login credentials|email not confirmed/i.test(error?.message || ''), userMessage: /email not confirmed/i.test(error?.message || '') ? 'Confirm your email before signing in.' : 'The email or password is incorrect.' }));
     }
   }
   if(e.target.id==='checkoutForm'){
@@ -6518,7 +6527,7 @@ document.addEventListener('submit', e=>{
             if (!firstOrderId) firstOrderId = order.id;
             state.orders.unshift(order);
           } else {
-            toast('Restaurant order failed: ' + (state.lastOrderError || 'unknown error'), 'error');
+            void handleAppError(new Error(state.lastOrderError||'Order creation failed'),{action:'create_restaurant_order',source:'order',userMessage:'We could not place your restaurant order. Please try again.'});
           }
         }
 
@@ -6539,7 +6548,7 @@ document.addEventListener('submit', e=>{
             state.orders.unshift(order);
           } else {
             const vname = vendor(vendorId)?.name || vendorId;
-            toast(`Vendor request failed for ${vname}: ` + (state.lastOrderError || 'unknown error'), 'error');
+            void handleAppError(new Error(state.lastOrderError||'Vendor request failed'),{action:'create_vendor_order_request',source:'order',userMessage:`We could not send the request to ${vname}. Please try again.`,vendorId});
           }
         }
 
@@ -6560,7 +6569,7 @@ document.addEventListener('submit', e=>{
             }
           }
         } else {
-          toast('Order failed: Could not save to Supabase', 'error');
+          void handleAppError(new Error(state.lastOrderError||'No order was persisted'),{action:'create_order',source:'order',userMessage:'We could not place your order. Please try again.'});
         }
       } finally {
         state.checkoutSubmitting = false;
@@ -6787,6 +6796,26 @@ async function syncAuthenticatedUser(session) {
   return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
     email: user.email, role: profile.role, vendor_id: profile.vendor_id || null, account_status: profile.account_status || 'active' };
 }
+let emailConfirmationPending = new URLSearchParams(location.search).get('email_confirmed') === '1';
+let emailConfirmationFinalizing = false;
+async function finishEmailConfirmation(session) {
+  if (emailConfirmationFinalizing || !session?.user?.email_confirmed_at) return;
+  emailConfirmationFinalizing = true;
+  emailConfirmationPending = false;
+  try {
+    // Confirmation links may establish a session. End only this browser's
+    // session so the user follows the normal login flow requested by Dropzyy.
+    await supabase.auth.signOut({ scope: 'local' });
+    history.replaceState(null, '', '/#/login');
+    await render();
+    toast('Email confirmed successfully. You can now log in.', 'success');
+  } catch (error) {
+    history.replaceState(null, '', '/#/login');
+    await render();
+    void handleAppError(error, { action: 'finish_email_confirmation', source: 'auth', userMessage: 'Your email was confirmed, but the login page could not be prepared. Please reload before signing in.' });
+  } finally { emailConfirmationFinalizing = false; }
+}
+
 const authLifecycle = createAuthLifecycle({
   auth: supabase.auth,
   storage: {
@@ -6800,6 +6829,10 @@ const authLifecycle = createAuthLifecycle({
     initialAuthReady = result.ready;
     authProfileError = result.error || null;
     state.user = result.profile;
+    if (result.ready && emailConfirmationPending && result.session?.user?.email_confirmed_at) {
+      setTimeout(() => void finishEmailConfirmation(result.session), 0);
+      return;
+    }
     if (result.recovery) location.hash = '#/reset-password';
     else if (result.ready && result.profile && loginRoutePending) {
       loginRoutePending = false;

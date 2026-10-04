@@ -21,6 +21,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 import { corsHeaders, json, handleOptions, ALLOWED_ORIGINS } from "../_shared/http.ts";
 import { resolveTrustedCallbackUrl } from "../_shared/callback.mjs";
 
@@ -386,7 +387,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
   } catch (err) {
     console.error("paystack-initialize: unexpected error", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
+    const error_reference = await reportEdgeError(err, { action: "paystack_initialize", source: "payment" });
+    return new Response(JSON.stringify({ success: false, error: "Internal server error", message: "We couldn't confirm the final status of this transaction. Please do not make another payment yet.", error_reference }), {
       status: 500,
       headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });

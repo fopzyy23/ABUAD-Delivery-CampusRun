@@ -904,7 +904,7 @@ supabase functions deploy paystack-transfer-webhook --no-verify-jwt
 # Secrets (never committed): PAYSTACK_SECRET_KEY, SUPABASE_URL and
 # SUPABASE_SERVICE_ROLE_KEY on all six functions; ALLOWED_ORIGIN on the
 # four browser-facing functions (webhooks do not use it).
-supabase secrets set PAYSTACK_SECRET_KEY=sk_... SUPABASE_URL=https://<project-ref>.supabase.co SUPABASE_SERVICE_ROLE_KEY=... ALLOWED_ORIGIN=https://dropzyyy.netlify.app,http://127.0.0.1:5500
+supabase secrets set PAYSTACK_SECRET_KEY=sk_... SUPABASE_URL=https://<project-ref>.supabase.co SUPABASE_SERVICE_ROLE_KEY=... ALLOWED_ORIGIN=https://dropzyy.com,https://www.dropzyy.com
 ```
 
 ### Netlify Deployment
@@ -950,7 +950,7 @@ supabase secrets set \
   PAYSTACK_SECRET_KEY=sk_... \
   SUPABASE_URL=https://<project-ref>.supabase.co \
   SUPABASE_SERVICE_ROLE_KEY=... \
-  ALLOWED_ORIGIN=https://dropzyyy.netlify.app,http://127.0.0.1:5500
+  ALLOWED_ORIGIN=https://dropzyy.com,https://www.dropzyy.com
 
 # Run validation
 node scripts/validate_all.js

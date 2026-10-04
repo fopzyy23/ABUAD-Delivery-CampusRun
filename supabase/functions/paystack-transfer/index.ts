@@ -29,6 +29,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 import { executeAuthoritativeTransfer } from "../_shared/execute-transfer.ts";
 import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
@@ -205,6 +206,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json(req, 409, result);
   } catch (err) {
     console.error("paystack-transfer: unexpected error", err);
-    return json(req, 500, { error: "Internal server error" });
+    const error_reference = await reportEdgeError(err, { action: "paystack_transfer", source: "payment" });
+    return json(req, 500, { success: false, error: "Internal server error", message: "We couldn't confirm the final status of this transfer. Do not submit another transfer yet.", error_reference });
   }
 });

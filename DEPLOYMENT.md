@@ -124,9 +124,9 @@ closure without the recorded runtime checks.
 
 | Environment | Auth Site URL | Confirmation redirect | Recovery redirect | Payment return |
 | --- | --- | --- | --- | --- |
-| Production | `https://dropzyy.com` | `/login?auth_return=signup` | `/login` | `/orders` or `/vendor` |
-| Staging | `https://<staging-host>` | `/login?auth_return=signup` | `/login` | `/orders` or `/vendor` |
-| Development | `http://127.0.0.1:5500` | `/login?auth_return=signup` | `/login` | `/orders` or `/vendor` |
+| Production | `https://dropzyy.com` | `/?email_confirmed=1` | `/login` | `/orders` or `/vendor` |
+| Staging | `https://<staging-host>` | `/?email_confirmed=1` | `/login` | `/orders` or `/vendor` |
+| Development | `http://127.0.0.1:5500` | `/?email_confirmed=1` | `/login` | `/orders` or `/vendor` |
 
 In each Supabase Auth Dashboard, allow the exact absolute confirmation and
 recovery URLs for that environment. Add www equivalents only if actively
@@ -134,6 +134,18 @@ served. No arbitrary wildcard domain is required. OAuth is not represented in
 the inspected login flow. Dashboard settings, confirmation policy and password
 policy are UNVERIFIED. Source currently enforces a six-character password
 minimum; the configured Supabase policy remains authoritative.
+
+For production, configure Supabase Dashboard → Authentication → URL
+Configuration with Site URL `https://dropzyy.com` and add both
+`https://dropzyy.com/?email_confirmed=1` and `https://dropzyy.com/login` to
+Redirect URLs. Add `https://www.dropzyy.com` equivalents only if that host is
+actively served. Under Authentication → Providers → Email, keep Confirm Email
+enabled. The confirmation email template must use `{{ .ConfirmationURL }}`;
+do not hardcode a Netlify hostname or construct a route from token fields.
+Supabase consumes the callback code/hash first, then the application verifies
+the restored confirmed session, signs out locally, cleans the URL, and routes
+to `#/login`. Password recovery remains a separate `/login` callback handled
+by the `PASSWORD_RECOVERY` lifecycle.
 
 Netlify builds `dist` with `scripts/build_publish.js`. It rewrites `/admin` to
 the admin shell and other application paths to the customer shell; that shell

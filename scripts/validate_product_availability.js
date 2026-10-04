@@ -36,8 +36,9 @@ check('migration adds products to supabase_realtime publication',
   /ALTER PUBLICATION supabase_realtime ADD TABLE public\.products;/.test(mig));
 
 // ---- 2. Customer catalog keeps inactive products visible ----
-check('customer catalog query no longer filters .eq(\'active\', true)',
-  !app.includes(".eq('active', true)"));
+const catalogQuery = app.match(/supabase\.from\('products'\)[\s\S]{0,220}/)?.[0] || '';
+check('customer catalog product query no longer filters .eq(\'active\', true)',
+  !catalogQuery.includes(".eq('active', true)"));
 check('customer catalog maps the active flag',
   /active:\s*p\.active\s*!==\s*false/.test(app));
 

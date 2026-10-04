@@ -103,7 +103,16 @@ async function main(){
   assert.match(admin,/assignUserToVendor\(id/);
   assert.match(admin,/function chooseEligibleRider\(orderId\)/);
   assert.doesNotMatch(admin,/prompt\([^\n]*rider/i);
-  assert.match(admin,/Deactivate Vendor/);
+  assert.match(admin,/Remove Vendor/);
+  assert.match(admin,/Restore Vendor/);
+  assert.match(admin,/admin_set_vendor_active/);
+  assert.match(admin,/Marketplace: \$\{v\.active === false \? 'Removed' : 'Active'\}/);
+  assert.doesNotMatch(admin,/data-delete-vendor[^\n]*admin_deactivate_product/);
+  assert.match(appSource,/from\('vendors'\)\.select\('\*'\)\.eq\('active', true\)/);
+  const vendorRemoval=fs.readFileSync(path.join(root,'supabase/migrations/20270120_reversible_vendor_removal.sql'),'utf8');
+  assert.match(vendorRemoval,/admin_set_vendor_active/);
+  assert.match(vendorRemoval,/reject_archived_vendor_order_item/);
+  assert.match(vendorRemoval,/vendors_select_public/);
   assert.match(admin,/Deactivate Product/);
   assert.match(admin,/Payout readiness/);
   assert.match(admin,/Successful payments/);

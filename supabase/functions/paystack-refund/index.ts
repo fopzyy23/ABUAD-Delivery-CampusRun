@@ -21,6 +21,7 @@
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
@@ -258,6 +259,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   } catch (err) {
     console.error("paystack-refund: unexpected error", err);
-    return json(req, 500, { error: "Internal server error" });
+    const error_reference = await reportEdgeError(err, { action: "paystack_refund", source: "payment" });
+    return json(req, 500, { success: false, error: "Internal server error", message: "We couldn't confirm the final status of this refund. Do not submit another refund yet.", error_reference });
   }
 });

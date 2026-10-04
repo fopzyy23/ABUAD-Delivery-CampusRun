@@ -14,6 +14,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/http.ts";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 
 const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -354,7 +355,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   } catch (err) {
     console.error("paystack-webhook: unexpected error", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
+    const error_reference = await reportEdgeError(err, { action: "paystack_webhook", source: "webhook" });
+    return new Response(JSON.stringify({ success: false, error: "Internal server error", message: "Webhook processing failed.", error_reference }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

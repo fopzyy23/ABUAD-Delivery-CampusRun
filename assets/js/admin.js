@@ -43,6 +43,7 @@ let state = {
   notifications: [],
   notificationsLoading: false,
   notificationsError: null,
+  errorLogs: [], errorLogsLoading: false, errorLogsError: null,
   auditLogs: [], auditLogsLoading: false, auditLogsError: null,
   adminUsers: [], adminUsersLoading: false, adminUsersError: null,
   vendorApplications: [],
@@ -395,14 +396,7 @@ async function deleteVendorFromSupabase(vendorId) {
   if (!supabaseAvailable()) return false;
   try {
     if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
-    const { data: products, error: productReadError } = await supabase.from('products').select('id').eq('vendor_id', vendorId);
-    if (productReadError) throw productReadError;
-    for (const product of products || []) {
-      const { error: productError } = await supabase.rpc('admin_deactivate_product', { p_product_id: product.id });
-      if (productError) throw productError;
-    }
-    const vendor = state.catalog?.vendors?.find(v => v.id === vendorId);
-    const { error: vendorError } = await supabase.rpc('admin_upsert_vendor', { p_vendor: vendorToRow({ ...vendor, open: false }) });
+    const { error: vendorError } = await supabase.rpc('admin_set_vendor_active', { p_vendor_id: vendorId, p_active: false });
     if (vendorError) {
       console.error('Supabase vendor delete failed:', {
         code: vendorError.code,
@@ -410,7 +404,7 @@ async function deleteVendorFromSupabase(vendorId) {
         details: vendorError.details,
         hint: vendorError.hint,
         vendorId,
-        operation: 'vendor deactivation',
+        operation: 'vendor removal from marketplace',
         entity: 'vendors'
       });
       return false;
@@ -423,11 +417,21 @@ async function deleteVendorFromSupabase(vendorId) {
       details: err?.details,
       hint: err?.hint,
       vendorId,
-      operation: 'unexpected delete error',
+      operation: 'unexpected vendor removal error',
       entity: 'unknown'
     });
     return false;
   }
+}
+
+async function setVendorMarketplaceStatus(vendorId, active) {
+  if (!supabaseAvailable()) return false;
+  try {
+    if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
+    const { error } = await supabase.rpc('admin_set_vendor_active', { p_vendor_id: vendorId, p_active: Boolean(active) });
+    if (error) throw error;
+    return true;
+  } catch (err) { console.error('Vendor marketplace status update failed:', err); return false; }
 }
 
 // Deactivate a product in Supabase (set active = false) instead of hard-deleting.
@@ -462,7 +466,7 @@ async function loadCatalogFromSupabase() {
       rating: v.rating, time: v.time, cover: v.cover, open: v.open,
       delivery_method: v.delivery_method || 'rider',
       image: v.image || '', description: v.description || '',
-      opening_hours: v.opening_hours || ''
+      opening_hours: v.opening_hours || '', active: v.active !== false
     }));
     const products = productsRes.data.map(p => ({
       id: p.id, vendor: p.vendor_id, name: p.name, desc: p.desc,
@@ -635,6 +639,8 @@ function toast(message, kind = 'success') {
   $('#toastRoot').append(el);
   setTimeout(() => el.remove(), kind === 'error' ? 9000 : 3400);
 }
+window.toast = toast;
+window.DropzyyErrors?.installGlobalErrorCapture();
 
 // ============================================
 // Admin Sub-Header (embedded in index.html above the workspace)
@@ -858,22 +864,19 @@ async function addVendor(formData) {
 
 async function deleteVendor(vendorId) {
   const state = currentAdminState();
-  if (await DropzyyModal.confirm({ title:'Deactivate Vendor', message:'Deactivate this vendor? The storefront and its products become unavailable. Historical orders and finance records remain, and the vendor can be reactivated later.', confirmText:'Deactivate Vendor', danger:true })) {
-    const vendorProductIds = state.catalog.products.filter(p => p.vendor === vendorId).map(p => p.id);
+  const vendor = state.catalog.vendors.find(v => v.id === vendorId);
+  const restoring = vendor?.active === false;
+  if (await DropzyyModal.confirm({ title: restoring ? 'Restore Vendor' : 'Remove Vendor', message: restoring ? 'Restore this vendor to the customer marketplace?' : 'This removes the Vendor from the Dropzyy marketplace. Customers will no longer see or access the Vendor. The Vendor and its history are retained and can be restored later.', confirmText: restoring ? 'Restore Vendor' : 'Remove Vendor', danger:!restoring })) {
     // Sync to Supabase
-    const synced = await deleteVendorFromSupabase(vendorId);
+    const synced = restoring ? await setVendorMarketplaceStatus(vendorId, true) : await deleteVendorFromSupabase(vendorId);
     if (!synced) {
       toast('Vendor deactivation failed — local state was not changed', 'error');
     } else {
-      state.catalog.vendors = state.catalog.vendors.map(v => v.id === vendorId ? { ...v, open: false } : v);
-      state.catalog.products = state.catalog.products.map(p => p.vendor === vendorId ? { ...p, active: false } : p);
-      // Remove any cart entries that referenced the deleted vendor's products
-      const cart = load('cart', []);
-      store('cart', cart.filter(x => !vendorProductIds.includes(x.id)));
+      state.catalog.vendors = state.catalog.vendors.map(v => v.id === vendorId ? { ...v, active: !restoring } : v);
 
       // Save to localStorage only after Supabase succeeds.
       saveCatalog();
-      toast('Vendor deactivated successfully');
+      toast(restoring ? 'Vendor restored to marketplace' : 'Vendor removed from marketplace');
     }
 
     renderAdminWorkspace();
@@ -1029,6 +1032,8 @@ async function init() {
   if (state !== currentAdminState()) return false;
   await loadGovernanceData();
   if (state !== currentAdminState()) return false;
+  await loadErrorLogsFromSupabase();
+  if (state !== currentAdminState()) return false;
   await loadAdminMetrics();
   if (state !== currentAdminState()) return false;
   // If orders failed to load, the error banner renders here.
@@ -1097,6 +1102,13 @@ async function loadGovernanceData() {
   s.auditLogsLoading = true; s.adminUsersLoading = true;
   try { const q = await supabase.from('admin_action_audit').select('*').order('created_at',{ascending:false}).limit(500); if (q.error) throw q.error; s.auditLogs=q.data||[]; } catch(e) { s.auditLogs=[]; s.auditLogsError=e.message||'Audit log load failed'; } finally { s.auditLogsLoading=false; }
   try { const q = await supabase.from('profiles').select('id,full_name,email,role,account_status,created_at').eq('role','admin').order('created_at',{ascending:false}); if(q.error) throw q.error; s.adminUsers=q.data||[]; } catch(e) { s.adminUsers=[]; s.adminUsersError=e.message||'Admin list load failed'; } finally { s.adminUsersLoading=false; }
+}
+
+async function loadErrorLogsFromSupabase() {
+  const s=currentAdminState(); s.errorLogsLoading=true; s.errorLogsError=null;
+  try { const {data,error}=await supabase.rpc('admin_list_error_logs',{p_limit:500}); if(error)throw error; s.errorLogs=data||[]; }
+  catch(error){ s.errorLogs=[]; s.errorLogsError=adminMfaMessage(error.message||'System issues could not be loaded.'); }
+  finally{s.errorLogsLoading=false;}
 }
 
 async function updateMaintenanceMode(enabled) {
@@ -1253,6 +1265,7 @@ function adminSidebar() {
     { key: 'ratings', label: 'Ratings', icon: '★', group: 'Insights' },
     { key: 'reports', label: 'Reports', icon: '▥', group: 'Insights', count: (state.reports || []).filter(r => r.status === 'Open').length },
     { key: 'notifications', label: 'Notifications', icon: '◌', group: 'System' },
+    { key: 'system-issues', label: 'System Issues', icon: '!', group: 'System', count: (state.errorLogs || []).filter(x => !x.resolved).length },
     { key: 'settings', label: 'Platform Settings', icon: '⚙', group: 'System' },
     { key: 'audit-logs', label: 'Audit Logs', icon: '⌕', group: 'System' },
     { key: 'security', label: 'Security', icon: '◇', group: 'System' }
@@ -1297,6 +1310,35 @@ function adminSidebar() {
         </button>
       </li>`).join('')}
   </ul></nav>`;
+}
+
+function errorSeverityBadge(value) { return `<span class="badge badge--${value==='critical'?'danger':value==='high'?'warn':'info'}">${escHtml(value)}</span>`; }
+function renderSystemIssuesWorkspace() {
+  const rows=state.errorLogs||[], unresolved=rows.filter(x=>!x.resolved), critical=rows.filter(x=>x.severity==='critical'), high=rows.filter(x=>x.severity==='high'), resolved=rows.filter(x=>x.resolved);
+  return `<div class="page-head"><div><span class="badge badge--brand">Diagnostics</span><h1 class="mt-1">System Issues</h1><p class="muted">Sanitized technical failures connected to support references.</p></div><button class="btn btn--soft" data-error-refresh>Refresh</button></div>
+    <div class="stats-grid mt-2"><div class="stat-card"><span>Unresolved</span><b>${unresolved.length}</b></div><div class="stat-card"><span>Critical</span><b>${critical.length}</b></div><div class="stat-card"><span>High</span><b>${high.length}</b></div><div class="stat-card"><span>Resolved</span><b>${resolved.length}</b></div></div>
+    <div class="card mt-2"><div class="table-wrap"><table class="table"><thead><tr><th>Reference</th><th>Severity</th><th>Status</th><th>Last seen</th><th>Action / source</th><th>Occurrences</th><th></th></tr></thead><tbody>${state.errorLogsLoading?'<tr><td colspan="7" class="muted center">Loading system issues…</td></tr>':state.errorLogsError?`<tr><td colspan="7" class="muted center">${escHtml(state.errorLogsError)}</td></tr>`:rows.length?rows.map(x=>`<tr><td><b>${escHtml(x.error_reference)}</b></td><td>${errorSeverityBadge(x.severity)}</td><td>${x.resolved?'<span class="badge badge--success">Resolved</span>':'<span class="badge badge--warn">Open</span>'}</td><td>${x.last_seen_at?formatDate(x.last_seen_at):'—'}</td><td>${escHtml(x.action)}<div class="muted small">${escHtml(x.source)} · ${escHtml(x.route)}</div></td><td>${Number(x.occurrence_count||1)}<div class="muted small">${(x.affected_user_ids||[]).length} users</div></td><td><button class="link-btn" data-error-detail="${x.id}">View</button> · <button class="link-btn" data-copy-error="${escHtml(x.error_reference)}">Copy</button></td></tr>`).join(''):'<tr><td colspan="7" class="muted center">No system issues recorded.</td></tr>'}</tbody></table></div></div>`;
+}
+
+async function updateErrorLog(record,resolved,notes) {
+  if(!await ensureAdminAal2()) { toast('Complete Supabase MFA before updating an issue.','error'); return false; }
+  const {data,error}=await supabase.rpc('admin_update_error_log',{p_error_id:record.id,p_resolved:Boolean(resolved),p_admin_notes:notes||null});
+  if(error){toast(adminMfaMessage(error.message),'error');return false;}
+  const index=state.errorLogs.findIndex(x=>x.id===record.id); if(index>=0)state.errorLogs[index]=data; toast(resolved?'Issue marked resolved':'Issue reopened'); return true;
+}
+
+function showErrorLogDetail(id) {
+  const x=state.errorLogs.find(row=>row.id===id); if(!x)return; const root=$('#modalRoot');
+  const links=[x.user_id?`<button class="btn btn--ghost" data-error-user="${x.user_id}">View User</button>`:'',x.order_id?`<button class="btn btn--ghost" data-error-section="orders">View Order</button>`:'',x.vendor_id?`<button class="btn btn--ghost" data-error-vendor="${escHtml(x.vendor_id)}">View Vendor</button>`:'',x.rider_id?`<button class="btn btn--ghost" data-error-rider="${x.rider_id}">View Rider</button>`:''].join('');
+  root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="errorLogTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="errorLogTitle">${escHtml(x.error_reference)}</h3><button class="btn btn--ghost btn--sm" data-error-close>Close</button></div><dl class="settings-list">${[['Severity',x.severity],['Status',x.resolved?'Resolved':'Open'],['User',x.user_id||'—'],['Role',x.user_role||'—'],['Route',x.route],['Action',x.action],['Source',x.source],['Category',x.category],['Order',x.order_id||'—'],['Vendor',x.vendor_id||'—'],['Rider',x.rider_id||'—'],['Occurrences',x.occurrence_count],['First seen',x.first_seen_at],['Last seen',x.last_seen_at],['Technical message',x.sanitized_message],['Technical details',x.sanitized_details||'—'],['Hint',x.sanitized_hint||'—'],['Browser/device',JSON.stringify(x.browser_metadata||{})],['Admin notes',x.admin_notes||'—']].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd class="error-detail-value">${escHtml(v)}</dd></div>`).join('')}</dl><div class="admin-actions">${links}<button class="btn btn--ghost" data-copy-error="${escHtml(x.error_reference)}">Copy Reference</button><button class="btn btn--soft" data-error-update="${x.resolved?'reopen':'resolve'}">${x.resolved?'Reopen':'Mark Resolved'}</button><button class="btn btn--ghost" data-error-note>Edit Admin Note</button></div></div></div>`;
+  const close=()=>root.innerHTML=''; root.querySelector('[data-error-close]')?.addEventListener('click',close);
+  root.querySelector('[data-error-user]')?.addEventListener('click',e=>{const user=e.currentTarget.dataset.errorUser;close();showUserDetail(user);});
+  root.querySelector('[data-error-vendor]')?.addEventListener('click',e=>{const vendor=e.currentTarget.dataset.errorVendor;close();showVendorDetail(vendor);});
+  root.querySelector('[data-error-rider]')?.addEventListener('click',e=>{const rider=e.currentTarget.dataset.errorRider;close();showRiderDetail(rider);});
+  root.querySelector('[data-error-section]')?.addEventListener('click',e=>{adminSection=e.currentTarget.dataset.errorSection;close();renderAdminWorkspace();});
+  root.querySelectorAll('[data-copy-error]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(x.error_reference).then(()=>toast('Error reference copied'))));
+  root.querySelector('[data-error-update]')?.addEventListener('click',async e=>{if(await updateErrorLog(x,e.currentTarget.dataset.errorUpdate==='resolve',x.admin_notes)){close();renderAdminWorkspace();}});
+  root.querySelector('[data-error-note]')?.addEventListener('click',async()=>{const note=await DropzyyModal.prompt({title:'Admin note',label:'Note',value:x.admin_notes||'',confirmText:'Save note'});if(note!==null&&await updateErrorLog(x,x.resolved,note)){close();renderAdminWorkspace();}});
 }
 
 function renderAdminUtilitySection(key) {
@@ -1419,6 +1461,7 @@ function renderAdminWorkspace() {
   else if (adminSection === 'reports') view = renderReportsWorkspace();
   else if (adminSection === 'ratings') view = renderRatingsWorkspace();
   else if (adminSection === 'notifications') view = renderNotificationsWorkspace();
+  else if (adminSection === 'system-issues') view = renderSystemIssuesWorkspace();
   else if (adminSection === 'admin-management') view = renderAdminManagementWorkspace();
   else if (adminSection === 'audit-logs') view = renderAuditLogsWorkspace();
   else if (adminSection === 'security') view = renderSecurityWorkspace();
@@ -1779,12 +1822,14 @@ function renderOrdersSection({ filteredOrders, orders }) {
 // Vendors: vendor storefronts + applications.
 // ---------------------------------------------------------------------------
 function renderVendorOperationsSection({ vendors, products, orders }) {
-  const q=financeFilter.vendorQuery||'', status=financeFilter.vendorStatus||'all'; const rows=vendors.filter(v=>(!q||JSON.stringify(v).toLowerCase().includes(q.toLowerCase()))&&(status==='all'||(v.open?'open':'closed')===status)); const page=financeFilter.vendorPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)),visible=rows.slice((page-1)*size,page*size);
+  const q=financeFilter.vendorQuery||'', status=financeFilter.vendorStatus||'all'; const rows=vendors.filter(v=>(!q||JSON.stringify(v).toLowerCase().includes(q.toLowerCase()))&&(status==='all'||(status==='removed'?!v.active:(v.active && (status==='active'||(status==='closed'&&!v.open)))))); const page=financeFilter.vendorPage||1,size=20,pages=Math.max(1,Math.ceil(rows.length/size)),visible=rows.slice((page-1)*size,page*size);
   return `<div class="page-head"><div><span class="badge badge--brand">Marketplace</span><h1 class="mt-1">Vendors</h1><p class="muted">Vendor profiles, applications, catalog linkage and order activity.</p></div><button class="btn btn--ghost btn--sm" data-vendor-refresh>Refresh</button></div><div class="card mt-2"><div class="admin-filters"><input class="input" data-vendor-search placeholder="Search vendors" value="${escHtml(q)}"><select class="select" data-vendor-status><option value="all">All storefronts</option><option value="open" ${status==='open'?'selected':''}>Open</option><option value="closed" ${status==='closed'?'selected':''}>Closed</option></select></div><div class="table-wrap"><table class="table"><thead><tr><th>Vendor</th><th>Type</th><th>Store</th><th>Products</th><th>Active orders</th><th>Completed</th><th>Delivery</th><th></th></tr></thead><tbody>${visible.length?visible.map(v=>{const ps=products.filter(p=>p.vendor===v.id),os=orders.filter(o=>o.vendor_id===v.id);return `<tr><td><b>${escHtml(v.name)}</b><div class="muted small">${escHtml(v.id)}</div></td><td>${escHtml(v.type||'—')}</td><td>${v.open?'Open':'Closed'}</td><td>${ps.length}</td><td>${os.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length}</td><td>${os.filter(o=>['Delivered','Rated'].includes(o.status)).length}</td><td>${escHtml(v.delivery_method||'rider')}</td><td><button class="link-btn" data-vendor-detail="${escHtml(v.id)}">Details</button></td></tr>`}).join(''):'<tr><td colspan="8" class="muted center">No vendors match these filters.</td></tr>'}</tbody></table></div><div class="admin-filters"><span class="muted small">Page ${page} of ${pages}</span><button class="btn btn--ghost btn--sm" data-vendor-page="next" ${page>=pages?'disabled':''}>Next</button></div></div><div class="card mt-2"><div class="card__head"><h3>Vendor applications</h3><span class="muted small">${state.vendorApplications.filter(a=>a.status==='Pending').length} pending</span></div><div class="table-wrap"><table class="table"><tbody>${renderVendorApplicationRows()}</tbody></table></div></div>`;
 }
 function renderRestaurantOperationsSection(shared) { return renderVendorOperationsSection({ ...shared, vendors: shared.vendors.filter(v=>/restaurant/i.test(v.type||'')) }); }
 
 function renderVendorsSection({ vendors }) {
+  const status = financeFilter.vendorStatus || 'all';
+  const visibleVendors = vendors.filter(v => status === 'all' || (status === 'removed' ? v.active === false : v.active !== false && (status === 'active' || (status === 'closed' && !v.open))));
   return `
     <div class="page-head">
       <div>
@@ -1860,6 +1905,15 @@ function renderVendorsSection({ vendors }) {
           <h3>Vendors</h3>
           <span class="muted small">Edit availability or details · changes appear across the customer pages instantly</span>
         </div>
+        <div class="admin-filters">
+          <label class="sr-only" for="adminVendorStatus">Marketplace status</label>
+          <select class="select" id="adminVendorStatus" data-vendor-status>
+            <option value="all" ${status === 'all' ? 'selected' : ''}>All storefronts</option>
+            <option value="active" ${status === 'active' ? 'selected' : ''}>Active</option>
+            <option value="closed" ${status === 'closed' ? 'selected' : ''}>Closed</option>
+            <option value="removed" ${status === 'removed' ? 'selected' : ''}>Removed</option>
+          </select>
+        </div>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -1873,16 +1927,16 @@ function renderVendorsSection({ vendors }) {
               </tr>
             </thead>
             <tbody>
-              ${vendors.map(v => `
+              ${visibleVendors.map(v => `
                 <tr>
                   <td>${escHtml(v.icon)} <b>${escHtml(v.name)}</b></td>
                   <td>${escHtml(v.type)}</td>
                   <td>${escHtml(v.time)}</td>
                   <td>${escHtml(v.delivery_method || 'rider')}</td>
-                  <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button></td>
+                  <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button><div class="muted small">Marketplace: ${v.active === false ? 'Removed' : 'Active'}</div></td>
                   <td>
                     <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> ·
-                    <button type="button" class="link-btn" data-delete-vendor="${v.id}">Deactivate Vendor</button>
+                    <button type="button" class="link-btn" data-delete-vendor="${v.id}">${v.active === false ? 'Restore Vendor' : 'Remove Vendor'}</button>
                   </td>
                 </tr>
               `).join('')}
@@ -2544,6 +2598,9 @@ function showAdminSupportDetail(title, record) {
 }
 
 function attachAdminEventListeners() {
+  document.querySelector('[data-error-refresh]')?.addEventListener('click',async()=>{await loadErrorLogsFromSupabase();renderAdminWorkspace();});
+  document.querySelectorAll('[data-error-detail]').forEach(b=>b.addEventListener('click',()=>showErrorLogDetail(b.dataset.errorDetail)));
+  document.querySelectorAll('[data-copy-error]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(b.dataset.copyError).then(()=>toast('Error reference copied'))));
   document.querySelector('[data-admin-menu]')?.addEventListener('click', e => { const nav=document.getElementById('adminNav'); const open=nav?.classList.toggle('is-open'); e.currentTarget.setAttribute('aria-expanded', String(Boolean(open))); });
   document.querySelectorAll('[data-governance-refresh]').forEach(btn => btn.addEventListener('click', async () => { await loadSiteSettingsFromSupabase(); await loadGovernanceData(); renderAdminWorkspace(); }));
   ['adminUserSearch','auditSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener('input',()=>{
@@ -2945,8 +3002,9 @@ async function setAccountStatus(userId,status,reason=null){
   if(error){toast(adminMfaMessage(error.message),'error');return false;} toast(status==='suspended'?'Account suspended':'Account restored'); await loadAssignableUsers(); return true;
 }
 function showUserDetail(id){
-  const u=state.users.find(x=>x.id===id); if(!u)return; const vendors=state.catalog?.vendors||[], orders=state.orders.filter(o=>o.user_id===id), vendor=vendors.find(v=>v.id===u.vendor_id), rider=state.riders.find(r=>r.user_id===id||r.profile_id===id);
+  const u=state.users.find(x=>x.id===id); if(!u)return; const vendors=state.catalog?.vendors||[], orders=state.orders.filter(o=>o.user_id===id), vendor=vendors.find(v=>v.id===u.vendor_id), rider=state.riders.find(r=>r.user_id===id||r.profile_id===id), recentIssues=(state.errorLogs||[]).filter(x=>x.user_id===id||(x.affected_user_ids||[]).includes(id)).slice(0,5);
   const root=$('#modalRoot'); root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="userDetailTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="userDetailTitle">${escHtml(u.full_name||u.email||u.id)}</h3><button type="button" class="btn btn--ghost btn--sm" data-close-user>Close</button></div><dl class="settings-list">${[['Email',u.email||'—'],['Phone',u.phone||'—'],['Role',u.role||'user'],['Vendor assignment',vendor?.name||u.vendor_id||'None'],['Account status',u.account_status||'active'],['Orders',orders.length],['Rider relationship',rider?rider.status:'None'],['Created',u.created_at?formatDate(u.created_at):'—']].map(([k,v])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(v)}</dd></div>`).join('')}</dl><div class="field"><label for="userVendorAssignment">Vendor assignment</label><select class="select" id="userVendorAssignment"><option value="">No vendor assignment</option>${vendors.map(v=>`<option value="${escHtml(v.id)}" ${u.vendor_id===v.id?'selected':''}>${escHtml(v.name)}</option>`).join('')}</select></div><div class="admin-actions"><button type="button" class="btn btn--soft" data-save-user-vendor>Save Vendor Assignment</button>${u.role==='admin'?`<button type="button" class="btn btn--dangerSoft" data-user-admin="remove">Remove Admin Access</button>`:`<button type="button" class="btn btn--soft" data-user-admin="promote">Promote to Admin</button>`}${(u.account_status||'active')==='active'?`<button type="button" class="btn btn--dangerSoft" data-user-status="suspended">Suspend Account</button>`:`<button type="button" class="btn btn--soft" data-user-status="active">Restore Account</button>`}<button type="button" class="btn btn--ghost" data-user-link="customers">Customer Orders</button>${u.vendor_id?'<button type="button" class="btn btn--ghost" data-user-link="vendors">Vendor</button>':''}${rider?'<button type="button" class="btn btn--ghost" data-user-link="riders">Rider</button>':''}</div></div></div>`;
+  if(recentIssues.length){const panel=document.createElement('div');panel.className='mt-2';panel.innerHTML=`<h4>Recent Issues</h4>${recentIssues.map(x=>`<button type="button" class="link-btn" data-user-issue="${x.id}">${escHtml(x.error_reference)} — ${escHtml(x.action)} — ${x.resolved?'Resolved':'Open'}</button>`).join('<br>')}`;root.querySelector('.finance-detail-drawer')?.append(panel);panel.querySelectorAll('[data-user-issue]').forEach(b=>b.addEventListener('click',()=>{closeAdminDrawer();showErrorLogDetail(b.dataset.userIssue);}));}
   const close=()=>closeAdminDrawer(); root.querySelector('[data-close-user]')?.addEventListener('click',close);
   root.querySelector('[data-save-user-vendor]')?.addEventListener('click',async()=>{if(await assignUserToVendor(id,root.querySelector('#userVendorAssignment').value||null)){close();renderAdminWorkspace();}});
   root.querySelector('[data-user-admin]')?.addEventListener('click',async e=>{const make=e.currentTarget.dataset.userAdmin==='promote';if(!await DropzyyModal.confirm({title:make?'Promote to Admin':'Remove Admin Access',message:`${make?'Grant':'Remove'} administrator access for ${u.email||u.full_name||u.id}?`,confirmText:make?'Promote':'Remove access',danger:!make}))return;if(await setAdminRole(id,make)){close();renderAdminWorkspace();}});
@@ -2960,6 +3018,16 @@ function chooseEligibleRider(orderId){
 }
 
 function showVendorDetail(vendorId){const v=state.catalog?.vendors?.find(x=>x.id===vendorId);if(!v)return;const products=state.catalog.products.filter(p=>p.vendor===vendorId),orders=state.orders.filter(o=>o.vendor_id===vendorId),owners=state.users.filter(u=>u.vendor_id===vendorId),settlements=state.settlements.filter(s=>s.kind==='vendor'&&s.vendor_id===vendorId),settlementIds=new Set(settlements.map(s=>s.id)),transfers=state.transfers.filter(t=>settlementIds.has(t.vendor_settlement_id)),recipient=state.transferRecipients.find(r=>r.vendor_id===vendorId&&r.is_active);const root=$('#modalRoot');root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="vendorDetailTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="vendorDetailTitle">${escHtml(v.name)}</h3><button type="button" class="btn btn--ghost btn--sm" data-close-vendor>Close</button></div><dl class="settings-list">${[['Type',v.type],['Store',v.open?'Open':'Closed'],['Pickup location',v.pickup_location||'Not configured'],['Delivery',v.delivery_method],['Products',`${products.filter(p=>p.active!==false).length} active / ${products.filter(p=>p.active===false).length} inactive`],['Active orders',orders.filter(o=>!['Delivered','Rated','Cancelled'].includes(o.status)).length],['Completed orders',orders.filter(o=>['Delivered','Rated'].includes(o.status)).length],['Payout readiness',recipient?`${recipient.recipient_status||'configured'} recipient`:'Recipient missing'],['Settlements',settlements.length],['Transfers',transfers.length]].map(([k,x])=>`<div class="settings-row"><dt>${k}</dt><dd>${escHtml(x)}</dd></div>`).join('')}</dl><h4>Owners</h4><p class="muted small">${owners.map(u=>`<button type="button" class="link-btn" data-vendor-owner="${u.id}">${escHtml(u.full_name||u.email||u.id)} · ${escHtml(u.role)}</button>`).join('<br>')||'No assigned owner'}</p><h4>Catalog</h4><p class="muted small">${products.slice(0,20).map(p=>escHtml(p.name)).join(', ')||'No products'}</p><h4>Recent orders</h4><p class="muted small">${orders.slice(0,10).map(o=>`#${escHtml(o.id)} · ${escHtml(o.status)}`).join('<br>')||'No orders'}</p><div class="admin-actions"><button type="button" class="btn btn--ghost" data-vendor-link="products">Products</button><button type="button" class="btn btn--ghost" data-vendor-link="orders">Orders</button><button type="button" class="btn btn--ghost" data-vendor-link="settlements">Settlements</button><button type="button" class="btn btn--ghost" data-vendor-link="transfers">Transfers</button></div></div></div>`;const close=()=>root.innerHTML='';root.querySelector('[data-close-vendor]')?.addEventListener('click',close);root.querySelectorAll('[data-vendor-owner]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.vendorOwner;close();showUserDetail(id);}));root.querySelectorAll('[data-vendor-link]').forEach(b=>b.addEventListener('click',()=>{adminSection=b.dataset.vendorLink;close();renderAdminWorkspace();}));root.querySelector('[data-close-vendor]')?.focus();}
+
+// Enhanced vendor detail keeps access management in the same secure assignment flow.
+function showVendorDetail(vendorId){
+  const v=state.catalog?.vendors?.find(x=>x.id===vendorId); if(!v)return;
+  const users=state.users||[], owners=users.filter(u=>u.vendor_id===vendorId), products=state.catalog.products.filter(p=>p.vendor===vendorId), root=$('#modalRoot');
+  root.innerHTML=`<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="vendorDetailTitle"><div class="card finance-detail-drawer"><div class="card__head"><h3 id="vendorDetailTitle">${escHtml(v.name)}</h3><button type="button" class="btn btn--ghost btn--sm" data-close-vendor>Close</button></div><dl class="settings-list"><div class="settings-row"><dt>Store</dt><dd>${v.open?'Open':'Closed'}</dd></div><div class="settings-row"><dt>Marketplace</dt><dd>${v.active===false?'Removed':'Active'}</dd></div><div class="settings-row"><dt>Products</dt><dd>${products.length}</dd></div></dl><h4>Assigned Users / Vendor Access</h4><p class="muted small">${owners.map(u=>`${escHtml(u.full_name||u.email||u.id)} · ${escHtml(u.role)} <button type="button" class="link-btn" data-vendor-owner="${u.id}">Manage Access</button>`).join('<br>')||'No assigned users'}</p><div class="field"><label for="vendorAssignUser">Assign User</label><select class="select" id="vendorAssignUser"><option value="">Select an eligible existing user</option>${users.filter(u=>u.role!=='admin'&&u.vendor_id!==vendorId).map(u=>`<option value="${u.id}">${escHtml(u.full_name||u.email||u.id)}</option>`).join('')}</select></div><div class="admin-actions"><button type="button" class="btn btn--soft" data-assign-vendor-user>Assign User</button></div></div></div>`;
+  const close=()=>root.innerHTML=''; root.querySelector('[data-close-vendor]')?.addEventListener('click',close);
+  root.querySelector('[data-assign-vendor-user]')?.addEventListener('click',async()=>{const id=root.querySelector('#vendorAssignUser').value;if(id&&await assignUserToVendor(id,vendorId))close();});
+  root.querySelectorAll('[data-vendor-owner]').forEach(b=>b.addEventListener('click',()=>{close();showUserDetail(b.dataset.vendorOwner);}));
+}
 
 function showRiderDetail(riderId) {
   const rider = state.riders.find(r => String(r.id) === String(riderId)); if (!rider) return;

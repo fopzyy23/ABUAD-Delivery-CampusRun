@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { executeAuthoritativeTransfer } from "../_shared/execute-transfer.ts";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -41,6 +42,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json(409, result);
   } catch (error) {
     console.error("automatic-cutoff-transfer: unexpected error", error instanceof Error ? error.message : "unknown");
-    return json(500, { error: "Internal server error" });
+    const error_reference = await reportEdgeError(error, { action: "automatic_cutoff_transfer", source: "payment", context: { transfer_id: transferId } });
+    return json(500, { success: false, error: "Internal server error", error_reference });
   }
 });

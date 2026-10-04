@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reportEdgeError } from "../_shared/error-reporting.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -174,15 +175,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
             if (response.status >= 500) counts.transient_errors += 1;
             else counts.permanent_errors += 1;
             console.error("automatic-cutoff-worker: transfer attempt failed", { transfer_id: transfer.id, status: response.status, message: error.message });
+            await reportEdgeError(error, { action: "automatic_cutoff_worker_transfer", source: "payment", context: { transfer_id: transfer.id, status: response.status } });
           }
         } catch (error) {
           counts.transient_errors += 1;
           console.error("automatic-cutoff-worker: transfer invocation failed", { transfer_id: transfer.id, message: error instanceof Error ? error.message : "unknown" });
+          await reportEdgeError(error, { action: "automatic_cutoff_worker_transfer", source: "payment", context: { transfer_id: transfer.id } });
         }
       }
     }
   } catch (error) {
     recordError(counts, error);
+    await reportEdgeError(error, { action: "automatic_cutoff_worker", source: "edge_function" });
   }
 
   console.info("automatic-cutoff-worker: complete", counts);

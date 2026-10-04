@@ -309,6 +309,7 @@ hr, .rule {
 }
 .brand__text span { color: var(--brand); }
 .brand--sm .brand__logo { width: 28px; height: 28px; font-size: 15px; border-radius: 6px; }
+.auth-logo { display:block; width:clamp(104px,28vw,132px); height:auto; max-height:68px; object-fit:contain; margin:0 auto .35rem; }
 .brand--sm { font-size: 1rem; }
 
 /* Full Dropzyy logo (transparent PNG, /images) — replaces the emoji icon +
