@@ -65,7 +65,7 @@ const FORBIDDEN_SEGMENTS = new Set([
   'supabase', 'scripts', '.git', '.github', '.netlify', 'node_modules',
   'reports', '.tmp', 'dist', '.env',
 ]);
-const FORBIDDEN_EXTENSIONS = ['.sql', '.md', '.docx', '.tmp', '.ps1', '.yml', '.yaml'];
+const FORBIDDEN_EXTENSIONS = ['.sql', '.md', '.docx', '.tmp', '.ps1', '.yml', '.yaml', '.bak', '.old', '.backup', '.dump', '.gz'];
 
 function fail(message) {
   process.exitCode = 1;

@@ -71,7 +71,82 @@
   to = "/assets/:splat"
   status = 200
 
-# 4. SPA fallback for the customer app: any other path (/orders, /browse,
+# 4. Repository/configuration-looking paths must fail closed before the SPA
+#    fallback below. These paths are not part of the published website.
+[[redirects]]
+  from = "/.env"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/.env.*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/.git/*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/supabase/*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/scripts/*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/tests/*"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/package.json"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/package-lock.json"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/netlify.toml"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/netlify.toml.bak"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.bak"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.old"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.backup"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.tmp"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.sql"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.ps1"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.yml"
+  to = "/404.html"
+  status = 404
+[[redirects]]
+  from = "/*.yaml"
+  to = "/404.html"
+  status = 404
+
+# 5. SPA fallback for the customer app: any other path (/orders, /browse,
 #    /rider, /checkout, ...) serves the shell. app.js maps the path onto its
 #    hash route (applyPathRouteBootstrap) so deep links resolve instead of
 #    falling back to the home route. Not forced — see the note above.

@@ -6,6 +6,13 @@ npm-debug.log*
 .env
 .env.*
 *.pem
+*.bak
+*.old
+*.backup
+*.tmp
+*.dump
+*.sql.dump
+*.sql.gz
 supabase/.temp/
 .tmp/
 

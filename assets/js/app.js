@@ -2485,7 +2485,7 @@ async function deactivateDropzyyPush() {
 
 function home() {
   const vcount = data().vendors.length;
-  return `${catalogBanner()}${renderCustomerActiveOrders()}
+  return `${catalogBanner()}
 <section class="dropzyy-hero">
   <div class="container dropzyy-hero__inner">
     <div class="dropzyy-hero__copy hero-text">
