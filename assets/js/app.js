@@ -108,6 +108,9 @@
 // homeReachUs() (WhatsApp / Email cards) — change them here only.
 const DROPZYY_SUPPORT_EMAIL = 'zyy.work.zyy@gmail.com'; // ← PASTE EMAIL HERE
 const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/0029Vb95rgV4tRrjXoGl1I1E'; // ← PASTE WHATSAPP CHANNEL LINK HERE
+const DROPZYY_BUILD_ID = '20261007-rider-rpc-startup-v2';
+window.DROPZYY_BUILD_ID = DROPZYY_BUILD_ID;
+document.documentElement.dataset.dropzyyBuild = DROPZYY_BUILD_ID;
 
 const $ = s => document.querySelector(s);
 const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
@@ -411,10 +414,17 @@ async function loadCatalogFromSupabase() {
     state.catalog = catalog.products;
     state.catalogLoadError = false;
     store('catalog_v3', catalog);
-    if (catalogChanged) render();
+    // During initial boot the coordinator owns the single final render. Later
+    // catalog refreshes may redraw the active route as a targeted data update.
+    if (catalogChanged && initialBootCatalogReady) render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
     state.catalogLoadError = true;
+  } finally {
+    if (!initialBootCatalogReady) {
+      initialBootCatalogReady = true;
+      initialBootCatalogResolve();
+    }
   }
 }
 
@@ -5767,8 +5777,7 @@ async function render() {
   // redirected before getSession/profile restoration completes.
   if (!initialAuthReady && !earlyParts.length) {
     setDocumentTitle(earlyParts);
-    $('#app').innerHTML = home();
-    initVendorCarousel();
+    $('#app').innerHTML = '<section class="section container"><div class="card center"><p role="status">Loading Dropzyy…</p></div></section>';
     updateChrome();
     return;
   }
@@ -6849,6 +6858,9 @@ function applyPathRouteBootstrap() {
 let initialAuthReady = false;
 let authProfileError = null;
 let loginRoutePending = false;
+let initialBootCatalogReady = false;
+let initialBootCatalogResolve;
+const initialBootCatalog = new Promise(resolve => { initialBootCatalogResolve = resolve; });
 function clearPrivateAuthState() {
   // Detach the old object: in-flight loaders retain only their old account's state.
   const previous = state;
@@ -6933,10 +6945,12 @@ const authLifecycle = createAuthLifecycle({
       loginRoutePending = false;
       location.hash = consumeLoginReturnRoute();
     }
-    render();
-    if (!result.ready || !result.profile) return;
+    if (!result.ready || !result.profile) {
+      Promise.resolve(initialBootCatalog).then(() => render());
+      return;
+    }
     const ticket = result.generation;
-    Promise.all([loadRiderFromSupabase(), loadOrdersFromSupabase(),
+    Promise.all([initialBootCatalog, loadRiderFromSupabase(), loadOrdersFromSupabase(),
       loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
       if (ticket !== authLifecycle.generation) return;
       subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime();
