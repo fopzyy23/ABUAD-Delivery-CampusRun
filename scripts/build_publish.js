@@ -153,6 +153,11 @@ function main() {
       problems.push('required website file missing from the deploy: ' + rel);
     }
   }
+  try {
+    require('./validate_publish_artifact').validate();
+  } catch (err) {
+    problems.push(err && err.message ? err.message : String(err));
+  }
 
   if (problems.length) {
     removeOutDir();
