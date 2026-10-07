@@ -158,6 +158,19 @@ async function ensureAdminAal2() {
   return Boolean(session && aal?.currentLevel === 'aal2' && jwt.aal === 'aal2');
 }
 
+function adminSecurityRequired() {
+  return state.mfa.aal?.currentLevel !== 'aal2' || !state.mfa.factors.some(f => f.status === 'verified');
+}
+
+function renderAdminSecurityNotice() {
+  if (!adminSecurityRequired()) return '';
+  return `<div class="card mt-2" role="alert" style="border-color:var(--warning,#d99a00)">
+    <div class="card__head"><h3>Admin Security Setup Required</h3><span class="badge badge--warn">AAL2 required</span></div>
+    <p>Your account has been granted Admin access. Complete multi-factor authentication before using protected Admin features.</p>
+    <button type="button" class="btn btn--soft" data-admin-security-setup>Set up Admin Security</button>
+  </div>`;
+}
+
 async function refreshAdminMfa() {
   const state = currentAdminState();
   if (!supabaseAvailable() || !supabaseAdminUser || !state.isAuthenticated) return;
@@ -384,7 +397,11 @@ async function syncProductToSupabase(product) {
     if (error) throw error;
     return true;
   } catch (err) {
-    console.error('Supabase product sync failed:', err);
+    console.error('Supabase product sync failed:', {
+      code: err?.code, message: err?.message, details: err?.details,
+      hint: err?.hint, operation: 'admin product upsert', rpc: 'admin_upsert_product'
+    });
+    toast(adminMfaMessage(err?.message || 'Product save failed; no local changes were made.'), 'error');
     return false;
   }
 }
@@ -398,7 +415,8 @@ async function deleteVendorFromSupabase(vendorId) {
     if (!await ensureAdminAal2()) throw new Error('AAL2/MFA is required for this admin operation');
     const { error: vendorError } = await supabase.rpc('admin_set_vendor_active', { p_vendor_id: vendorId, p_active: false });
     if (vendorError) {
-      console.error('Supabase vendor delete failed:', {
+      lastVendorSyncError = vendorError;
+      console.error('Supabase vendor deactivation failed:', {
         code: vendorError.code,
         message: vendorError.message,
         details: vendorError.details,
@@ -411,7 +429,8 @@ async function deleteVendorFromSupabase(vendorId) {
     }
     return true;
   } catch (err) {
-    console.error('Supabase vendor delete failed:', {
+    lastVendorSyncError = err;
+    console.error('Supabase vendor deactivation failed:', {
       code: err?.code,
       message: err?.message,
       details: err?.details,
@@ -431,7 +450,15 @@ async function setVendorMarketplaceStatus(vendorId, active) {
     const { error } = await supabase.rpc('admin_set_vendor_active', { p_vendor_id: vendorId, p_active: Boolean(active) });
     if (error) throw error;
     return true;
-  } catch (err) { console.error('Vendor marketplace status update failed:', err); return false; }
+  } catch (err) {
+    lastVendorSyncError = err;
+    console.error('Vendor marketplace status update failed:', {
+      code: err?.code, message: err?.message, details: err?.details, hint: err?.hint,
+      vendorId, operation: active ? 'vendor reactivation' : 'vendor deactivation'
+    });
+    toast(adminMfaMessage(err?.message || 'Vendor status update failed; no local changes were made.'), 'error');
+    return false;
+  }
 }
 
 // Deactivate a product in Supabase (set active = false) instead of hard-deleting.
@@ -866,7 +893,7 @@ async function deleteVendor(vendorId) {
   const state = currentAdminState();
   const vendor = state.catalog.vendors.find(v => v.id === vendorId);
   const restoring = vendor?.active === false;
-  if (await DropzyyModal.confirm({ title: restoring ? 'Restore Vendor' : 'Remove Vendor', message: restoring ? 'Restore this vendor to the customer marketplace?' : 'This removes the Vendor from the Dropzyy marketplace. Customers will no longer see or access the Vendor. The Vendor and its history are retained and can be restored later.', confirmText: restoring ? 'Restore Vendor' : 'Remove Vendor', danger:!restoring })) {
+  if (await DropzyyModal.confirm({ title: restoring ? 'Reactivate Vendor' : 'Remove Vendor', message: restoring ? 'Reactivate this vendor and return it to customer-facing pages?' : 'Remove this vendor? The vendor will be deactivated and removed from customer-facing pages. Existing records will remain unchanged and the vendor can be reactivated later.', confirmText: restoring ? 'Reactivate Vendor' : 'Remove Vendor', danger:!restoring })) {
     // Sync to Supabase
     const synced = restoring ? await setVendorMarketplaceStatus(vendorId, true) : await deleteVendorFromSupabase(vendorId);
     if (!synced) {
@@ -876,7 +903,7 @@ async function deleteVendor(vendorId) {
 
       // Save to localStorage only after Supabase succeeds.
       saveCatalog();
-      toast(restoring ? 'Vendor restored to marketplace' : 'Vendor removed from marketplace');
+      toast(restoring ? 'Vendor reactivated' : 'Vendor removed from marketplace');
     }
 
     renderAdminWorkspace();
@@ -1471,6 +1498,7 @@ function renderAdminWorkspace() {
   app.innerHTML = `
     ${adminNav()}
     <section class="section container">
+      ${renderAdminSecurityNotice()}
       <div class="admin-layout">
         <aside class="admin-sidebar">${adminSidebar()}</aside>
         <div class="admin-content">
@@ -1482,6 +1510,10 @@ function renderAdminWorkspace() {
 
   // Attach event listeners for the rendered section
   attachAdminEventListeners();
+  document.querySelector('[data-admin-security-setup]')?.addEventListener('click', () => {
+    adminSection = 'settings';
+    renderAdminWorkspace();
+  });
   Object.entries(supportFilters).forEach(([id,value]) => {
     const control=document.getElementById(id); if(control) control.value=value;
   });
@@ -1829,7 +1861,7 @@ function renderRestaurantOperationsSection(shared) { return renderVendorOperatio
 
 function renderVendorsSection({ vendors }) {
   const status = financeFilter.vendorStatus || 'all';
-  const visibleVendors = vendors.filter(v => status === 'all' || (status === 'removed' ? v.active === false : v.active !== false && (status === 'active' || (status === 'closed' && !v.open))));
+  const visibleVendors = vendors.filter(v => status === 'all' || (status === 'inactive' ? v.active === false : v.active !== false && (status === 'active' || (status === 'closed' && !v.open))));
   return `
     <div class="page-head">
       <div>
@@ -1911,7 +1943,7 @@ function renderVendorsSection({ vendors }) {
             <option value="all" ${status === 'all' ? 'selected' : ''}>All storefronts</option>
             <option value="active" ${status === 'active' ? 'selected' : ''}>Active</option>
             <option value="closed" ${status === 'closed' ? 'selected' : ''}>Closed</option>
-            <option value="removed" ${status === 'removed' ? 'selected' : ''}>Removed</option>
+            <option value="inactive" ${status === 'inactive' ? 'selected' : ''}>Inactive</option>
           </select>
         </div>
         <div class="table-wrap">
@@ -1936,7 +1968,7 @@ function renderVendorsSection({ vendors }) {
                   <td><button class="link-btn" data-toggle-vendor="${v.id}">${v.open ? 'Open' : 'Closed'}</button><div class="muted small">Marketplace: ${v.active === false ? 'Removed' : 'Active'}</div></td>
                   <td>
                     <button class="link-btn" data-edit-vendor="${v.id}">Edit</button> ·
-                    <button type="button" class="link-btn" data-delete-vendor="${v.id}">${v.active === false ? 'Restore Vendor' : 'Remove Vendor'}</button>
+                    <button type="button" class="link-btn" data-delete-vendor="${v.id}">${v.active === false ? 'Reactivate Vendor' : 'Remove Vendor'}</button>
                   </td>
                 </tr>
               `).join('')}

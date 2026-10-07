@@ -183,7 +183,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
     // ---- Validate payment type and amount ----
     const isVendorDelivery = payment.payment_type === "vendor_delivery";
-    const expectedAmount = payment.amount * 100;
+    // Partial replacement refunds are server-created and may be smaller than
+    // the original charge. Never accept an amount from the browser.
+    const expectedAmount = Number(refund.amount) * 100;
+    if (!Number.isFinite(expectedAmount) || expectedAmount <= 0 || expectedAmount > Number(payment.amount) * 100) {
+      return json(req, 409, { error: "Refund amount is not a valid partial or full refund of the payment" });
+    }
 
     // Validate the payment is in a refundable state
     if (payment.status !== "success") {

@@ -1093,6 +1093,24 @@ async function loadOrdersForUser(userId) {
       if (!await stillCurrent()) return false;
     }
 
+    // Customer-visible order notes are loaded separately from order snapshots.
+    // RLS decides which rows are visible; the browser never broadens that set.
+    let notesByOrder = {};
+    if (orderIds.length) {
+      const { data: noteRows, error: notesError } = await supabase
+        .from('order_notes')
+        .select('id,order_id,author_role,note_type,message,customer_visible,created_at')
+        .in('order_id', orderIds)
+        .eq('customer_visible', true)
+        .order('created_at', { ascending: true });
+      if (notesError) throw notesError;
+      (noteRows || []).forEach(note => {
+        if (!notesByOrder[note.order_id]) notesByOrder[note.order_id] = [];
+        notesByOrder[note.order_id].push(note);
+      });
+      if (!await stillCurrent()) return false;
+    }
+
     async function finalProductNames(rows) {
       const ids = [...new Set(rows.filter(item => !item.final_removed && item.final_product_id && item.final_product_id !== item.product_id).map(item => item.final_product_id))];
       if (!ids.length) return {};
@@ -1155,6 +1173,7 @@ async function loadOrdersForUser(userId) {
       cancellation_stage: o.cancellation_stage || 'none',
       additional_amount_due: o.additional_amount_due || 0,
       final_financial_status: o.final_financial_status || null,
+      notes: (notesByOrder && notesByOrder[o.id]) || [],
       rider_id: o.rider_id || null,
       rider_rating: ratingsByOrder[o.id] || null,
       rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
@@ -2414,9 +2433,46 @@ function faqsView() {
   </section>`;
 }
 
+function renderCustomerOrderNotes(o) {
+  const notes = (o && Array.isArray(o.notes) ? o.notes : []).filter(n => n.customer_visible !== false);
+  if (!notes.length) return '';
+  return `<div class="card mt-2"><div class="card__head"><h3>Order updates</h3></div><div class="stack" style="gap:10px">${notes.map(n => `<div class="small"><div class="row row--between"><b>${esc(n.note_type === 'availability' ? 'Product update' : n.note_type === 'replacement' ? 'Replacement update' : 'Rider update')}</b><span class="muted xs">${esc(n.created_at ? formatFullDate(n.created_at) : '')}</span></div><div class="muted mt-1">${esc(n.message)}</div></div>`).join('')}</div></div>`;
+}
+
+function activeOrderLabel(o) {
+  if (o.final_financial_status === 'overpaid_pending_resolution') return 'Partial refund processing';
+  if (o.final_financial_status === 'additional_payment_required' || Number(o.additional_amount_due || 0) > 0) return 'Additional payment required';
+  if (o.product_availability_status === 'needs_customer_decision') return 'Action required: resolve unavailable item';
+  if (o.product_availability_status === 'confirmed') return 'Final products confirmed';
+  return o.status || 'Order in progress';
+}
+
+function renderCustomerActiveOrders() {
+  if (!state.user || !state.ordersLoadedFromSupabase) return '';
+  const active = (state.orders || []).filter(o => !['Delivered','Rated','Cancelled'].includes(o.status));
+  if (!active.length) return '';
+  return `<section class="section container"><div class="page-head"><div><h2>Your active orders</h2><p class="muted">Live updates for orders still in progress.</p></div><button class="btn btn--ghost btn--sm" data-enable-push>Enable phone alerts</button></div><div class="grid grid--3">${active.map(o => `<article class="card"><div class="row row--between"><b>Order #${esc(o.id)}</b><span class="badge badge--info">${esc(activeOrderLabel(o))}</span></div><p class="small muted mt-1">${esc(orderVendorNames(o))}</p><div class="row row--between mt-2"><span>${money(o.final_order_total ?? o.total)}</span><a class="btn btn--soft btn--sm" href="#/track/${encodeURIComponent(o.id)}">Track order</a></div>${Number(o.additional_amount_due || 0) > 0 ? `<a class="btn btn--block btn--sm mt-1" data-replacement-pay="${esc(o.dbId)}">Pay ${money(o.additional_amount_due)} difference</a>` : ''}</article>`).join('')}</div></section>`;
+}
+
+function vapidBytes(value) { const raw = atob(String(value).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); }
+async function enableDropzyyPush() {
+  if (!state.user || !window.DROPZYY_VAPID_PUBLIC_KEY || !('PushManager' in window) || !('serviceWorker' in navigator)) { toast('Phone alerts are not configured on this device.', 'info'); return; }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') { toast('Notification permission was not granted.', 'info'); return; }
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes(window.DROPZYY_VAPID_PUBLIC_KEY) });
+  const json = subscription.toJSON();
+  const { error } = await supabase.rpc('upsert_push_subscription', { p_endpoint: json.endpoint, p_p256dh: json.keys?.p256dh, p_auth: json.keys?.auth, p_user_agent: navigator.userAgent });
+  if (error) { console.error('Push subscription failed:', error); toast('Phone alerts could not be enabled.', 'error'); return; }
+  toast('Phone alerts enabled', 'success');
+}
+async function deactivateDropzyyPush() {
+  try { if (!supabase || !('serviceWorker' in navigator)) return; const s = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); if (!s) return; await supabase.rpc('deactivate_push_subscription', { p_endpoint: s.endpoint }); await s.unsubscribe(); } catch (e) { console.warn('Push cleanup failed:', e); }
+}
+
 function home() {
   const vcount = data().vendors.length;
-  return `${catalogBanner()}
+  return `${catalogBanner()}${renderCustomerActiveOrders()}
 <section class="dropzyy-hero">
   <div class="container dropzyy-hero__inner">
     <div class="dropzyy-hero__copy hero-text">
@@ -2555,7 +2611,7 @@ function browse() {
   const cat = requestedCat === 'Bookshop' ? 'All' : requestedCat;
   const cats = ['All','Food','Meals','Snacks','Drinks'];
   const vname = p => (vendor(p.vendor) || { name: '' }).name;
-  const list = data().products.filter(p => (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
+  const list = data().products.filter(p => p.active !== false && vendor(p.vendor) && (cat === 'All' || p.category === cat) && `${p.name} ${p.desc} ${vname(p)}`.toLowerCase().includes(q));
   const availCount = list.filter(p => p.active !== false).length;
   return `${catalogBanner()}<section class="section container"><div class="page-head"><div><h1>Browse campus finds</h1><p>Everything you need, from trusted student vendors.</p></div></div><div class="card card--pad-sm mb-2"><form class="searchbar" id="browseSearch"><span>🔍</span><input name="q" value="${esc(q)}" placeholder="Search items or vendors"><button class="btn" type="submit">Search</button></form></div><div class="chips mb-2">${cats.map(x=>`<a class="chip ${cat===x?'is-active':''}" href="#/browse?cat=${x}">${x}</a>`).join('')}</div><div class="row row--between mb-1"><span class="muted small">${availCount} items available</span><span class="badge badge--success">● Delivering now</span></div><div class="grid grid--4">${list.length ? list.map(productCard).join('') : empty('🔍','No matches found','Try another search or category.').replace(/<div class="empty">/, '<div class="empty" style="grid-column:1/-1">')}</div></section>`;
 }
@@ -2567,7 +2623,7 @@ function vendors() {
 }
 function vendorView(id) {
   const v = vendor(id);
-  if (!v) return notFound();
+  if (!v || v.active === false) return notFound();
   // Customer menus only show currently active products. The vendor dashboard
   // still retains inactive rows for soft-deactivation and historical orders.
   const items = data().products.filter(p => p.vendor === id && p.active !== false);
@@ -4413,6 +4469,7 @@ async function track(id) {
   // track page is open do not create duplicate subscriptions. The subscription is cleaned
   // up automatically when the route leaves #/track/ (see the hashchange wrapper below).
   startTrackSubscription(o.dbId);
+  const notesUi = renderCustomerOrderNotes(o);
 
   return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':s==='Delivered'?'Delivery complete':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
 }
@@ -4743,7 +4800,7 @@ function rider() {
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}<form class="row row--wrap mt-1" data-order-note="${esc(o.dbId)}"><input class="input" name="message" maxlength="1000" placeholder="Add a customer-visible order note"><button class="btn btn--ghost btn--sm" type="submit">Add note</button></form>${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -6014,6 +6071,7 @@ document.addEventListener('error', e => {
 }, true);
 
 document.addEventListener('click', async e=>{
+  const pushButton = e.target.closest('[data-enable-push]'); if (pushButton) { e.preventDefault(); pushButton.disabled = true; await enableDropzyyPush(); pushButton.disabled = false; return; }
   const state = currentAppState();
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
   const ro=e.target.closest('[data-reorder]'); if(ro) reorder(ro.dataset.reorder);
@@ -6102,15 +6160,36 @@ document.addEventListener('click', async e=>{
       onSuccess:()=>addNotification('Order on the way',`Order #${o.id} is on the way to the customer.`)
     });
   }}
+  const noteForm=e.target.closest('[data-order-note]'); if(noteForm){
+    e.preventDefault();
+    const message=String(new FormData(noteForm).get('message')||'').trim();
+    if(!message || typeof supabase==='undefined' || !supabase) return;
+    const button=noteForm.querySelector('button'); if(button) button.disabled=true;
+    const { error }=await supabase.rpc('add_rider_order_note',{p_order_id:noteForm.dataset.orderNote,p_note_type:'rider_comment',p_message:message,p_customer_visible:true});
+    if(error){ console.error('Rider order note failed:',error); toast('Could not add order note.','error'); }
+    else { noteForm.reset(); toast('Order note added'); }
+    render();
+  }
   const availability=e.target.closest('[data-availability]'); if(availability){
     const itemId=availability.dataset.availability; const available=availability.dataset.available === 'true';
     if(!itemId || typeof supabase==='undefined' || !supabase) return;
     availability.disabled=true;
+    let explanation = '';
+    if (!available) {
+      explanation = String(await DropzyyModal.prompt({title:'Why is this item unavailable?',message:'Add a short note the customer can see.',placeholder:'e.g. Chicken unavailable; turkey is available.',confirmText:'Save update'}) || '').trim();
+      if (!explanation) { availability.disabled=false; return; }
+    }
     const { error }=await supabase.rpc('record_product_availability_check',{p_order_item_id:itemId,p_available:available});
     if(error) {
       void handleAppError(error,{action:'record_product_availability',source:'rpc',userMessage:'We could not save this product availability. Please try again.',orderId:state.riderPool.find(o=>(o.items||[]).some(i=>String(i.dbId||i.id)===String(itemId)))?.dbId});
     }
-    else { toast(available?'Product marked available':'Product marked unavailable'); }
+    else {
+      if (!available && explanation) {
+        const noteResult = await supabase.rpc('add_rider_order_note',{p_order_id:(state.riderPool.find(o=>(o.items||[]).some(i=>String(i.orderItemId)===String(itemId)))||{}).dbId,p_note_type:'availability',p_message:explanation,p_customer_visible:true});
+        if (noteResult.error) console.error('Availability note failed:', noteResult.error);
+      }
+      toast(available?'Product marked available':'Product marked unavailable');
+    }
     render();
   }
   const removeUnavailable=e.target.closest('[data-remove-unavailable]'); if(removeUnavailable){
@@ -6351,6 +6430,7 @@ document.addEventListener('click', async e=>{
   }
   if(e.target.id==='logoutBtn'){
     loginRoutePending = false;
+    await deactivateDropzyyPush();
     void authLifecycle.receive('SIGNED_OUT', null);
     supabase.auth.signOut().then(({ error }) => {
       if (error) throw error;
@@ -6859,6 +6939,14 @@ supabase.auth.onAuthStateChange((event, session) => {
   // receive() invalidates stale work synchronously; SDK/database calls run on a timer.
   void authLifecycle.receive(event, session);
 });
+
+// The service worker is static-only: it never handles Supabase/API/payment
+// requests. Registration is best-effort and must not block app startup.
+function registerDropzyyServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').catch(err => console.warn('Dropzyy offline shell unavailable:', err));
+}
+registerDropzyyServiceWorker();
 
 // Explicit authoritative bootstrap: call getSession() after registering the
 // onAuthStateChange listener. This ensures startup readiness even if

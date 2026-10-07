@@ -44,3 +44,5 @@ window.supabase = supabase.createClient(supabaseUrl, supabaseKey);
 // Read-only: Edge Function env vars (PAYSTACK_SECRET_KEY etc.) are set
 // server-side via `supabase functions deploy` — never in frontend code.
 window.SUPABASE_EDGE_URL = supabaseUrl;
+// Public VAPID key only. The private key must remain server-side.
+window.DROPZYY_VAPID_PUBLIC_KEY = window.DROPZYY_VAPID_PUBLIC_KEY || '';

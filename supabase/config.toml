@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.admin-financial-recovery]
 verify_jwt = true
+
+[functions.push-dispatcher]
+verify_jwt = false

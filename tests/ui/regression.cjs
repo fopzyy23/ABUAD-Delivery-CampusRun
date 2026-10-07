@@ -104,7 +104,7 @@ async function main(){
   assert.match(admin,/function chooseEligibleRider\(orderId\)/);
   assert.doesNotMatch(admin,/prompt\([^\n]*rider/i);
   assert.match(admin,/Remove Vendor/);
-  assert.match(admin,/Restore Vendor/);
+  assert.match(admin,/Reactivate Vendor/);
   assert.match(admin,/admin_set_vendor_active/);
   assert.match(admin,/Marketplace: \$\{v\.active === false \? 'Removed' : 'Active'\}/);
   assert.doesNotMatch(admin,/data-delete-vendor[^\n]*admin_deactivate_product/);

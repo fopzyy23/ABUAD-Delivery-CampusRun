@@ -259,6 +259,7 @@ async function main() {
       const ready=await order({status:'Ready for pickup'});
       const assigned=(await adminCall('SELECT admin_assign_delivery_rider($1,$2) AS a',[ready,rider])).rows[0].a;
       assert.equal(assigned.status,'Rider assigned');
+      await q(`UPDATE orders SET product_availability_status='confirmed', purchase_funding_status='authorized' WHERE id=$1`,[ready]);
       await asUser(db,riderUser,'aal1',tx=>tx.query(`UPDATE orders SET status='Picked up' WHERE id=$1`,[ready]));
       assert.equal((await q('SELECT status FROM orders WHERE id=$1',[ready]))[0].status,'Picked up');
     });
@@ -328,6 +329,8 @@ async function main() {
     await check('vendor marketplace removal is reversible and preserves history, ownership, and customer boundaries',async()=>{
       await q(`INSERT INTO vendors(id,name,type,open) VALUES('caf-1','Test Cafe','Restaurant',true) ON CONFLICT (id) DO NOTHING`);
       await q(`INSERT INTO products(id,vendor_id,name,price,active) VALUES(990001,'caf-1','Test Meal',500,true) ON CONFLICT (id) DO NOTHING`);
+      await q(`INSERT INTO products(id,vendor_id,name,price,active) VALUES(990002,'caf-1','Archived Meal',600,false) ON CONFLICT (id) DO NOTHING`);
+      const beforeProductStates=await q(`SELECT id,active FROM products WHERE vendor_id='caf-1' ORDER BY id`);
       const beforeOrders=Number((await q(`SELECT count(*) AS n FROM orders WHERE vendor_id='caf-1'`))[0].n);
       const beforeSettlements=Number((await q(`SELECT count(*) AS n FROM vendor_settlements WHERE vendor_id='caf-1'`))[0].n);
       assert.equal((await customerCall(`SELECT id FROM vendors WHERE id='caf-1'`)).rows.length,1);
@@ -339,9 +342,11 @@ async function main() {
       assert.equal((await adminCall(`SELECT id FROM vendors WHERE id='caf-1'`)).rows.length,1);
       assert.equal(Number((await q(`SELECT count(*) AS n FROM orders WHERE vendor_id='caf-1'`))[0].n),beforeOrders);
       assert.equal(Number((await q(`SELECT count(*) AS n FROM vendor_settlements WHERE vendor_id='caf-1'`))[0].n),beforeSettlements);
+      assert.deepEqual(await q(`SELECT id,active FROM products WHERE vendor_id='caf-1' ORDER BY id`),beforeProductStates);
       assert.equal((await q(`SELECT vendor_id FROM profiles WHERE vendor_id='caf-1' LIMIT 1`)).length >= 0,true);
       await adminCall(`SELECT admin_set_vendor_active('caf-1',true)`);
       assert.equal((await customerCall(`SELECT id FROM vendors WHERE id='caf-1'`)).rows.length,1);
+      assert.deepEqual(await q(`SELECT id,active FROM products WHERE vendor_id='caf-1' ORDER BY id`),beforeProductStates);
       assert.equal(Number((await q(`SELECT count(*) AS n FROM admin_action_audit WHERE entity_type='vendor' AND entity_id='caf-1' AND action IN ('vendor_removed_from_marketplace','vendor_restored_to_marketplace')`))[0].n),2);
     });
     await check('authoritative admin metrics exceed a single API response page',async()=>{

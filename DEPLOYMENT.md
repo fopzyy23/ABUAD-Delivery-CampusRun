@@ -450,6 +450,18 @@ Missing, malformed, untrusted, or cross-environment environment/callback/origin
 configuration returns a sanitized configuration error before a payment
 obligation/payment record is created or Paystack is called.
 
+### Web Push delivery
+
+The `push-dispatcher` Edge Function is deployed with `verify_jwt = false` and
+accepts only the private `PUSH_DISPATCHER_SECRET` header. Configure these
+server-side secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT`, `PUSH_DISPATCHER_SECRET`, `SUPABASE_URL`, and
+`SUPABASE_SERVICE_ROLE_KEY`. Only `VAPID_PUBLIC_KEY` may be exposed to the
+browser as `DROPZYY_VAPID_PUBLIC_KEY`. The private key must never be placed in
+frontend assets, the manifest, or the service worker. Invoke the dispatcher
+from a trusted scheduler after notification creation; push failures are
+recorded in `push_delivery_jobs` and do not affect orders or payments.
+
 ### Per-environment checklist
 
 - [ ] Confirm environment project reference and `dropzyy_scheduler_base_url` match.
