@@ -7,6 +7,8 @@ const root=path.resolve(__dirname,'../..');
 const appSource=fs.readFileSync(path.join(root,'assets/js/app.js'),'utf8');
 const adminSource=fs.readFileSync(path.join(root,'assets/js/admin.js'),'utf8');
 const swSource=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+const dispatcherSource=fs.readFileSync(path.join(root,'supabase/functions/push-dispatcher/index.ts'),'utf8');
+const shellSource=fs.readFileSync(path.join(root,'assets/html/index.html'),'utf8');
 
 assert.match(appSource,/rpc\(['"]update_rider_order_status['"]/);
 assert.doesNotMatch(appSource,/from\(['"]orders['"]\)\s*\.update\(\{ status: nextStatus \}\)/);
@@ -16,6 +18,22 @@ assert.match(swSource,/u\.pathname === '\/assets\/js\/app\.js'/);
 assert.match(swSource,/k\.startsWith\('dropzyy-static-'/);
 assert.match(appSource,/DROPZYY_BUILD_ID/);
 assert.match(appSource,/initialBootCatalog/);
+assert.doesNotMatch(appSource,/Enable phone alerts/);
+assert.match(appSource,/function renderCustomerActiveOrders\(\)[\s\S]*?Your active orders/);
+assert.match(shellSource,/id="notifList"/);
+assert.match(shellSource,/id="notifCount"/);
+assert.match(appSource,/Order alerts/);
+assert.match(appSource,/data-enable-push/);
+assert.match(dispatcherSource,/order_number/);
+assert.match(dispatcherSource,/target_url/);
+assert.match(dispatcherSource,/replacement\|unavailable\|payment/);
+assert.match(swSource,/showNotification/);
+assert.match(swSource,/notificationclick/);
+assert.match(swSource,/target_url/);
+const unavailableMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270129_unavailable_push_notification.sql'),'utf8');
+assert.match(unavailableMigration,/Dropzyy — Item unavailable/);
+assert.match(unavailableMigration,/order_number/);
+assert.match(unavailableMigration,/trg_queue_notification_push|20270125/);
 
 function sourceBetween(start,end){
   const a=appSource.indexOf(start),b=appSource.indexOf(end,a);
