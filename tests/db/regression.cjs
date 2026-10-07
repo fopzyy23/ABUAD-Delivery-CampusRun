@@ -90,6 +90,20 @@ async function main() {
       console.log('Applied corrective migration '+file);
     }
     const riderCall=(userId,sql,params=[])=>asUser(db,userId,'aal1',tx=>tx.query(sql,params));
+    await check('rider status RPC returns JSON across the complete delivery lifecycle',async()=>{
+      const rpcOrder=await order({status:'Rider assigned'});
+      await q(`UPDATE orders SET rider_id=$2, product_availability_status='confirmed', purchase_funding_status='authorized' WHERE id=$1`,[rpcOrder,rider]);
+      const call=async(status)=>{
+        const result=(await riderCall(riderUser,'SELECT update_rider_order_status($1,$2) AS result',[rpcOrder,status])).rows[0].result;
+        assert.equal(result.status,status);
+        assert.equal(result.order.id,rpcOrder);
+        assert.equal(result.order.status,status);
+        return result;
+      };
+      await call('Picked up');
+      await call('On the Way');
+      await call('Delivered');
+    });
     const claimOrder=async(userId,orderId)=>(await riderCall(userId,'SELECT claim_order($1) AS result',[orderId])).rows[0].result;
     const claimUser=await user(), claimRider=randomUUID();
     await q(`INSERT INTO riders(id,user_id,matric_number,phone,status,available) VALUES($1,$2,'CLAIM','08000000004','approved',true)`,[claimRider,claimUser]);
