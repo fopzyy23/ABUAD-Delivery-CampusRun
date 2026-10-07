@@ -5940,12 +5940,11 @@ function initReplacementDecisionUi(parts) {
 // succeeded. Each rider action:
 //   - guards against duplicate submissions while a request is in flight
 //   - keeps the local UI state consistent with the server result
-//   - retries once for transient failures, then shows a persistent Retry
+//   - retries once only for transient failures, then shows a persistent Retry
 //   - surfaces user-friendly errors only — raw DB/RLS errors are logged and
 //     never shown to the rider
-// The server-side race protection (RLS claim policy, order-status transition
-// trigger) and all RPC/DB logic are UNTOUCHED — this is frontend error
-// handling only.
+// The server-side race protection is enforced by update_rider_order_status and
+// the existing order-status transition/settlement triggers.
 // ============================================
 
 function riderOrderByDbId(dbId) {
@@ -5986,6 +5985,22 @@ async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
   return 'other';
 }
 
+function riderStatusErrorIsRetryable(error) {
+  if (!error) return false;
+  const status = Number(error.status || error.code);
+  if ([400, 401, 403, 404].includes(status)) return false;
+  if (['400','401','403','404','42501','P0001'].includes(String(error.code))) return false;
+  return status >= 500 || !status;
+}
+
+function riderStatusErrorMessage(error, orderId, nextStatus) {
+  const status = Number(error && error.status);
+  if ([400,401,403,404].includes(status) || ['42501','P0001'].includes(String(error && error.code))) {
+    return `Order #${orderId} could not be marked as ${riderStatusLabel(nextStatus)} because you are not permitted to make that update.`;
+  }
+  return `We could not mark Order #${orderId} as ${riderStatusLabel(nextStatus)} because the service is temporarily unavailable. Tap Retry to try again.`;
+}
+
 // Core pickup / on-the-way / delivered sync. Applies the optimistic local
 // update (preserving the existing workflow), then persists to Supabase with ONE
 // safe retry (same-status updates are a server-side no-op, so a retry can never
@@ -6015,14 +6030,14 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
   render();
 
   let ok = false;
+  let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt === 1) await new Promise(r => setTimeout(r, 600));
-    const { error } = await supabase
-      .from('orders')
-      .update({ status: nextStatus })
-      .eq('id', dbId);
+    const { error } = await supabase.rpc('update_rider_order_status', { p_order_id: dbId, p_status: nextStatus });
     if (!error) { ok = true; break; }
+    lastError = error;
     console.error(`Rider status update failed (attempt ${attempt + 1} of 2):`, error);
+    if (!riderStatusErrorIsRetryable(error)) break;
   }
 
   if (!ok) {
@@ -6052,7 +6067,7 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
     dbId,
     orderId,
     nextStatus,
-    message: `We could not mark Order #${orderId} as ${riderStatusLabel(nextStatus)}. This may be a network or server problem — tap Retry below to try again.`
+    message: riderStatusErrorMessage(lastError, orderId, nextStatus)
   };
   render();
   return false;

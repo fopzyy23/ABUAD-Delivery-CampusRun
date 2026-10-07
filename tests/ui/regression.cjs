@@ -7,6 +7,10 @@ const root=path.resolve(__dirname,'../..');
 const appSource=fs.readFileSync(path.join(root,'assets/js/app.js'),'utf8');
 const adminSource=fs.readFileSync(path.join(root,'assets/js/admin.js'),'utf8');
 
+assert.match(appSource,/rpc\(['"]update_rider_order_status['"]/);
+assert.doesNotMatch(appSource,/from\(['"]orders['"]\)\s*\.update\(\{ status: nextStatus \}\)/);
+assert.match(appSource,/\[400,401,403,404\]\.includes\(status\)/);
+
 function sourceBetween(start,end){
   const a=appSource.indexOf(start),b=appSource.indexOf(end,a);
   assert.notEqual(a,-1,`missing source marker: ${start}`);
