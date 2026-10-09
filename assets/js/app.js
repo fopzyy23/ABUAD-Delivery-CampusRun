@@ -213,8 +213,9 @@ function allowedCatalog() {
   if (removed && stored) store('catalog_v3', catalog);
   return catalog;
 }
-let state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false };
+let state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false, rewards: null, rewardsLoading: false };
 let customerRefundsChannel = null;
+let customerRewardsChannel = null;
 const initialPrivateState = structuredClone({ ...state, notifications: [] });
 function currentAppState() { return state; }
 const riderLoadPromises = new Map();
@@ -1213,7 +1214,15 @@ async function loadOrdersForUser(userId, loadSequence) {
       total: o.total,
       final_order_total: o.final_order_total,
       subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee != null ? o.fee : DELIVERY_FEE)),
-      fee: o.fee != null ? o.fee : DELIVERY_FEE,
+      fee: o.customer_delivery_charge != null ? o.customer_delivery_charge : (o.fee != null ? o.fee : DELIVERY_FEE),
+      base_delivery_fee: o.base_delivery_fee != null ? o.base_delivery_fee : null,
+      customer_delivery_charge: o.customer_delivery_charge != null ? o.customer_delivery_charge : null,
+      promotion_type: o.promotion_type || null,
+      promotion_source_id: o.promotion_source_id || null,
+      promotion_discount: o.promotion_discount != null ? o.promotion_discount : 0,
+      credit_used: o.credit_used != null ? o.credit_used : 0,
+      promotion_reservation_id: o.promotion_reservation_id || null,
+      team_share_before_promotion: o.team_share_before_promotion != null ? o.team_share_before_promotion : null,
       status: o.status || 'Order confirmed',
       payment_status: o.payment_status || 'pending',
       request_type: o.request_type || 'restaurant',
@@ -2832,6 +2841,19 @@ function cart() {
   return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${lines}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div>${checkoutBtn}</aside></div>`}</section>`;
 }
 
+function queuePromotionCheckoutUi() {
+  setTimeout(() => {
+    const form = document.getElementById('checkoutForm');
+    if (!form || form.querySelector('[data-promotion-fields]')) return;
+    const divider = form.querySelector('.divider');
+    const box = document.createElement('div');
+    box.dataset.promotionFields = 'true';
+    box.className = 'stack';
+    box.innerHTML = '<div class="card__head"><h3>Promotions</h3></div><p class="muted small">Use Dropzyy credit or a coupon — one promotion per order.</p><label class="radio-card"><input type="radio" name="promotionMode" value="credit"> Use Dropzyy credit</label><label class="radio-card"><input type="radio" name="promotionMode" value="coupon"> Use coupon</label><input class="input" name="couponCode" placeholder="Coupon code (if using a coupon)">';
+    if (divider) form.insertBefore(box, divider); else form.prepend(box);
+  }, 0);
+}
+
 // Get the current Supabase user id (or null if not signed in via Supabase).
 async function getSupabaseUserId() {
   if (typeof supabase === 'undefined' || !supabase) {
@@ -4033,6 +4055,7 @@ function checkout() {
   }
   const fee = DELIVERY_FEE;
   const total = cartTotal()+fee;
+  queuePromotionCheckoutUi();
   return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
@@ -4200,6 +4223,25 @@ function clearCustomerRefundsSubscription() {
     try { supabase.removeChannel(customerRefundsChannel); } catch (e) { /* ignore */ }
     customerRefundsChannel = null;
   }
+}
+
+function clearCustomerRewardsSubscription() {
+  if (customerRewardsChannel && typeof supabase !== 'undefined' && supabase) {
+    try { supabase.removeChannel(customerRewardsChannel); } catch (e) { /* ignore */ }
+    customerRewardsChannel = null;
+  }
+}
+
+function subscribeCustomerRewardsRealtime() {
+  const current = currentAppState();
+  if (typeof supabase === 'undefined' || !supabase || !current.user || customerRewardsChannel) return;
+  const userId = current.user.id;
+  customerRewardsChannel = supabase.channel(`customer-rewards-live:${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'customer_credit_ledger', filter: `user_id=eq.${userId}` }, async () => {
+      state.rewards = null;
+      await loadRewards();
+    })
+    .subscribe();
 }
 
 function subscribeCustomerRefundsRealtime() {
@@ -4572,6 +4614,15 @@ async function orderView(id) {
     </tr>`;
   }).join('') : `<tr><td colspan="4" class="muted center">No items recorded for this order.</td></tr>`;
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
+  const vendorPromotionEligible = o.request_type === 'vendor_request' && o.delivery_method === 'rider' && o.delivery_payment_status !== 'success' && o.status !== 'Cancelled';
+  const vendorPromotionUi = vendorPromotionEligible ? `
+    <div class="card mt-2" data-vendor-promotion="${esc(o.dbId)}">
+      <h3 class="mb-0">Vendor delivery promotion</h3>
+      <p class="muted small">This changes only the Dropzyy rider delivery charge. Product/vendor prices are unchanged.</p>
+      <div class="totals"><div><span>Base delivery fee</span><span>${money(o.base_delivery_fee ?? o.fee ?? DELIVERY_FEE)}</span></div>${Number(o.promotion_discount || 0) > 0 ? `<div><span>${o.promotion_type === 'coupon' ? 'Coupon' : 'Dropzyy credit'}</span><span>-${money(o.promotion_discount)}</span></div><div class="totals__grand"><span>Delivery payable</span><span>${money(o.customer_delivery_charge ?? o.fee ?? DELIVERY_FEE)}</span></div>` : ''}</div>
+      ${Number(o.promotion_discount || 0) > 0 ? `<button class="btn btn--ghost btn--block mt-1" type="button" data-remove-delivery-promotion="${esc(o.dbId)}">Remove promotion</button>` : `<p class="small muted mb-1">Dropzyy credit available: ${money(state.rewards?.available || 0)}</p><div class="row row--wrap gap-1"><button class="btn btn--sm" type="button" data-apply-delivery-promotion="${esc(o.dbId)}" data-mode="credit" ${state.rewards && Number(state.rewards.available) <= 0 ? 'disabled' : ''}>Use credit</button><span class="muted small">or</span><input class="input" data-promotion-code="${esc(o.dbId)}" placeholder="Coupon code" aria-label="Coupon code"><button class="btn btn--sm" type="button" data-apply-delivery-promotion="${esc(o.dbId)}" data-mode="coupon">Apply coupon</button></div>`}
+      <p class="muted xs mb-0">The server validates the promotion before the vendor’s rider payment is initialized.</p>
+    </div>` : '';
   // Refund UI for this order
   await loadRefundsFromSupabase();
   const existingRefunds = getOrderRefunds(o.dbId);
@@ -4588,6 +4639,7 @@ async function orderView(id) {
     <div class="card__head"><div><h3 class="mb-0">Order #${esc(o.id)}</h3><span class="muted small">Placed ${esc(placedAt)}</span></div>${customerOrderStatusBadge(o)}</div>
     <p class="muted small mb-0">🏪 ${esc(vnames)} · ${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider delivery'} · 📍 ${esc(o.spot || 'No delivery location')}${o.rider_name ? ` · 🛵 ${esc(o.rider_name)}` : ''}</p>
     ${o.request_type === 'vendor_request' ? vendorDeliveryStatusMessage(o, true) : ''}
+    ${vendorPromotionUi}
     <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>${o.request_type === 'vendor_request' ? (o.delivery_method === 'vendor_self' ? 'Delivery: Vendor self-delivery — no Dropzyy delivery fee' : 'Vendor delivery fee — ₦1,500 (paid by vendor)') : 'Delivery fee'}</span><span>${o.request_type === 'vendor_request' ? '' : money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
     <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
@@ -4675,8 +4727,32 @@ function forgotPassword() {
 // changing it requires Supabase auth email-change flows that are not part of
 // this app's auth architecture. state.user is refreshed after a successful
 // save. Loading / success / error states are shown.
+async function loadRewards() {
+  if (state.rewardsLoading || state.rewards || !state.user || typeof supabase === 'undefined' || !supabase) return;
+  state.rewardsLoading = true;
+  try {
+    const [{ data: code }, { data: ledger }, { data: referral }, { data: restorations }] = await Promise.all([
+      supabase.from('referral_codes').select('code').eq('user_id', state.user.id).maybeSingle(),
+      supabase.from('customer_credit_ledger').select('amount,remaining_amount,source_type,expires_at,status').eq('user_id', state.user.id),
+      supabase.from('referrals').select('status').eq('referrer_id', state.user.id),
+      supabase.from('promotion_restorations').select('amount_restored,promotion_type,source_type,restored_at').order('restored_at', { ascending: false }).limit(5)
+    ]);
+    const now = Date.now();
+    const availableRows = (ledger || []).filter(x => x.status === 'available' && (!x.expires_at || new Date(x.expires_at).getTime() > now));
+    const available = availableRows.reduce((n,x) => n + Number(x.remaining_amount ?? x.amount ?? 0), 0);
+    state.rewards = { code: code?.code || '', available, ledger: ledger || [], restorations: restorations || [], expiring: availableRows.filter(x=>x.expires_at).sort((a,b)=>new Date(a.expires_at)-new Date(b.expires_at)).slice(0,3), referred: (referral || []).length, successful: (referral || []).filter(x => x.status === 'rewarded').length };
+  } catch (err) { console.error('Rewards load failed:', err); state.rewards = { code:'', available:0, ledger:[], restorations:[], referred:0, successful:0 }; }
+  finally { state.rewardsLoading = false; render(); }
+}
+
+function referralCodeFromUrl() {
+  const code = new URLSearchParams(location.search).get('ref');
+  return code ? String(code).trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12) : '';
+}
+
 function profile() {
   if (!state.user) { redirectToLoginWithReturnRoute(); return ''; }
+  loadRewards();
   if (!state.refundRecipientLoaded) { loadRefundRecipient(); }
   if (!state.refundBanks.length) { loadRefundBanks(); }
   if (state.profileLoading) {
@@ -4698,7 +4774,7 @@ function profile() {
         <div class="field"><label>Hostel / Residence</label><input class="input" name="hostel" value="${esc(hostel)}" placeholder="e.g. Adams Hall"></div>
         <button class="btn btn--block" type="submit">Save changes</button>
       </form>
-      <div class="stack"><div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div><div class="card"><div class="card__head"><h3>Order alerts</h3></div><p class="muted small">Get important order updates on this device, including rider progress and unavailable-item decisions.</p><button class="btn btn--soft btn--sm" data-enable-push>Enable device alerts</button></div><div class="card"><div class="card__head"><h3>Refund Bank Account</h3><span class="badge badge--${state.refundRecipient?.recipient_status === 'verified' ? 'success' : 'warn'}">${state.refundRecipient?.recipient_status === 'verified' ? 'Verified' : 'Not set up'}</span></div>${state.refundRecipient?.recipient_status === 'verified' ? `<p class="small">${esc(state.refundRecipient.bank_name || 'Nigerian bank')} · ${esc(state.refundRecipient.account_name || '')}</p><p class="muted small">••••••${esc(state.refundRecipient.account_number_last4 || '')}</p>` : '<p class="muted small">Set up a verified destination for future reimbursements.</p>'}<form id="refundRecipientForm" class="stack mt-1"><select class="input" name="bank_code" required><option value="">Select bank</option>${state.refundBanks.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select><input class="input" name="account_number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit account number" required><button class="btn btn--block" type="submit">Verify refund account</button></form></div></div>
+      <div class="stack"><div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div><div class="card"><div class="card__head"><h3>Rewards & referrals</h3></div><p><b>${money(state.rewards?.available || 0)}</b> Dropzyy credit available</p><p class="muted small mb-0">Use credit for delivery fees only. Credit expires independently after 60 days and cannot be withdrawn.</p>${(state.rewards?.restorations || []).map(x=>`<p class="small mb-0 mt-1">${money(x.amount_restored)} ${x.promotion_type === 'coupon' ? 'coupon use reversed' : 'credit restored'} from a refunded order</p>`).join('')}<p class="small mt-1 mb-0">Your referral code: <b>${esc(state.rewards?.code || 'Loading…')}</b></p>${state.rewards?.code ? `<p class="muted small mb-0">Invite link: ${esc(location.origin + '/?ref=' + state.rewards.code)}</p><p class="muted small mb-0">Friends referred: ${state.rewards.referred} · Successful: ${state.rewards.successful}</p>` : ''}</div><div class="card"><div class="card__head"><h3>Order alerts</h3></div><p class="muted small">Get important order updates on this device, including rider progress and unavailable-item decisions.</p><button class="btn btn--soft btn--sm" data-enable-push>Enable device alerts</button></div><div class="card"><div class="card__head"><h3>Refund Bank Account</h3><span class="badge badge--${state.refundRecipient?.recipient_status === 'verified' ? 'success' : 'warn'}">${state.refundRecipient?.recipient_status === 'verified' ? 'Verified' : 'Not set up'}</span></div>${state.refundRecipient?.recipient_status === 'verified' ? `<p class="small">${esc(state.refundRecipient.bank_name || 'Nigerian bank')} · ${esc(state.refundRecipient.account_name || '')}</p><p class="muted small">••••••${esc(state.refundRecipient.account_number_last4 || '')}</p>` : '<p class="muted small">Set up a verified destination for future reimbursements.</p>'}<form id="refundRecipientForm" class="stack mt-1"><select class="input" name="bank_code" required><option value="">Select bank</option>${state.refundBanks.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select><input class="input" name="account_number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit account number" required><button class="btn btn--block" type="submit">Verify refund account</button></form></div></div>
     </div>
   </section>`;
 }
@@ -6279,6 +6355,52 @@ document.addEventListener('click', async e=>{
   const replacementPay=e.target.closest('[data-replacement-pay]'); if(replacementPay){
     startPaystackCheckout(replacementPay.dataset.replacementPay,replacementPay,'Redirecting to Paystack…','replacement');
   }
+  const applyDeliveryPromotion = e.target.closest('[data-apply-delivery-promotion]'); if (applyDeliveryPromotion) {
+    e.preventDefault();
+    const orderId = applyDeliveryPromotion.dataset.applyDeliveryPromotion;
+    const mode = applyDeliveryPromotion.dataset.mode;
+    const card = applyDeliveryPromotion.closest('[data-vendor-promotion]');
+    const codeInput = card?.querySelector('[data-promotion-code]');
+    if (!orderId || !['credit','coupon'].includes(mode) || (mode === 'coupon' && !String(codeInput?.value || '').trim())) {
+      toast(mode === 'coupon' ? 'Enter a coupon code first' : 'No promotional credit is available', 'info');
+      return;
+    }
+    applyDeliveryPromotion.disabled = true;
+    try {
+      const { error } = await supabase.rpc('replace_delivery_promotion', {
+        p_order_id: orderId,
+        p_mode: mode,
+        p_coupon_code: mode === 'coupon' ? String(codeInput.value || '').trim() : null
+      });
+      if (error) throw error;
+      await refreshEnrichedOrder(orderId, 'delivery-promotion');
+      state.rewards = null;
+      await loadRewards();
+      toast('Delivery promotion applied', 'success');
+    } catch (err) {
+      toast(err?.message || 'Promotion could not be applied', 'error');
+    } finally {
+      render();
+    }
+    return;
+  }
+  const removeDeliveryPromotion = e.target.closest('[data-remove-delivery-promotion]'); if (removeDeliveryPromotion) {
+    e.preventDefault();
+    removeDeliveryPromotion.disabled = true;
+    try {
+      const { error } = await supabase.rpc('release_my_delivery_promotion', { p_order_id: removeDeliveryPromotion.dataset.removeDeliveryPromotion });
+      if (error) throw error;
+      await refreshEnrichedOrder(removeDeliveryPromotion.dataset.removeDeliveryPromotion, 'delivery-promotion-release');
+      state.rewards = null;
+      await loadRewards();
+      toast('Delivery promotion removed', 'info');
+    } catch (err) {
+      toast(err?.message || 'Promotion could not be removed', 'error');
+    } finally {
+      render();
+    }
+    return;
+  }
   const confirmProducts=e.target.closest('[data-confirm-products]'); if(confirmProducts){
     if(typeof supabase==='undefined' || !supabase) return;
     const orderId=confirmProducts.dataset.confirmProducts; confirmProducts.disabled=true;
@@ -6680,6 +6802,13 @@ document.addEventListener('submit', e=>{
           order.user_id = userId;
           const saved = await saveOrderToSupabase(order);
           if (saved) {
+            const promotionMode = String(f.get('promotionMode') || '');
+            const couponCode = String(f.get('couponCode') || '').trim();
+            if (promotionMode) {
+              const { data: promotion, error: promotionError } = await supabase.rpc('replace_delivery_promotion', { p_order_id: order.dbId, p_mode: promotionMode, p_coupon_code: promotionMode === 'coupon' ? couponCode : null });
+              if (promotionError) { toast(promotionError.message || 'Promotion could not be applied', 'error'); state.checkoutSubmitting = false; return; }
+              if (promotion) { order.total = Number(promotion.total); order.fee = Number(saved.fee) - Number(promotion.discount || 0); }
+            }
             anySuccess = true;
             if (!firstOrderId) firstOrderId = order.id;
             state.orders.unshift(order);
@@ -6928,7 +7057,7 @@ function clearPrivateAuthState() {
   state.riderErrors = {}; state.riderSubmitting = {}; state.ratingSubmitting = {};
   state.refundSuccessNotice = null; state.reportSuccess = null;
   resetVendorSessionState();
-  clearRiderOrdersSubscription(); clearCustomerRefundsSubscription(); clearTrackSubscription();
+  clearRiderOrdersSubscription(); clearCustomerRefundsSubscription(); clearCustomerRewardsSubscription(); clearTrackSubscription();
   if (previous.notificationsChannel) {
     supabase.removeChannel(previous.notificationsChannel).catch(() => {});
     state.notificationsChannel = null;
@@ -6938,10 +7067,12 @@ function clearPrivateAuthState() {
 }
 async function syncAuthenticatedUser(session) {
   const user = session.user;
+  let newCustomerProfile = false;
   let { data: profile, error } = await supabase.from('profiles')
     .select('full_name, role, vendor_id, account_status').eq('id', user.id).maybeSingle();
   if (error) throw error; // Never mistake a failed query for a missing profile.
   if (!profile) {
+    newCustomerProfile = true;
     const md = user.user_metadata || {};
     const result = await supabase.from('profiles').insert({
       id: user.id, email: user.email, full_name: md.full_name || '',
@@ -6953,6 +7084,12 @@ async function syncAuthenticatedUser(session) {
     profile = fetched.data;
   }
   if (!profile) throw new Error('Profile unavailable');
+  const referralCodeResult = await supabase.rpc('ensure_referral_code');
+  if (referralCodeResult.error) console.error('Referral code provisioning failed:', referralCodeResult.error);
+  if (newCustomerProfile && profile.role === 'user') {
+    const reward = await supabase.rpc('issue_customer_signup_reward', { p_referral_code: referralCodeFromUrl() || null });
+    if (reward.error) console.error('Signup reward issuance failed:', reward.error);
+  }
   return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
     email: user.email, role: profile.role, vendor_id: profile.vendor_id || null, account_status: profile.account_status || 'active' };
 }
@@ -7006,7 +7143,7 @@ const authLifecycle = createAuthLifecycle({
     Promise.all([initialBootCatalog, loadRiderFromSupabase(), loadOrdersFromSupabase(),
       loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
       if (ticket !== authLifecycle.generation) return;
-      subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime(); subscribeCustomerRefundsRealtime();
+subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime(); subscribeCustomerRefundsRealtime(); subscribeCustomerRewardsRealtime();
       render();
       handlePaystackReturn().catch(() => {
         if (ticket === authLifecycle.generation) toast('Payment verification is temporarily unavailable.', 'error');

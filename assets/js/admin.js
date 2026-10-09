@@ -60,6 +60,7 @@ let state = {
   automaticCutoffClaimsLoading: false,
   automaticCutoffClaimsError: null,
   adminMetrics: null
+  ,coupons: [], couponsLoading: false, couponsError: null
   ,mfa: { factors: [], aal: null, enrollment: null, challenge: null, factorId: null, challengeRequired: false, loading: false, error: null }
 };
 
@@ -1272,6 +1273,7 @@ function adminSidebar() {
   // The navigation is intentionally broader than the underlying data loaders.
   // Related views reuse the existing, audited management workflows below.
   const sections = [
+    { key: 'coupons', label: 'Coupons', icon: '%', group: 'Finance' },
     { key: 'dashboard', label: 'Dashboard', icon: '⌂', group: 'Overview' },
     { key: 'financial', label: 'Financial Resolution', icon: '⚖', group: 'Overview' },
     { key: 'orders', label: 'Orders', icon: '▤', group: 'Operations' },
@@ -1447,8 +1449,20 @@ function renderFinanceWorkspace(kind) {
   const statuses = [...new Set(source.map(r => r.status).filter(Boolean))];
   return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">${title}</h1><p class="muted">Server-authoritative financial records. No browser-side success marking.</p></div><button class="btn btn--ghost btn--sm" data-finance-refresh>Refresh</button></div><div class="card"><div class="admin-filters"><input class="input" data-finance-search placeholder="Search records" value="${escHtml(financeFilter.query)}"><select class="select" data-finance-status><option value="all">All statuses</option>${statuses.map(s => `<option value="${escHtml(s)}" ${financeFilter.status === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('')}</select></div><div class="table-wrap"><table class="table"><thead><tr>${cells.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div><div class="admin-filters"><span class="muted small">${rows.length} records · page ${financeFilter.page} of ${pages}</span><div><button class="btn btn--ghost btn--sm" data-finance-page="prev" ${financeFilter.page <= 1 ? 'disabled' : ''}>Previous</button> <button class="btn btn--ghost btn--sm" data-finance-page="next" ${financeFilter.page >= pages ? 'disabled' : ''}>Next</button></div></div></div>${kind === 'payments' && state.paymentsError ? `<p class="orders-error">${escHtml(state.paymentsError)}</p>` : ''}`;
 }
+function renderCouponsWorkspace() {
+  const rows = state.coupons || [];
+  return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Coupons</h1><p class="muted">Delivery-only promotions. Financial mutations require AAL2.</p></div></div><form id="adminCouponForm" class="card stack"><input type="hidden" name="coupon_id"><div class="form-grid"><input class="input" name="code" placeholder="Coupon code" required><select class="select" name="type"><option value="fixed">Fixed</option><option value="percentage">Percentage</option></select><input class="input" name="value" type="number" min="0.01" step="0.01" placeholder="Value" required><input class="input" name="starts_at" type="datetime-local"><input class="input" name="expires_at" type="datetime-local"><input class="input" name="usage_limit" type="number" min="1" placeholder="Total usage limit"><input class="input" name="per_user_limit" type="number" min="1" value="1" placeholder="Per-user limit"><label><input type="checkbox" name="first_order_only"> First order only</label><label><input type="checkbox" name="active" checked> Active</label></div><div class="row row--wrap gap-1"><button class="btn" type="submit" data-coupon-submit>Create coupon</button><button class="btn btn--ghost" type="button" data-coupon-cancel hidden>Cancel edit</button></div></form><div class="card mt-2"><div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Active</th><th>Start</th><th>Expiry</th><th>Per-user</th><th>First order</th><th>Finalized</th><th>Reserved</th><th>Remaining</th><th></th></tr></thead><tbody>${rows.map(c=>`<tr><td>${escHtml(c.code)}</td><td>${escHtml(c.coupon_type)}</td><td>${escHtml(String(c.value))}</td><td>${c.active?'Active':'Inactive'}</td><td>${formatDate(c.starts_at)}</td><td>${formatDate(c.expires_at)}</td><td>${c.per_user_limit || 1}</td><td>${c.first_order_only?'Yes':'No'}</td><td>${c.finalized_usage||0}</td><td>${c.reserved_usage||0}</td><td>${c.remaining_usage==null?'Unlimited':c.remaining_usage}</td><td><button class="link-btn" data-coupon-edit="${c.coupon_id}">Edit</button> · <button class="link-btn" data-coupon-toggle="${c.coupon_id}" data-active="${c.active?'false':'true'}">${c.active?'Deactivate':'Activate'}</button></td></tr>`).join('')||'<tr><td colspan="12" class="muted center">No coupons found.</td></tr>'}</tbody></table></div></div>`;
+}
+
+async function loadCoupons() {
+  state.couponsLoading = true;
+  const { data, error } = await supabase.rpc('admin_coupon_usage');
+  state.coupons = error ? [] : (data || []); state.couponsError = error?.message || null; state.couponsLoading = false; state.couponsLoaded = true;
+}
+
 function renderAdminWorkspace() {
   if (!state.isAuthenticated) { renderLogin(); return; }
+  if (adminSection === 'coupons' && !state.couponsLoaded && !state.couponsLoading) { loadCoupons().then(() => renderAdminWorkspace()); return; }
   const vendors = state.catalog ? state.catalog.vendors : [];
   const products = state.catalog ? state.catalog.products : [];
   const orders = state.orders;
@@ -1472,7 +1486,8 @@ function renderAdminWorkspace() {
   // ---- Render ONLY the active section ----
   const shared = { vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue: authoritativeOrderValue, filteredOrders };
   let view;
-  if (adminSection === 'dashboard') view = renderDashboardSection(shared);
+  if (adminSection === 'coupons') view = renderCouponsWorkspace();
+  else if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
   else if (adminSection === 'deliveries') view = renderDeliveriesSection(shared);
   else if (adminSection === 'users') view = renderUsersWorkspace(shared);
@@ -2630,6 +2645,22 @@ function showAdminSupportDetail(title, record) {
 }
 
 function attachAdminEventListeners() {
+  document.getElementById('adminCouponForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); if (!await ensureAdminAal2()) return;
+    const f = new FormData(e.currentTarget); const type=String(f.get('type')); const value=Number(f.get('value')); const couponId=String(f.get('coupon_id')||'');
+    const params = { p_type:type, p_value:value, p_starts_at:f.get('starts_at')||null, p_expires_at:f.get('expires_at')||null, p_usage_limit:f.get('usage_limit')?Number(f.get('usage_limit')):null, p_per_user_limit:Number(f.get('per_user_limit')||1), p_first_order_only:f.get('first_order_only')==='on', p_active:f.get('active')==='on' };
+    const result = couponId
+      ? await supabase.rpc('admin_update_coupon', { p_coupon_id:couponId, ...params })
+      : await supabase.rpc('admin_create_coupon', { p_code:String(f.get('code')), p_type:type, p_value:value, p_starts_at:params.p_starts_at, p_expires_at:params.p_expires_at, p_usage_limit:params.p_usage_limit, p_per_user_limit:params.p_per_user_limit, p_first_order_only:params.p_first_order_only });
+    if(result.error) toast(adminMfaMessage(result.error.message),'error'); else { toast(couponId ? 'Coupon updated' : 'Coupon created'); state.couponsLoaded=false; renderAdminWorkspace(); }
+  });
+  document.querySelectorAll('[data-coupon-edit]').forEach(btn=>btn.addEventListener('click',()=>{
+    const c=state.coupons.find(row=>String(row.coupon_id)===String(btn.dataset.couponEdit)); const form=document.getElementById('adminCouponForm'); if(!c||!form)return;
+    const set=(name,value)=>{const el=form.elements[name];if(el)el.value=value==null?'':String(value);};
+    set('coupon_id',c.coupon_id); set('code',c.code); set('type',c.coupon_type); set('value',c.value); set('starts_at',c.starts_at ? String(c.starts_at).slice(0,16) : ''); set('expires_at',c.expires_at ? String(c.expires_at).slice(0,16) : ''); set('usage_limit',c.usage_limit); set('per_user_limit',c.per_user_limit||1); form.elements.first_order_only.checked=Boolean(c.first_order_only); form.elements.active.checked=Boolean(c.active); form.elements.code.readOnly=true; form.querySelector('[data-coupon-submit]').textContent='Save coupon'; form.querySelector('[data-coupon-cancel]').hidden=false; form.scrollIntoView({behavior:'smooth',block:'start'});
+  }));
+  document.querySelector('[data-coupon-cancel]')?.addEventListener('click',()=>{const form=document.getElementById('adminCouponForm');if(!form)return;form.reset();form.elements.coupon_id.value='';form.elements.code.readOnly=false;form.elements.per_user_limit.value='1';form.querySelector('[data-coupon-submit]').textContent='Create coupon';form.querySelector('[data-coupon-cancel]').hidden=true;});
+  document.querySelectorAll('[data-coupon-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{ if(!await ensureAdminAal2())return; const {error}=await supabase.rpc('admin_set_coupon_active',{p_coupon_id:btn.dataset.couponToggle,p_active:btn.dataset.active==='true'}); if(error)toast(adminMfaMessage(error.message),'error');else{state.couponsLoaded=false;renderAdminWorkspace();} }));
   document.querySelector('[data-error-refresh]')?.addEventListener('click',async()=>{await loadErrorLogsFromSupabase();renderAdminWorkspace();});
   document.querySelectorAll('[data-error-detail]').forEach(b=>b.addEventListener('click',()=>showErrorLogDetail(b.dataset.errorDetail)));
   document.querySelectorAll('[data-copy-error]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(b.dataset.copyError).then(()=>toast('Error reference copied'))));
