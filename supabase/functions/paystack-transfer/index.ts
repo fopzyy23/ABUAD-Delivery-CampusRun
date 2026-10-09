@@ -123,12 +123,59 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (isCustomer && (typeof purchaseOrderId !== "string" || withdrawalId !== undefined || body.transfer_id !== undefined)) {
       return json(req, 400, { error: "Customers must submit only order_id for cancellation reimbursement" });
     }
+    let allItemsUnavailable = false;
     if (isApprovedRider && typeof purchaseOrderId === "string") {
       const { data: fundingId, error: confirmErr } = await userClient.rpc("confirm_order_products", { p_order_id: purchaseOrderId });
-      if (confirmErr || !fundingId) return json(req, 409, { error: "Products are not eligible for purchase funding" });
-      const { data: created, error: createErr } = await supabase.rpc("create_pending_purchase_funding_transfer", { p_purchase_funding_id: fundingId });
-      if (createErr || !created) return json(req, 409, { error: "Purchase funding transfer could not be prepared" });
-      transferId = created;
+      if (confirmErr) return json(req, 409, { error: "Products are not eligible for purchase funding" });
+      // An order whose final basket is empty is resolved without purchase
+      // funding. It must never reach the transfer preparation or Paystack
+      // execution path with a zero amount.
+      if (!fundingId) {
+        const { data: resolvedOrder, error: resolvedOrderError } = await userClient
+          .from("orders")
+          .select("id, status, product_availability_status, purchase_funding_status, cancellation_stage")
+          .eq("id", purchaseOrderId)
+          .maybeSingle();
+        if (
+          resolvedOrderError ||
+          !resolvedOrder ||
+          resolvedOrder.product_availability_status !== "confirmed" ||
+          resolvedOrder.purchase_funding_status !== "not_required"
+        ) {
+          return json(req, 409, { error: "Products are not eligible for purchase funding" });
+        }
+        if (resolvedOrder.status === "Cancelled"
+            && ["eligible_for_reimbursement", "reimbursement_pending", "reimbursement_processing", "reimbursement_failed", "reimbursement_reversed"].includes(resolvedOrder.cancellation_stage)) {
+          const { data: cancellation, error: cancellationError } = await supabase
+            .from("cancellations")
+            .select("id")
+            .eq("order_id", purchaseOrderId)
+            .maybeSingle();
+          if (cancellationError || !cancellation?.id) {
+            return json(req, 409, { error: "Customer reimbursement could not be prepared" });
+          }
+          const { data: reimbursementTransferId, error: reimbursementError } = await supabase.rpc(
+            "create_pending_customer_reimbursement_transfer",
+            { p_cancellation_id: cancellation.id },
+          );
+          if (reimbursementError || !reimbursementTransferId) {
+            return json(req, 409, { error: "Customer reimbursement could not be prepared" });
+          }
+          transferId = reimbursementTransferId;
+          allItemsUnavailable = true;
+        } else {
+          return json(req, 200, {
+            order_id: purchaseOrderId,
+            status: "no_funding_required",
+            message: "Final products resolved; no purchase funding is required",
+          });
+        }
+      }
+      if (fundingId) {
+        const { data: created, error: createErr } = await supabase.rpc("create_pending_purchase_funding_transfer", { p_purchase_funding_id: fundingId });
+        if (createErr || !created) return json(req, 409, { error: "Purchase funding transfer could not be prepared" });
+        transferId = created;
+      }
     }
     if (isCustomer && typeof purchaseOrderId === "string") {
       const { data: cancellation, error: cancelErr } = await userClient.rpc("request_customer_cancellation", { p_order_id: purchaseOrderId, p_reason: "Customer requested cancellation" });
@@ -183,10 +230,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       transfer_id: result.transfer_id,
       status: result.status,
       reference: result.reference,
+      ...(allItemsUnavailable ? { flow: "all_items_unavailable" } : {}),
     });
     if (result.kind === "completed") return json(req, 200, {
       transfer_id: result.transfer_id,
       status: result.status,
+      ...(allItemsUnavailable ? { flow: "all_items_unavailable" } : {}),
     });
     if (result.kind === "processing") return json(req, 409, {
       transfer_id: result.transfer_id,

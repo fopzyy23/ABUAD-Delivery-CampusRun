@@ -7,7 +7,7 @@ import { corsHeaders, json, handleOptions } from "../_shared/http.ts";
 
 const MAX_BODY_BYTES = 16 * 1024;
 
-async function fingerprint(operation: string, items: unknown[], spot: string): Promise<string> {
+async function fingerprint(operation: string, items: unknown[], spot: string, packagingQuantity: number): Promise<string> {
   const normalized = items.map((item) => {
     if (!item || typeof item !== "object") throw new Error("invalid item");
     const value = item as Record<string, unknown>;
@@ -16,7 +16,7 @@ async function fingerprint(operation: string, items: unknown[], spot: string): P
     if (!id || !Number.isInteger(qty) || qty < 1 || qty > 99) throw new Error("invalid item");
     return { id, qty };
   }).sort((a, b) => a.id.localeCompare(b.id) || a.qty - b.qty);
-  const canonical = JSON.stringify({ operation, items: normalized, spot: spot.trim() });
+  const canonical = JSON.stringify({ operation, items: normalized, spot: spot.trim(), packaging_quantity: packagingQuantity });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   const { data: { user }, error: authError } = await admin.auth.getUser(jwt);
   if (authError || !user) return json(req, 401, { error: "Invalid or expired token" });
 
-  let body: { items?: unknown; spot?: unknown; vendor_request?: unknown; idempotency_key?: unknown };
+  let body: { items?: unknown; spot?: unknown; vendor_request?: unknown; idempotency_key?: unknown; packaging_quantity?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -61,6 +61,10 @@ Deno.serve(async (req) => {
   }
   if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_BODY_BYTES) return json(req, 413, { error: "Request body too large" });
   if (!Array.isArray(body.items) || typeof body.spot !== "string") return json(req, 400, { error: "items and spot are required" });
+  const packagingQuantity = body.vendor_request === true ? 0 : Number(body.packaging_quantity ?? 1);
+  if (!Number.isInteger(packagingQuantity) || packagingQuantity < 0 || packagingQuantity > 10) {
+    return json(req, 400, { error: "packaging_quantity must be an integer between 0 and 10" });
+  }
   const requestKey = typeof body.idempotency_key === "string" ? body.idempotency_key : "";
   if (requestKey.length < 16 || requestKey.length > 256) return json(req, 400, { error: "idempotency_key is required" });
 
@@ -71,7 +75,7 @@ Deno.serve(async (req) => {
     : "place_order";
   let requestFingerprint: string;
   try {
-    requestFingerprint = await fingerprint(operation, body.items, body.spot);
+    requestFingerprint = await fingerprint(operation, body.items, body.spot, packagingQuantity);
   } catch {
     return json(req, 400, { error: "Invalid order request" });
   }
@@ -135,6 +139,7 @@ Deno.serve(async (req) => {
     p_spot: body.spot,
     p_attempt_id: attemptId,
     p_request_fingerprint: requestFingerprint,
+    ...(body.vendor_request === true ? {} : { p_packaging_quantity: packagingQuantity }),
   });
   if (orderError) {
     logStep(rpcName, "failure", orderError);
