@@ -25,7 +25,12 @@ Deno.serve(async (req) => {
   const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
   const logStep = (stage: string, outcome: "success" | "failure", error?: unknown) => {
     const details = error && typeof error === "object"
-      ? { error_code: typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "rpc_error" }
+      ? {
+        error_code: typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "rpc_error",
+        error_message: typeof (error as { message?: unknown }).message === "string"
+          ? (error as { message: string }).message.slice(0, 500)
+          : "unknown RPC error",
+      }
       : {};
     console.log(JSON.stringify({
       event: "order_admission",

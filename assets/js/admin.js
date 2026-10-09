@@ -1000,10 +1000,8 @@ async function init() {
     renderLogin();
     return false;
   }
-  if (state.mfa.challengeRequired) {
-    renderAdminMfaChallenge();
-    return true;
-  }
+  // AAL1 admins may view every workspace, including Coupon Center. MFA is
+  // enforced at mutation boundaries below; it must not hide read-only admin UI.
   await refreshAdminMfa();
   if (state !== currentAdminState()) return false;
   // Load catalog, orders, riders, and assignable users only once (lazy load on
@@ -1273,7 +1271,7 @@ function adminSidebar() {
   // The navigation is intentionally broader than the underlying data loaders.
   // Related views reuse the existing, audited management workflows below.
   const sections = [
-    { key: 'coupons', label: 'Coupons', icon: '%', group: 'Finance' },
+    { key: 'coupons', label: 'Coupon Center', icon: '%', group: 'Finance' },
     { key: 'dashboard', label: 'Dashboard', icon: '⌂', group: 'Overview' },
     { key: 'financial', label: 'Financial Resolution', icon: '⚖', group: 'Overview' },
     { key: 'orders', label: 'Orders', icon: '▤', group: 'Operations' },
@@ -1451,7 +1449,7 @@ function renderFinanceWorkspace(kind) {
 }
 function renderCouponsWorkspace() {
   const rows = state.coupons || [];
-  return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Coupons</h1><p class="muted">Delivery-only promotions. Financial mutations require AAL2.</p></div></div><form id="adminCouponForm" class="card stack"><input type="hidden" name="coupon_id"><div class="form-grid"><input class="input" name="code" placeholder="Coupon code" required><select class="select" name="type"><option value="fixed">Fixed</option><option value="percentage">Percentage</option></select><input class="input" name="value" type="number" min="0.01" step="0.01" placeholder="Value" required><input class="input" name="starts_at" type="datetime-local"><input class="input" name="expires_at" type="datetime-local"><input class="input" name="usage_limit" type="number" min="1" placeholder="Total usage limit"><input class="input" name="per_user_limit" type="number" min="1" value="1" placeholder="Per-user limit"><label><input type="checkbox" name="first_order_only"> First order only</label><label><input type="checkbox" name="active" checked> Active</label></div><div class="row row--wrap gap-1"><button class="btn" type="submit" data-coupon-submit>Create coupon</button><button class="btn btn--ghost" type="button" data-coupon-cancel hidden>Cancel edit</button></div></form><div class="card mt-2"><div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Active</th><th>Start</th><th>Expiry</th><th>Per-user</th><th>First order</th><th>Finalized</th><th>Reserved</th><th>Remaining</th><th></th></tr></thead><tbody>${rows.map(c=>`<tr><td>${escHtml(c.code)}</td><td>${escHtml(c.coupon_type)}</td><td>${escHtml(String(c.value))}</td><td>${c.active?'Active':'Inactive'}</td><td>${formatDate(c.starts_at)}</td><td>${formatDate(c.expires_at)}</td><td>${c.per_user_limit || 1}</td><td>${c.first_order_only?'Yes':'No'}</td><td>${c.finalized_usage||0}</td><td>${c.reserved_usage||0}</td><td>${c.remaining_usage==null?'Unlimited':c.remaining_usage}</td><td><button class="link-btn" data-coupon-edit="${c.coupon_id}">Edit</button> · <button class="link-btn" data-coupon-toggle="${c.coupon_id}" data-active="${c.active?'false':'true'}">${c.active?'Deactivate':'Activate'}</button></td></tr>`).join('')||'<tr><td colspan="12" class="muted center">No coupons found.</td></tr>'}</tbody></table></div></div>`;
+  return `<div class="page-head"><div><span class="badge badge--brand">Finance</span><h1 class="mt-1">Coupon Center</h1><p class="muted">Delivery-only promotions. Viewing is available to admins; create, update, and activation changes require AAL2/MFA.</p></div></div><form id="adminCouponForm" class="card stack"><input type="hidden" name="coupon_id"><div class="form-grid"><input class="input" name="code" placeholder="Coupon code" required><select class="select" name="type"><option value="fixed">Fixed</option><option value="percentage">Percentage</option></select><input class="input" name="value" type="number" min="0.01" step="0.01" placeholder="Value" required><input class="input" name="starts_at" type="datetime-local"><input class="input" name="expires_at" type="datetime-local"><input class="input" name="usage_limit" type="number" min="1" placeholder="Total usage limit"><input class="input" name="per_user_limit" type="number" min="1" value="1" placeholder="Per-user limit"><label><input type="checkbox" name="first_order_only"> First order only</label><label><input type="checkbox" name="active" checked> Active</label></div><div class="row row--wrap gap-1"><button class="btn" type="submit" data-coupon-submit>Create coupon</button><button class="btn btn--ghost" type="button" data-coupon-cancel hidden>Cancel edit</button></div></form><div class="card mt-2"><div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th>Type</th><th>Value</th><th>Active</th><th>Start</th><th>Expiry</th><th>Per-user</th><th>First order</th><th>Finalized</th><th>Reserved</th><th>Remaining</th><th></th></tr></thead><tbody>${rows.map(c=>`<tr><td>${escHtml(c.code)}</td><td>${escHtml(c.coupon_type)}</td><td>${escHtml(String(c.value))}</td><td>${c.active?'Active':'Inactive'}</td><td>${formatDate(c.starts_at)}</td><td>${formatDate(c.expires_at)}</td><td>${c.per_user_limit || 1}</td><td>${c.first_order_only?'Yes':'No'}</td><td>${c.finalized_usage||0}</td><td>${c.reserved_usage||0}</td><td>${c.remaining_usage==null?'Unlimited':c.remaining_usage}</td><td><button class="link-btn" data-coupon-edit="${c.coupon_id}">Edit</button> · <button class="link-btn" data-coupon-toggle="${c.coupon_id}" data-active="${c.active?'false':'true'}">${c.active?'Deactivate':'Activate'}</button></td></tr>`).join('')||'<tr><td colspan="12" class="muted center">No coupons found.</td></tr>'}</tbody></table></div></div>`;
 }
 
 async function loadCoupons() {
