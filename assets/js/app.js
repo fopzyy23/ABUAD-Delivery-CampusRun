@@ -214,10 +214,57 @@ function allowedCatalog() {
   return catalog;
 }
 let state = { cart: load('cart', []), orders: [], user: null, notifications: load('notifications', [{ title: 'Welcome to Dropzyy', body: 'Order campus essentials and track every step.', time: 'Just now', unread: true }]), notificationsLoading: false, notificationsError: false, notificationsChannel: null, catalog: catalogProducts(load('catalog_v3', clone(SEED_DATA))), rider: null, riderPool: [], riderErrors: {}, riderSubmitting: {}, riderStatusError: null, ratingSubmitting: {}, ratingCompleteOrder: null, vendorOrders: [], vendorProducts: [], withdrawals: [], withdrawalsLoaded: false, withdrawalsError: null, withdrawalSubmitting: false, vendorLoaded: false, vendorLoadError: null, riderLoaded: false, ordersLoadError: false, catalogLoadError: false, riderLoadError: false, refunds: [], refundsLoaded: false, refundSubmitting: false, refundSuccessNotice: null, reportSubmitting: false, reportSuccess: null, checkoutSubmitting: false, riderEarnings: null, riderBalance: null, refundRecipient: null, refundRecipientLoaded: false, refundBanks: [], vendorProductSubmitting: false };
+let customerRefundsChannel = null;
 const initialPrivateState = structuredClone({ ...state, notifications: [] });
 function currentAppState() { return state; }
 const riderLoadPromises = new Map();
 const ordersLoadPromises = new Map();
+const orderRefreshGenerations = new Map();
+let ordersLoadSequence = 0;
+
+function nextOrderRefreshGeneration(dbId) {
+  const next = (orderRefreshGenerations.get(String(dbId)) || 0) + 1;
+  orderRefreshGenerations.set(String(dbId), next);
+  return next;
+}
+
+function isCurrentOrderRefresh(dbId, generation) {
+  return orderRefreshGenerations.get(String(dbId)) === generation;
+}
+
+function deliveryStatusIsMonotonic(prev, next) {
+  const stages = ['Rider assigned', 'Picked up', 'On the Way', 'Delivered', 'Rated'];
+  return stages.includes(prev) && stages.includes(next) && trackStatusAcceptable(prev, next);
+}
+
+function mergeOrderFreshness(previous, incoming) {
+  if (!previous || !incoming) return incoming || previous;
+  if (deliveryStatusIsMonotonic(previous.status, incoming.status)) {
+    return { ...incoming, status: previous.status };
+  }
+  return incoming;
+}
+
+function synchronizeOrderInState(order) {
+  if (!order?.dbId) return order;
+  const current = currentAppState();
+  const previous = [...current.orders, ...current.riderPool].find(item => item.dbId === order.dbId);
+  const canonical = mergeOrderFreshness(previous, order);
+  current.orders = current.orders.map(item => item.dbId === canonical.dbId ? canonical : item);
+  current.riderPool = current.riderPool.map(item => item.dbId === canonical.dbId ? canonical : item);
+  return canonical;
+}
+
+async function refreshEnrichedOrder(dbId, reason = 'order-refresh') {
+  if (!dbId) return null;
+  const generation = nextOrderRefreshGeneration(dbId);
+  const loaded = await loadOrdersFromSupabase();
+  if (!loaded || !isCurrentOrderRefresh(dbId, generation)) return null;
+  const current = currentAppState();
+  const fresh = [...current.orders, ...current.riderPool].find(item => item.dbId === dbId);
+  if (!fresh) return null;
+  return synchronizeOrderInState(fresh);
+}
 
 // ============================================================
 // Targeted state update helpers
@@ -1038,7 +1085,8 @@ async function loadOrdersFromSupabase() {
     const userId = session.user.id;
     const existing = ordersLoadPromises.get(userId);
     if (existing) return existing;
-    const loadPromise = loadOrdersForUser(userId);
+    const loadSequence = ++ordersLoadSequence;
+    const loadPromise = loadOrdersForUser(userId, loadSequence);
     ordersLoadPromises.set(userId, loadPromise);
     loadPromise.finally(() => {
       if (ordersLoadPromises.get(userId) === loadPromise) ordersLoadPromises.delete(userId);
@@ -1052,7 +1100,7 @@ async function loadOrdersFromSupabase() {
   }
 }
 
-async function loadOrdersForUser(userId) {
+async function loadOrdersForUser(userId, loadSequence) {
   const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase) {
     console.error('Supabase client is missing — using localStorage orders fallback');
@@ -1182,6 +1230,7 @@ async function loadOrdersForUser(userId) {
       purchase_funding_status: o.purchase_funding_status || 'not_required',
       cancellation_stage: o.cancellation_stage || 'none',
       additional_amount_due: o.additional_amount_due || 0,
+      overpaid_amount: o.overpaid_amount || 0,
       final_financial_status: o.final_financial_status || null,
       notes: (notesByOrder && notesByOrder[o.id]) || [],
       rider_id: o.rider_id || null,
@@ -1299,10 +1348,16 @@ async function loadOrdersForUser(userId) {
     //    place_order RPC and are included in this Supabase result.
     sessionIsCurrent = await isCurrentAuthenticatedUser(userId);
     if (!sessionIsCurrent || state !== currentAppState()) return false;
+    if (loadSequence !== ordersLoadSequence) return false;
     const nextRiderPool = poolOrders;
     const nextOrders = sortOrdersNewestFirst(supabaseOrders);
-    state.riderPool = nextRiderPool;
-    state.orders = nextOrders;
+    const previous = new Map([...state.orders, ...state.riderPool].map(order => [order.dbId, order]));
+    const canonical = new Map();
+    [...nextOrders, ...nextRiderPool].forEach(order => {
+      if (!canonical.has(order.dbId)) canonical.set(order.dbId, mergeOrderFreshness(previous.get(order.dbId), order));
+    });
+    state.riderPool = nextRiderPool.map(order => canonical.get(order.dbId) || order);
+    state.orders = nextOrders.map(order => canonical.get(order.dbId) || order);
     state.ordersLoadedFromSupabase = true;
     return true;
   } catch (err) {
@@ -1344,7 +1399,7 @@ async function loadRefundsFromSupabase() {
     }
     const { data, error } = await supabase
       .from('refunds')
-      .select('id, order_id, amount, status, reason, gateway_refund_id, created_at, updated_at')
+      .select('id, order_id, amount, status, reason, refund_kind, gateway_refund_id, created_at, updated_at')
       .order('created_at', { ascending: false });
     if (error) throw error;
     state.refunds = data || [];
@@ -1359,22 +1414,76 @@ async function loadRefundsFromSupabase() {
 }
 
 // Look up the latest refund for a given order.
+function getOrderRefunds(orderDbId) {
+  if (!orderDbId || !state.refunds.length) return [];
+  return state.refunds.filter(r => r.order_id === orderDbId)
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+}
+
+// Legacy detail/request views still need one representative row; order cards
+// use getOrderRefunds() so no valid row is discarded.
 function getOrderRefund(orderDbId) {
-  if (!orderDbId || !state.refunds.length) return null;
-  return state.refunds.find(r => r.order_id === orderDbId) || null;
+  const rows = getOrderRefunds(orderDbId);
+  return rows.length ? rows[rows.length - 1] : null;
+}
+
+function classifyRefund(refund) {
+  if (refund?.refund_kind === 'replacement_adjustment') return 'replacement_adjustment';
+  if (refund?.refund_kind === 'full_order') return 'full_order';
+  // Legacy rows from before refund_kind existed remain safe and compatible.
+  if (/^Replacement partial refund:/i.test(refund?.reason || '')) return 'replacement_adjustment';
+  return 'legacy_unknown';
+}
+
+// Only full-order refunds belong in the compact order-card refund label.
+// Replacement refunds are item-level adjustments and are rendered in the
+// financial summary instead. Cancellation reimbursements are also distinct.
+function orderCardRefundUi(o) {
+  const refunds = getOrderRefunds(o.dbId);
+  const fullOrderRefunds = refunds.filter(r => classifyRefund(r) === 'full_order');
+  const legacyUnknownRefunds = refunds.filter(r => classifyRefund(r) === 'legacy_unknown');
+  const full = fullOrderRefunds.map(r => `<br><span class="muted small">Refund: ${esc(refundStatusLabel(r.status))}</span>`).join('');
+  const unknown = legacyUnknownRefunds.map(r => `<br><span class="muted small">Financial adjustment: ${esc(neutralRefundStatusLabel(r.status))}</span>`).join('');
+  return full + unknown;
+}
+
+function orderAdjustmentUi(o) {
+  const adjustments = getOrderRefunds(o.dbId).filter(r => classifyRefund(r) === 'replacement_adjustment' && Number(r.amount || 0) > 0);
+  if (!adjustments.length) return '';
+  const lines = adjustments.map(r => {
+    const status = r.status === 'processed' ? 'completed' : r.status === 'processing' ? 'processing' : r.status === 'failed' ? 'failed' : r.status === 'rejected' ? 'rejected' : ['requested','approved','pending'].includes(r.status) ? 'pending' : 'status unknown';
+    return `<div class="small muted">${money(r.amount)} refund ${status} for replacement item</div>`;
+  }).join('');
+  return `<div class="small muted mt-1">${adjustments.length > 1 ? 'Refund adjustments' : 'Item adjustment refund'}</div>${lines}`;
 }
 
 // Customer-friendly refund status label.
 function refundStatusLabel(status) {
   const labels = {
-    requested: 'Refund requested',
-    approved: 'Refund approved',
-    processed: 'Refund processed',
+    requested: 'Refund pending',
+    approved: 'Refund pending',
+    processed: 'Refund completed',
+    processing: 'Refund processing',
     failed: 'Refund failed',
     rejected: 'Refund rejected',
     pending: 'Refund pending'
   };
   return labels[status] || 'Refund status unknown';
+}
+
+function neutralRefundStatusLabel(status) {
+  return ({ requested:'Update pending', approved:'Update pending', pending:'Update pending', processing:'Update processing', processed:'Update completed', failed:'Update failed', rejected:'Update rejected' })[status] || 'Status unknown';
+}
+
+async function refreshCustomerOrderRefunds(orderDbId) {
+  if (!orderDbId || typeof supabase === 'undefined' || !supabase) return false;
+  const { data, error } = await supabase.from('refunds')
+    .select('id, order_id, amount, status, reason, refund_kind, gateway_refund_id, created_at, updated_at')
+    .eq('order_id', orderDbId).order('created_at', { ascending: true });
+  if (error) throw error;
+  state.refunds = state.refunds.filter(r => r.order_id !== orderDbId).concat(data || []);
+  state.refundsLoaded = true;
+  return true;
 }
 
 // Submit a refund request for an order.
@@ -1464,9 +1573,10 @@ async function refundRequestView(orderDbId) {
     ? `<div class="card mt-2" style="border-left:4px solid #16a34a"><h3 class="mb-0">✅ Refund request submitted</h3><p class="muted small mb-0">Your refund request has been sent to our team for review. You'll get a notification as soon as its status changes.</p></div>`
     : '';
   // Existing refund for this order → show its status; never allow another request.
-  const existingRefund = getOrderRefund(o.dbId);
-  if (existingRefund) {
-    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Request a Refund</h1></div></div>${successNotice}<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">A refund request already exists for this order, so another request can't be submitted.</p><p class="muted small mt-1 mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p><div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></div></section>`;
+  const existingRefunds = getOrderRefunds(o.dbId);
+  if (existingRefunds.length) {
+    const refundRows = existingRefunds.map(existingRefund => `<div class="card mt-1"><div class="card__head"><h3 class="mb-0">${classifyRefund(existingRefund) === 'replacement_adjustment' ? 'Replacement adjustment' : classifyRefund(existingRefund) === 'legacy_unknown' ? 'Financial adjustment' : 'Refund status'}</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(classifyRefund(existingRefund) === 'legacy_unknown' ? neutralRefundStatusLabel(existingRefund.status) : refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p></div>`).join('');
+    return `<section class="section container"><a href="#/orders" class="muted small">← Back to My Orders</a><div class="page-head mt-1"><div><h1>Refund status</h1></div></div>${successNotice}<p class="muted small">Existing financial records for this order:</p>${refundRows}<div class="divider"></div><a class="btn btn--ghost btn--block" href="#/order/${esc(o.id)}">View order</a></section>`;
   }
   const refundablePaymentTypes = [
     o.payment_status === 'success' ? 'product' : null,
@@ -3971,14 +4081,15 @@ async function orders() {
     // sent from the client — the backend is authoritative.
     const existingRefund = getOrderRefund(o.dbId);
     const refundUi = existingRefund
-      ? `<br><span class="muted small">Refund: ${esc(refundStatusLabel(existingRefund.status))}</span>`
+      ? orderCardRefundUi(o)
       : (o.payment_status === 'success'
           ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
           : '');
+    const adjustmentUi = orderAdjustmentUi(o);
     if (vendorDelivery) {
-      return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} product value</b><br>${vendorDeliveryStatusMessage(o)}<a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+      return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} product value</b>${adjustmentUi}<br>${vendorDeliveryStatusMessage(o)}<a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
     }
-    return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b><br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+    return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b>${adjustmentUi}<br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
 }).join('');
   return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you've ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
@@ -4084,6 +4195,29 @@ function clearRiderOrdersSubscription() {
   stopRiderOrdersPoll();
 }
 
+function clearCustomerRefundsSubscription() {
+  if (customerRefundsChannel && typeof supabase !== 'undefined' && supabase) {
+    try { supabase.removeChannel(customerRefundsChannel); } catch (e) { /* ignore */ }
+    customerRefundsChannel = null;
+  }
+}
+
+function subscribeCustomerRefundsRealtime() {
+  const current = currentAppState();
+  if (typeof supabase === 'undefined' || !supabase || !current.user || customerRefundsChannel) return;
+  const userId = current.user.id;
+  customerRefundsChannel = supabase.channel(`customer-refunds-live:${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, async payload => {
+      const orderId = payload.new?.order_id || payload.old?.order_id;
+      if (!orderId || !currentAppState().orders.some(o => o.dbId === orderId)) return;
+      try {
+        await refreshCustomerOrderRefunds(orderId);
+        if (location.hash.startsWith('#/orders') || location.hash.startsWith('#/order/')) render();
+      } catch (err) { console.error('Customer refund realtime refresh failed:', err); }
+    })
+    .subscribe();
+}
+
 // Keep the Rider Hub's pool/current deliveries synchronized with customer and
 // vendor changes. Uses targeted single-order fetches instead of broad reloads.
 function subscribeRiderOrdersRealtime() {
@@ -4120,78 +4254,14 @@ function subscribeRiderOrdersRealtime() {
   }).catch(() => { riderOrdersSubscriptionStarting = false; riderOrdersRealtimeConnected = false; startRiderOrdersPoll(); });
 }
 
-// Fetch a single order from Supabase and patch it into state.orders and state.riderPool
 async function patchOrderInState(dbId) {
-  const state = currentAppState();
   if (typeof supabase === 'undefined' || !supabase || !dbId) return;
   try {
-    const { data, error } = await supabase.from('orders').select('*').eq('id', dbId).single();
-    if (error || !data) return;
-    const mapped = mapSupabaseOrderToState(data);
-    if (!mapped) return;
-    // Update in state.orders
-    const idx = state.orders.findIndex(o => o.dbId === dbId);
-    if (idx >= 0) {
-      state.orders[idx] = mapped;
-    } else if (state.user && data.user_id === state.user.id) {
-      // New order for this customer
-      state.orders.unshift(mapped);
-    }
-    // Update in riderPool if this user is a rider
-    if (state.rider && state.rider.id) {
-      const poolIdx = state.riderPool.findIndex(o => o.dbId === dbId);
-      if (poolIdx >= 0) {
-        state.riderPool[poolIdx] = mapped;
-      } else if (data.rider_id === state.rider.id || (data.rider_id === null && data.delivery_method === 'rider' && ['Order confirmed','Ready for pickup'].includes(data.status))) {
-        // Order assigned to this rider or newly available for claim
-        state.riderPool.push(mapped);
-      }
-    }
+    await refreshEnrichedOrder(dbId, 'realtime');
     if (location.hash.startsWith('#/rider')) render();
   } catch (err) {
-    console.error('Patch order failed:', err);
+    console.error('Enriched order refresh failed:', err);
   }
-}
-
-// Map a Supabase order row to the frontend order shape (reused from loadOrdersForUser)
-function mapSupabaseOrderToState(o) {
-  if (!o) return null;
-  const state = currentAppState();
-  const riderNames = {};
-  const riderPhones = {};
-  // For now, skip rider detail resolution in realtime patches - it will be resolved on next full load
-  // or we could do a batch fetch if needed
-  return {
-    id: o.order_number,
-    dbId: o.id,
-    items: [], // Items not fetched in realtime patch; will be populated on next full load if needed
-    total: o.total,
-    final_order_total: o.final_order_total,
-    subtotal: o.subtotal != null ? o.subtotal : (o.total - (o.fee != null ? o.fee : DELIVERY_FEE)),
-    fee: o.fee != null ? o.fee : DELIVERY_FEE,
-    status: o.status || 'Order confirmed',
-    payment_status: o.payment_status || 'pending',
-    request_type: o.request_type || 'restaurant',
-    vendor_delivery_requested: o.vendor_delivery_requested === true,
-    delivery_payment_status: o.delivery_payment_status || 'pending',
-    delivery_payment_id: o.delivery_payment_id || null,
-    rider_delivery_share: o.rider_delivery_share != null ? o.rider_delivery_share : 0,
-    company_delivery_share: o.company_delivery_share != null ? o.company_delivery_share : 0,
-    payment_reference: o.payment_reference || null,
-    transaction_id: o.transaction_id || null,
-    spot: o.spot || '',
-    delivery_method: o.delivery_method || 'rider',
-    product_availability_status: o.product_availability_status || 'not_started',
-    purchase_funding_status: o.purchase_funding_status || 'not_required',
-    cancellation_stage: o.cancellation_stage || 'none',
-    additional_amount_due: o.additional_amount_due || 0,
-    final_financial_status: o.final_financial_status || null,
-    rider_id: o.rider_id || null,
-    rider_name: null, // Will be resolved on next full load
-    rider_phone: null,
-    created: formatOrderCreated(o.created_at),
-    createdAt: o.created_at || null
-  };
 }
 
 function startRiderOrdersPoll() {
@@ -4223,38 +4293,7 @@ async function pollRiderActiveOrders() {
   const state = currentAppState();
   if (!state.rider || !state.rider.id || typeof supabase === 'undefined' || !supabase) return;
   try {
-    const riderId = state.rider.id;
-    // Fetch orders assigned to this rider
-    const { data: assigned, error: assignedError } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('rider_id', riderId);
-    if (assignedError) throw assignedError;
-    // Fetch unassigned rider-delivery orders (pool)
-    const { data: unassigned, error: unassignedError } = await supabase
-      .from('orders')
-      .select('*')
-      .in('status', ['Order confirmed','Ready for pickup'])
-      .is('rider_id', null)
-      .eq('delivery_method', 'rider')
-      .eq('payment_status', 'success');
-    if (unassignedError) throw unassignedError;
-    const all = [...(assigned || []), ...(unassigned || [])];
-    for (const o of all) {
-      const mapped = mapSupabaseOrderToState(o);
-      if (mapped) {
-        const poolIdx = state.riderPool.findIndex(x => x.dbId === o.id);
-        if (poolIdx >= 0) {
-          state.riderPool[poolIdx] = mapped;
-        } else {
-          state.riderPool.push(mapped);
-        }
-        const orderIdx = state.orders.findIndex(x => x.dbId === o.id);
-        if (orderIdx >= 0) {
-          state.orders[orderIdx] = mapped;
-        }
-      }
-    }
+    await loadOrdersFromSupabase();
   } catch (err) {
     console.error('Rider active orders poll failed:', err);
   }
@@ -4377,7 +4416,16 @@ function startTrackSubscription(dbId) {
         table: 'order_items',
         filter: 'order_id=eq.' + dbId
       }, async () => {
-        await loadOrdersFromSupabase();
+        await refreshEnrichedOrder(dbId, 'track-items');
+        if (location.hash.startsWith('#/track/')) render();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'order_notes',
+        filter: 'order_id=eq.' + dbId
+      }, async () => {
+        await refreshEnrichedOrder(dbId, 'track-notes');
         if (location.hash.startsWith('#/track/')) render();
       })
       .subscribe(status => {
@@ -4441,9 +4489,11 @@ async function track(id) {
         ? '<div class="card"><b>Product unavailable</b><div class="muted small">One or more products require your decision. Replacement and removal options will be available here later.</div></div>'
         : '';
   const unavailableItems = (o.items || []).filter(it => it.availability_state === 'unavailable');
+  const availabilitySuggestions = (o.notes || []).filter(note => note.customer_visible !== false && note.note_type === 'availability');
   const replacementChoices = unavailableItems.map(it => {
     const choices = (state.catalog || []).filter(p => p.active !== false && p.vendor === it.vendor).slice(0, 8);
-    return `<div class="card mt-1"><b>Item unavailable: ${esc(it.name || 'Item')}</b><div class="row row--wrap mt-1" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(it.orderItemId || '')}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(it.orderItemId || '')}">Remove item</button></div></div>`;
+    const suggestions = availabilitySuggestions.length ? `<div class="card mt-1"><b>Rider suggestion</b>${availabilitySuggestions.map(note => `<div class="small mt-1">${esc(note.message)}</div>`).join('')}</div>` : '';
+    return `<div class="card mt-1"><b>Item unavailable: ${esc(it.name || 'Item')}</b>${suggestions}<div class="row row--wrap mt-1" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(it.orderItemId || '')}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(it.orderItemId || '')}">Remove item</button></div></div>`;
   }).join('');
 
   // Rider rating: only for the customer's own DELIVERED order that had an
@@ -4484,7 +4534,7 @@ async function track(id) {
   startTrackSubscription(o.dbId);
   const notesUi = renderCustomerOrderNotes(o);
 
-  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':s==='Delivered'?'Delivery complete':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
+  return `<section class="section container"><a href="#/orders" class="muted small">← My orders</a><div class="split mt-1"><div class="card">${customerOrderStatusBadge(o)}<h1 class="mt-1">Order #${o.id}</h1><p class="muted">From ${esc(vendorNames)} · Delivering to ${esc(o.spot || 'your location')}</p>${notesUi}${cancelled?`<div class="empty mt-3"><div class="empty__icon">🚫</div><b>Order cancelled</b><span>This order was cancelled and will not be delivered.</span></div>`:`<div class="timeline mt-3">${stages.map((s,i)=>`<div class="tl ${i<current?'tl--done':i===current?'tl--now':''}"><span class="tl__dot">${i<current?'✓':i===current?'●':'○'}</span><div><b>${(s==='Order confirmed' && payPending)?'Awaiting payment':s}</b><small>${i<=current ? (i===current?(payPending?'Payment not confirmed yet':s==='Delivered'?'Delivery complete':'In progress now'):'Completed'):'Waiting for update'}</small></div></div>`).join('')}</div>`}${canCancel?`<button class="btn btn--ghost btn--block mt-2" data-cancel="${o.id}">Cancel order</button><p class="muted xs center mt-1 mb-0">You can cancel until the vendor marks it ready.</p>`:''}</div><aside class="card sticky-side"><h3>Your rider</h3><div class="row mt-1"><span class="avatar avatar--lg">${esc(riderInitial)}</span><div><b>${esc(riderTitle)}</b><div class="small muted">${esc(riderMeta)}</div></div></div><div class="divider"></div><p class="small muted">Delivery location</p><b>${esc(o.spot || '—')}</b><p class="small muted mt-2">Delivery method</p><b>${o.delivery_method==='vendor_self'?'Delivered by the vendor':'Campus rider'}</b>${riderIsActive && o.rider_phone ? `<div class="divider"></div><p class="small muted">Contact for this delivery</p><b>📞 ${esc(o.rider_phone)}</b><p class="muted xs mb-0 mt-1">Use it only to coordinate this delivery.</p>` : ''}${['Delivered','Rated'].includes(o.status)?`<button class="btn btn--block mt-2" data-reorder="${o.id}">🔁 Reorder</button>`:''}</aside></div>${ratingUi?`<div class="mt-3">${ratingUi}</div>`:''}</section>`;
 }
 // ============================================
 // Order details view (ACTION 9)
@@ -4524,12 +4574,13 @@ async function orderView(id) {
   const badge = o.status==='Delivered' || o.status==='Rated' ? 'success' : o.status==='Cancelled' ? 'danger' : 'info';
   // Refund UI for this order
   await loadRefundsFromSupabase();
-  const existingRefund = getOrderRefund(o.dbId);
+  const existingRefunds = getOrderRefunds(o.dbId);
+  const existingRefund = existingRefunds.find(r => classifyRefund(r) === 'full_order') || existingRefunds.find(r => classifyRefund(r) === 'legacy_unknown');
   const refundTerminal = existingRefund && ['processed','failed','rejected'].includes(existingRefund.status);
   const canRequestRefund = o.payment_status === 'success' && !refundTerminal;
   let refundUi = '';
-  if (existingRefund) {
-    refundUi = `<div class="card mt-2"><div class="card__head"><h3 class="mb-0">Refund status</h3><span class="badge ${refundStatusBadgeClass(existingRefund.status)}">${esc(refundStatusLabel(existingRefund.status))}</span></div><p class="muted small mb-0">Amount: <b>${money(existingRefund.amount)}</b></p>${existingRefund.reason ? `<p class="muted small mt-1 mb-0">Reason: ${esc(existingRefund.reason)}</p>` : ''}${existingRefund.gateway_refund_id ? `<p class="muted xs mt-1 mb-0">Reference: ${esc(existingRefund.gateway_refund_id)}</p>` : ''}<p class="muted xs mt-1 mb-0">Requested: ${esc(formatFullDate(existingRefund.created_at))}</p></div>`;
+  if (existingRefunds.length) {
+    refundUi = `<div class="card mt-2"><h3 class="mb-0">Financial records</h3>${existingRefunds.map(r => `<p class="muted small mb-0 mt-1">${classifyRefund(r) === 'replacement_adjustment' ? 'Replacement adjustment' : classifyRefund(r) === 'legacy_unknown' ? 'Financial adjustment' : 'Refund'}: ${esc(classifyRefund(r) === 'legacy_unknown' ? neutralRefundStatusLabel(r.status) : refundStatusLabel(r.status))} · ${money(r.amount)}</p>`).join('')}</div>`;
   } else if (canRequestRefund) {
     refundUi = `<div class="card mt-2"><h3 class="mb-0">Request a refund</h3><p class="muted small">If there's a problem with this order, you can request a full refund. All refunds are reviewed by our team.</p><button class="btn btn--block" data-refund-request="${esc(o.dbId)}">Request refund</button></div>`;
   }
@@ -4813,7 +4864,7 @@ function rider() {
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}<form class="row row--wrap mt-1" data-order-note="${esc(o.dbId)}"><input class="input" name="message" maxlength="1000" placeholder="Add a customer-visible order note"><button class="btn btn--ghost btn--sm" type="submit">Add note</button></form>${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; const hasUnavailable = (o.items || []).some(item => item.availability_state === 'unavailable'); const noteForm = hasUnavailable ? `<form class="row row--wrap mt-1" data-order-note="${esc(o.dbId)}" data-note-type="availability"><label class="small" style="width:100%">Suggest an available replacement</label><input class="input" name="message" maxlength="1000" placeholder="e.g. Chicken Large and Turkey are currently available"><button class="btn btn--ghost btn--sm" type="submit">Send suggestion</button></form>` : ''; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}${noteForm}${action}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -5192,17 +5243,10 @@ async function handlePaystackReturn() {
     if (confirmed) {
       if (delivery) { state.vendorLoaded = false; await ensureVendorLoaded(); }
       else {
-        // Fetch only the confirmed order by UUID
-        const { data: orderData } = await supabase.from('orders').select('*').eq('id', orderId).single();
-        if (orderData) {
-          const confirmedOrder = mapSupabaseOrderToState(orderData);
-          if (confirmedOrder) {
-            updateOrderInState(confirmedOrder);
-            location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
-          } else {
-            toast('Payment confirmed. Open My Orders to view it.', 'info');
-            location.hash = '#/orders';
-          }
+        await refreshEnrichedOrder(orderId, 'payment-confirmation');
+        const confirmedOrder = [...state.orders, ...state.riderPool].find(order => order.dbId === orderId);
+        if (confirmedOrder) {
+          location.hash = `#/order/${encodeURIComponent(confirmedOrder.id)}`;
         } else {
           toast('Payment confirmed. Open My Orders to view it.', 'info');
           location.hash = '#/orders';
@@ -6068,6 +6112,7 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
   delete state.riderSubmitting[orderId];
 
   if (ok) {
+    await refreshEnrichedOrder(dbId, 'rider-status');
     if (state.riderStatusError && state.riderStatusError.dbId === dbId) state.riderStatusError = null;
     if (opts.onSuccess) opts.onSuccess();
     toast(opts.successToast || `Order marked as ${riderStatusLabel(nextStatus)}`);
@@ -6192,9 +6237,9 @@ document.addEventListener('click', async e=>{
     const message=String(new FormData(noteForm).get('message')||'').trim();
     if(!message || typeof supabase==='undefined' || !supabase) return;
     const button=noteForm.querySelector('button'); if(button) button.disabled=true;
-    const { error }=await supabase.rpc('add_rider_order_note',{p_order_id:noteForm.dataset.orderNote,p_note_type:'rider_comment',p_message:message,p_customer_visible:true});
+    const { error }=await supabase.rpc('add_rider_order_note',{p_order_id:noteForm.dataset.orderNote,p_note_type:noteForm.dataset.noteType || 'rider_comment',p_message:message,p_customer_visible:true});
     if(error){ console.error('Rider order note failed:',error); toast('Could not add order note.','error'); }
-    else { noteForm.reset(); toast('Order note added'); }
+    else { noteForm.reset(); await refreshEnrichedOrder(noteForm.dataset.orderNote, 'rider-note'); toast('Order note added'); }
     render();
   }
   const availability=e.target.closest('[data-availability]'); if(availability){
@@ -6216,16 +6261,20 @@ document.addEventListener('click', async e=>{
         if (noteResult.error) console.error('Availability note failed:', noteResult.error);
       }
       toast(available?'Product marked available':'Product marked unavailable');
+      const affected = [...state.riderPool, ...state.orders].find(o=>(o.items||[]).some(i=>String(i.orderItemId || i.dbId || i.id)===String(itemId)));
+      if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'availability');
     }
     render();
   }
   const removeUnavailable=e.target.closest('[data-remove-unavailable]'); if(removeUnavailable){
+    const affected = [...state.orders, ...state.riderPool].find(o=>(o.items||[]).some(i=>String(i.orderItemId || i.dbId || i.id)===String(removeUnavailable.dataset.removeUnavailable)));
     const { error }=await supabase.rpc('customer_remove_unavailable_item',{p_order_item_id:removeUnavailable.dataset.removeUnavailable});
-    if(error) toast('This item could not be removed.','error'); else { toast('Item removed from the final order'); render(); }
+    if(error) toast('This item could not be removed.','error'); else { if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'remove-unavailable'); toast('Item removed from the final order'); render(); }
   }
   const replaceUnavailable=e.target.closest('[data-replace-unavailable]'); if(replaceUnavailable){
+    const affected = [...state.orders, ...state.riderPool].find(o=>(o.items||[]).some(i=>String(i.orderItemId || i.dbId || i.id)===String(replaceUnavailable.dataset.replaceUnavailable)));
     const { data, error }=await supabase.rpc('customer_replace_unavailable_item',{p_order_item_id:replaceUnavailable.dataset.replaceUnavailable,p_replacement_product_id:replaceUnavailable.dataset.replacementProduct});
-    if(error) toast('Replacement could not be selected.','error'); else if(data?.requires_payment){ toast('Additional payment is required.'); render(); } else { toast('Replacement confirmed'); render(); }
+    if(error) toast('Replacement could not be selected.','error'); else { if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'replacement'); if(data?.requires_payment) toast('Additional payment is required.'); else toast('Replacement confirmed'); render(); }
   }
   const replacementPay=e.target.closest('[data-replacement-pay]'); if(replacementPay){
     startPaystackCheckout(replacementPay.dataset.replacementPay,replacementPay,'Redirecting to Paystack…','replacement');
@@ -6237,6 +6286,7 @@ document.addEventListener('click', async e=>{
       const result=await supabaseEdgeFunctionRequest('paystack-transfer',{order_id:(state.riderPool.find(x=>x.id===orderId)||{}).dbId});
       if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
       else toast('Purchase funding request submitted');
+      await refreshEnrichedOrder((state.riderPool.find(x=>x.id===orderId)||{}).dbId, 'confirm-products');
     } catch (error) { void handleAppError(error,{action:'release_purchase_funding',source:'payment',financial:true,orderId:o.dbId}); }
     render();
   }
@@ -6878,7 +6928,7 @@ function clearPrivateAuthState() {
   state.riderErrors = {}; state.riderSubmitting = {}; state.ratingSubmitting = {};
   state.refundSuccessNotice = null; state.reportSuccess = null;
   resetVendorSessionState();
-  clearRiderOrdersSubscription(); clearTrackSubscription();
+  clearRiderOrdersSubscription(); clearCustomerRefundsSubscription(); clearTrackSubscription();
   if (previous.notificationsChannel) {
     supabase.removeChannel(previous.notificationsChannel).catch(() => {});
     state.notificationsChannel = null;
@@ -6956,7 +7006,7 @@ const authLifecycle = createAuthLifecycle({
     Promise.all([initialBootCatalog, loadRiderFromSupabase(), loadOrdersFromSupabase(),
       loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
       if (ticket !== authLifecycle.generation) return;
-      subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime();
+      subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime(); subscribeCustomerRefundsRealtime();
       render();
       handlePaystackReturn().catch(() => {
         if (ticket === authLifecycle.generation) toast('Payment verification is temporarily unavailable.', 'error');

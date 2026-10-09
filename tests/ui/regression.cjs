@@ -52,6 +52,50 @@ function sourceBetween(start,end){
   assert.notEqual(b,-1,`missing source marker: ${end}`);
   return appSource.slice(a,b);
 }
+
+function refundDisplayRegression(){
+  const refundFns=sourceBetween('function getOrderRefunds(', '// Customer-friendly refund status label.');
+  const displayFns=sourceBetween('function classifyRefund(', '// Submit a refund request for an order.');
+  const context=vm.createContext({
+    state:{refunds:[]},
+    esc:value=>String(value??''),
+    money:value=>`₦${Number(value).toLocaleString('en-NG')},`,
+    Date,Number,String,Boolean
+  });
+  vm.runInContext(refundFns+displayFns,context);
+  const run=(order,refunds)=>{
+    context.state.refunds=refunds;
+    return vm.runInContext(`orderCardRefundUi(${JSON.stringify(order)}) + orderAdjustmentUi(${JSON.stringify(order)})`,context);
+  };
+  assert.equal(run({dbId:'order-a'},[]),'');
+  assert.equal(run({dbId:'order-a'},[{order_id:'order-b',status:'approved',created_at:'2026-01-02'}]),'');
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'approved',amount:500,created_at:'2026-01-02'}]),/refund pending for replacement item/);
+  assert.doesNotMatch(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'approved',amount:500,created_at:'2026-01-02'}]),/Refund: Refund approved/);
+  assert.match(run({dbId:'order-a',status:'Cancelled'},[{order_id:'order-a',refund_kind:'full_order',status:'requested',created_at:'2026-01-02'}]),/Refund pending/);
+  assert.match(run({dbId:'order-a',status:'Cancelled'},[{order_id:'order-a',refund_kind:'full_order',status:'processed',created_at:'2026-01-02'}]),/Refund completed/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'full_order',status:'processing',created_at:'2026-01-02'}]),/Refund processing/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'processed',amount:300,created_at:'2026-01-01'},{order_id:'order-a',refund_kind:'replacement_adjustment',status:'pending',amount:200,created_at:'2026-01-02'}]),/₦300, refund completed for replacement item[\s\S]*₦200, refund pending/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'processed',amount:500,created_at:'2026-01-01'},{order_id:'order-a',refund_kind:'full_order',status:'requested',created_at:'2026-01-02'}]),/Refund: Refund pending[\s\S]*₦500, refund completed for replacement item/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'full_order',status:'failed',created_at:'2026-01-01'}]),/Refund failed/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'full_order',status:'rejected',created_at:'2026-01-01'}]),/Refund rejected/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'processing',amount:500,created_at:'2026-01-01'}]),/refund processing for replacement item/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'failed',amount:500,created_at:'2026-01-01'}]),/refund failed for replacement item/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'replacement_adjustment',status:'rejected',amount:500,created_at:'2026-01-01'}]),/refund rejected for replacement item/);
+  assert.doesNotMatch(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'legacy_unknown',status:'processed',amount:500,created_at:'2026-01-01'}]),/Refund: Refund completed/);
+  assert.match(run({dbId:'order-a'},[{order_id:'order-a',refund_kind:'legacy_unknown',status:'processed',amount:500,created_at:'2026-01-01'}]),/Financial adjustment: Update completed/);
+  assert.match(sourceBetween('async function orders()', 'async function vendorRequestsView'),/customerOrderStatusBadge\(o\)/);
+  assert.match(sourceBetween('function customerOrderStatusBadge(o)', 'function vendorDeliveryStatusMessage'),/Product check in progress/);
+  assert.match(appSource,/table: 'refunds'/);
+  assert.match(appSource,/refreshCustomerOrderRefunds\(orderId\)/);
+  assert.match(appSource,/refund_kind/);
+  const classificationMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270131_refund_kind_realtime_hardening.sql'),'utf8');
+  assert.match(classificationMigration,/DEFAULT 'legacy_unknown'/);
+  assert.match(classificationMigration,/ALTER PUBLICATION supabase_realtime ADD TABLE public\.refunds/);
+  assert.match(classificationMigration,/refund_kind\)\s*VALUES/);
+  assert.doesNotMatch(classificationMigration,/CREATE OR REPLACE FUNCTION public\.classify_refund_kind_on_insert/);
+  console.log('PASS order-card refund mapping is order-scoped and distinguishes partial replacement refunds');
+  console.log('PASS active order workflow status remains independent of refund display');
+}
 const homeSource=sourceBetween('function home()', 'function browse()');
 assert.doesNotMatch(homeSource,/renderCustomerActiveOrders\(\)/);
 assert.doesNotMatch(homeSource,/Your active orders/);
@@ -63,6 +107,15 @@ assert.match(appSource,/function orderView\(/);
 assert.match(appSource,/function track\(/);
 assert.match(appSource,/update_rider_order_status/);
 assert.match(appSource,/record_product_availability_check/);
+assert.match(appSource,/function refreshEnrichedOrder\(dbId/);
+assert.match(appSource,/const orderRefreshGenerations = new Map\(\)/);
+assert.match(appSource,/await refreshEnrichedOrder\(dbId, 'realtime'\)/);
+assert.doesNotMatch(appSource,/function mapSupabaseOrderToState\(/);
+assert.doesNotMatch(appSource,/state\.riderPool\[[^\]]+\] = mapped/);
+assert.doesNotMatch(appSource,/state\.orders\[[^\]]+\] = mapped/);
+assert.match(appSource,/Suggest an available replacement/);
+assert.match(appSource,/Rider suggestion/);
+assert.match(appSource,/table: 'order_notes'/);
 function adminBetween(start,end){
   const a=adminSource.indexOf(start),b=adminSource.indexOf(end,a);
   assert.notEqual(a,-1,`missing admin source marker: ${start}`);
@@ -172,6 +225,7 @@ async function main(){
   assert.doesNotMatch(financialRenderer,/state\.(?:transfers|payments|withdrawals|cancellations)/);
   assert.match(admin,/admin_get_financial_resolution_queue/);
   await vendorProductDomRegression();
+  refundDisplayRegression();
   console.log('PASS overlapping modals settle the prior promise exactly once');
   console.log('PASS admin support filters use persistent state and restore controls');
   console.log('PASS admin control-center navigation, lifecycle actions, rider picker, details, and metrics are wired');
