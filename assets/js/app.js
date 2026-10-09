@@ -609,9 +609,15 @@ const DELIVERY_FEE = 1500;
 const RIDER_DELIVERY_SHARE = 1000;
 const COMPANY_DELIVERY_SHARE = 500;
 const PACKAGING_MAX_QUANTITY = 10;
-let checkoutPackagingQuantity = 1;
+const PACKAGING_STORAGE_KEY = 'food_packaging_quantity';
+function normalizePackagingQuantity(value) {
+  const n = Number(value);
+  return Number.isInteger(n) ? Math.max(0, Math.min(PACKAGING_MAX_QUANTITY, n)) : 1;
+}
+let checkoutPackagingQuantity = normalizePackagingQuantity(load(PACKAGING_STORAGE_KEY, 1));
 let foodPackagingUnitPrice = 200;
 let foodPackagingSettingsLoaded = false;
+function persistPackagingQuantity() { store(PACKAGING_STORAGE_KEY, checkoutPackagingQuantity); }
 
 function loadFoodPackagingSettings() {
   if (foodPackagingSettingsLoaded || typeof supabase === 'undefined' || !supabase) return;
@@ -2880,6 +2886,7 @@ function productView(id) {
 
 function cart() {
   const items = cartItems();
+  if (items.some(item => !isVendorProduct(item))) loadFoodPackagingSettings();
   const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
   const vendorOnly = items.length > 0 && items.every(isVendorProduct);
   const vendorUnavailable = items.filter(x => x.active === false);
@@ -2895,10 +2902,13 @@ function cart() {
     const avail = x.active !== false;
     return `<div class="line${avail ? '' : ' line--unavailable'}"><div class="line__thumb">${esc(x.icon)}</div><div class="line__main"><div class="line__name">${esc(x.name)}</div><div class="line__sub">${esc((vendor(x.vendor) || { name: 'Campus vendor' }).name)} · ${money(x.price)}${avail ? '' : ' · <b>No longer available</b>'}</div></div><div class="qty">${avail ? `<button data-qty="${x.id}" data-delta="-1" aria-label="Decrease quantity of ${esc(x.name)}">−</button><span>${x.qty}</span><button data-qty="${x.id}" data-delta="1" aria-label="Increase quantity of ${esc(x.name)}">+</button>` : `<span>${x.qty}</span>`}</div><b>${money(x.qty*x.price)}</b><button class="link-btn" data-remove="${x.id}" title="Remove item" aria-label="Remove item from cart">✕</button></div>`;
   }).join('');
+  const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
+  const checkoutTotal = subtotal + packagingAmount + fee;
   const checkoutBtn = unavailable.length
-    ? `<button class="btn btn--block mt-2" disabled title="Remove the unavailable item(s) to continue">Checkout · ${money(subtotal+fee)}</button><p class="muted xs center mt-1 mb-0">Remove the unavailable item(s) to checkout.</p>`
-    : `<a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(subtotal+fee)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p>`;
-  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div class="card">${lines}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(subtotal+fee)}</span></div></div>${checkoutBtn}</aside></div>`}</section>`;
+    ? `<button class="btn btn--block mt-2" disabled title="Remove the unavailable item(s) to continue">Checkout · ${money(checkoutTotal)}</button><p class="muted xs center mt-1 mb-0">Remove the unavailable item(s) to checkout.</p>`
+    : `<a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(checkoutTotal)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p>`;
+  const packagingUi = `<div class="card mt-2" data-cart-packaging><div class="row row--between"><div><b>Food packaging</b><p class="muted small mb-0">Adjust the number of food packs you need.</p></div><div class="row" style="gap:8px"><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="-1" aria-label="Decrease packaging quantity">−</button><b>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'}</b><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="1" aria-label="Increase packaging quantity">+</button></div></div><div class="row row--between mt-1"><span>Packaging: ${checkoutPackagingQuantity} × ${money(foodPackagingUnitPrice)}</span><b>${money(packagingAmount)}</b></div></div>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div><div class="card">${lines}</div>${packagingUi}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(checkoutTotal)}</span></div></div>${checkoutBtn}</aside></div>`}</section>`;
 }
 
 function queuePromotionCheckoutUi() {
@@ -3045,6 +3055,14 @@ async function requestOrderAdmission(order, lines, operation) {
   }
   let result = null;
   try { result = await response.json(); } catch (_) { result = null; }
+  console.info('[order-admission]', {
+    operation,
+    status: response.status,
+    ok: response.ok,
+    errorCode: result?.code || null,
+    error: result?.error || null,
+    packagingQuantity: operation === 'place_order' ? Number(order.packaging_quantity ?? 1) : 0
+  });
   if (!response.ok) {
     if (response.status === 409) {
       state.lastOrderError = 'This order attempt conflicts with an existing request. Please start a new order.';
@@ -4098,9 +4116,9 @@ function vendorDashboard() {
   </section>`;
 }
 
-function packagingSelectorHtml() {
+function packagingSnapshotHtml() {
   const amount = checkoutPackagingQuantity * foodPackagingUnitPrice;
-  return `<div class="card mt-1" data-packaging-selector><div class="row row--between"><div><b>Food packaging</b><p class="muted small mb-0">Adjust the number of food packs you need.</p></div><div class="row" style="gap:8px"><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="-1" aria-label="Decrease packaging quantity">−</button><b>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'}</b><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="1" aria-label="Increase packaging quantity">+</button></div></div><div class="row row--between mt-1"><span>${checkoutPackagingQuantity === 0 ? 'No packaging' : `Packaging: ${checkoutPackagingQuantity} × ${money(foodPackagingUnitPrice)}`}</span><b>${money(amount)}</b></div></div>`;
+  return `<div class="card mt-1" data-packaging-snapshot><div class="row row--between"><b>Packaging</b><span>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'} × ${money(foodPackagingUnitPrice)}</span><b>${money(amount)}</b></div><a class="link-btn small" href="#/cart">Edit cart</a></div>`;
 }
 
 function checkout() {
@@ -4125,13 +4143,13 @@ function checkout() {
     const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
     const restaurantTotal = restaurantSubtotal + packagingAmount + DELIVERY_FEE;
     const renderCheckoutItem = x => `<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`;
-    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}${packagingSelectorHtml()}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}${packagingSnapshotHtml()}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
   }
   const fee = DELIVERY_FEE;
   const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
   const total = cartTotal()+packagingAmount+fee;
   queuePromotionCheckoutUi();
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div>${packagingSelectorHtml()}<div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack. Packaging remains optional and separate from delivery.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div>${packagingSnapshotHtml()}<div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack. Packaging remains optional and separate from delivery.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 // F18: lightweight skeleton card for async views. Uses the existing shimmer
@@ -4906,8 +4924,56 @@ async function loadRewards() {
 }
 
 function referralCodeFromUrl() {
-  const code = new URLSearchParams(location.search).get('ref');
-  return code ? String(code).trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12) : '';
+  const hashQuery = String(location.hash || '').split('?')[1] || '';
+  const raw = new URLSearchParams(`${location.search}&${hashQuery}`).get('ref');
+  const code = String(raw || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{3,12}$/.test(code)) return '';
+  try { sessionStorage.setItem('dropzyy_referral_code', code); } catch (_) {}
+  return code;
+}
+
+function referralCodeForSignup() {
+  const current = referralCodeFromUrl();
+  if (current) return current;
+  try {
+    const stored = String(sessionStorage.getItem('dropzyy_referral_code') || '').toUpperCase();
+    return /^[A-Z0-9]{3,12}$/.test(stored) ? stored : '';
+  } catch (_) { return ''; }
+}
+
+function applyReferralSignupField() {
+  if (location.hash.split('?')[0] !== '#/register') return;
+  const form = document.getElementById('authForm');
+  const code = referralCodeForSignup();
+  if (!form || !code || form.querySelector('[data-referral-signup]')) return;
+  const field = document.createElement('div');
+  field.className = 'field';
+  field.dataset.referralSignup = 'true';
+  field.innerHTML = `<label for="authReferralCode">Referral code</label><input class="input" name="referral_code" id="authReferralCode" value="${esc(code)}" readonly><p class="muted small mb-0">You are signing up with referral code ${esc(code)}.</p>`;
+  const password = form.querySelector('#authPassword');
+  (password?.closest('.field') || form).before(field);
+}
+
+function applyReferralProfileLink() {
+  if (location.hash.split('?')[0] !== '#/profile') return;
+  const code = state.rewards?.code;
+  if (!code) return;
+  const link = new URL('/#/signup', location.origin);
+  link.searchParams.set('ref', code);
+  const paragraph = Array.from(document.querySelectorAll('p')).find(p => /Invite link:/.test(p.textContent || ''));
+  if (!paragraph) return;
+  paragraph.textContent = '';
+  paragraph.className = 'muted small mb-0';
+  paragraph.append('Referral link: ');
+  const codeEl = document.createElement('code');
+  codeEl.textContent = link.href;
+  paragraph.appendChild(codeEl);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn--soft btn--sm';
+  button.dataset.copyReferral = link.href;
+  button.textContent = 'Copy referral link';
+  paragraph.parentElement.insertBefore(button, paragraph.nextSibling);
 }
 
 function profile() {
@@ -6215,6 +6281,8 @@ async function render() {
   else view = notFound();
   if (renderGeneration !== authLifecycle.generation) return;
   $('#app').innerHTML = view;
+  applyReferralSignupField();
+  applyReferralProfileLink();
   initReplacementDecisionUi(parts);
   initVendorProductImageUi();
   initDemoTracking();
@@ -6390,6 +6458,12 @@ document.addEventListener('error', e => {
 }, true);
 
 document.addEventListener('click', async e=>{
+  const referralCopy = e.target.closest('[data-copy-referral]'); if (referralCopy) {
+    e.preventDefault();
+    try { await navigator.clipboard.writeText(referralCopy.dataset.copyReferral); toast('Referral link copied','success'); }
+    catch (_) { toast('Could not copy the referral link. Select and copy it manually.','error'); }
+    return;
+  }
   const pushButton = e.target.closest('[data-enable-push]'); if (pushButton) { e.preventDefault(); pushButton.disabled = true; await enableDropzyyPush(); pushButton.disabled = false; return; }
   const state = currentAppState();
   const add=e.target.closest('[data-add]'); if(add) addCart(add.dataset.add);
@@ -6402,6 +6476,7 @@ document.addEventListener('click', async e=>{
   const packaging=e.target.closest('[data-packaging-delta]'); if(packaging){
     const next=checkoutPackagingQuantity+Number(packaging.dataset.packagingDelta);
     checkoutPackagingQuantity=Math.max(0,Math.min(PACKAGING_MAX_QUANTITY,next));
+    persistPackagingQuantity();
     render();
     return;
   }
@@ -6895,7 +6970,7 @@ document.addEventListener('submit', e=>{
       const phone=f.get('phone')||'';
       const hostel=f.get('hostel')||'';
       supabase.auth.signUp({ email, password, options: {
-        emailRedirectTo: new URL('/?email_confirmed=1', location.origin).href,
+      emailRedirectTo: (() => { const u = new URL('/?email_confirmed=1', location.origin); const ref = referralCodeForSignup(); if (ref) u.searchParams.set('ref', ref); return u.href; })(),
         data: { full_name, phone, hostel }
       } }).then(({ data, error }) => {
         if (error) throw error;
@@ -6966,6 +7041,7 @@ document.addEventListener('submit', e=>{
 
       let anySuccess = false;
       let firstOrderId = null;
+      let checkoutErrorNotified = false;
 
       try {
         // 1. Handle restaurant items (existing flow)
@@ -6995,7 +7071,9 @@ document.addEventListener('submit', e=>{
             if (!firstOrderId) firstOrderId = order.id;
             state.orders.unshift(order);
             checkoutPackagingQuantity = 1;
+            persistPackagingQuantity();
           } else {
+            checkoutErrorNotified = true;
             void handleAppError(new Error(state.lastOrderError||'Order creation failed'),{action:'create_restaurant_order',source:'order',userMessage:'We could not place your restaurant order. Please try again.'});
           }
         }
@@ -7017,7 +7095,10 @@ document.addEventListener('submit', e=>{
             state.orders.unshift(order);
           } else {
             const vname = vendor(vendorId)?.name || vendorId;
-            void handleAppError(new Error(state.lastOrderError||'Vendor request failed'),{action:'create_vendor_order_request',source:'order',userMessage:`We could not send the request to ${vname}. Please try again.`,vendorId});
+            if (!checkoutErrorNotified) {
+              checkoutErrorNotified = true;
+              void handleAppError(new Error(state.lastOrderError||'Vendor request failed'),{action:'create_vendor_order_request',source:'order',userMessage:`We could not send the request to ${vname}. Please try again.`,vendorId});
+            }
           }
         }
 
@@ -7037,7 +7118,7 @@ document.addEventListener('submit', e=>{
               toast('Order request(s) sent! Vendors will contact you to arrange payment.');
             }
           }
-        } else {
+        } else if (!checkoutErrorNotified) {
           void handleAppError(new Error(state.lastOrderError||'No order was persisted'),{action:'create_order',source:'order',userMessage:'We could not place your order. Please try again.'});
         }
       } finally {
@@ -7270,7 +7351,7 @@ async function syncAuthenticatedUser(session) {
   const referralCodeResult = await supabase.rpc('ensure_referral_code');
   if (referralCodeResult.error) console.error('Referral code provisioning failed:', referralCodeResult.error);
   if (newCustomerProfile && profile.role === 'user') {
-    const reward = await supabase.rpc('issue_customer_signup_reward', { p_referral_code: referralCodeFromUrl() || null });
+    const reward = await supabase.rpc('issue_customer_signup_reward', { p_referral_code: referralCodeForSignup() || null });
     if (reward.error) console.error('Signup reward issuance failed:', reward.error);
   }
   return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
