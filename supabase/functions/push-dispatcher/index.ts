@@ -42,10 +42,10 @@ async function main(req: Request) {
     const order = n.related_order_id ? String(orderMap.get(n.related_order_id) || "") : "";
     const type = String(n.type || "");
     const action = /replacement|unavailable|payment/i.test(`${type} ${n.title}`);
-    const urlPath = order ? `/#/${action ? "track" : "track"}/${encodeURIComponent(order)}` : "/#/orders";
+    const urlPath = order ? `/#/${action ? "order" : "track"}/${encodeURIComponent(order)}` : "/#/orders";
     const tag = `${action ? "dropzyy-order-action" : /refund|payment|financial/i.test(`${type} ${n.title}`) ? "dropzyy-order-financial" : "dropzyy-order-progress"}-${order || n.id}`;
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title: n.title, body: n.message, tag, data: { url: urlPath, order_id: order } }), { TTL: 86400 });
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title: n.title, body: n.message, type, order_id: n.related_order_id || null, order_number: order || null, target_url: urlPath, data: { url: urlPath, target_url: urlPath, order_id: n.related_order_id || null, order_number: order || null, type } }), { TTL: 86400 });
       await db.from("push_delivery_jobs").update({ status: "sent", sent_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_error: null }).eq("id", row.id).eq("status", "processing");
       sent++;
     } catch (e) {

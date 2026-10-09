@@ -65,7 +65,7 @@ const FORBIDDEN_SEGMENTS = new Set([
   'supabase', 'scripts', '.git', '.github', '.netlify', 'node_modules',
   'reports', '.tmp', 'dist', '.env',
 ]);
-const FORBIDDEN_EXTENSIONS = ['.sql', '.md', '.docx', '.tmp', '.ps1', '.yml', '.yaml'];
+const FORBIDDEN_EXTENSIONS = ['.sql', '.md', '.docx', '.tmp', '.ps1', '.yml', '.yaml', '.bak', '.old', '.backup', '.dump', '.gz'];
 
 const PRODUCTION_SUPABASE_URL = 'https://cmfohldnmytmwjynqfpz.supabase.co';
 const STAGING_SUPABASE_URL = 'https://bhpbxhvvfulwmtijfnvs.supabase.co';
@@ -192,6 +192,11 @@ function main() {
     if (published.indexOf(rel) === -1) {
       problems.push('required website file missing from the deploy: ' + rel);
     }
+  }
+  try {
+    require('./validate_publish_artifact').validate();
+  } catch (err) {
+    problems.push(err && err.message ? err.message : String(err));
   }
 
   if (problems.length) {

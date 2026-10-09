@@ -108,6 +108,9 @@
 // homeReachUs() (WhatsApp / Email cards) — change them here only.
 const DROPZYY_SUPPORT_EMAIL = 'zyy.work.zyy@gmail.com'; // ← PASTE EMAIL HERE
 const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/0029Vb95rgV4tRrjXoGl1I1E'; // ← PASTE WHATSAPP CHANNEL LINK HERE
+const DROPZYY_BUILD_ID = '20261007-rider-rpc-startup-v2';
+window.DROPZYY_BUILD_ID = DROPZYY_BUILD_ID;
+document.documentElement.dataset.dropzyyBuild = DROPZYY_BUILD_ID;
 
 const $ = s => document.querySelector(s);
 const money = n => `₦${Number(n).toLocaleString('en-NG')}`;
@@ -411,10 +414,17 @@ async function loadCatalogFromSupabase() {
     state.catalog = catalog.products;
     state.catalogLoadError = false;
     store('catalog_v3', catalog);
-    if (catalogChanged) render();
+    // During initial boot the coordinator owns the single final render. Later
+    // catalog refreshes may redraw the active route as a targeted data update.
+    if (catalogChanged && initialBootCatalogReady) render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
     state.catalogLoadError = true;
+  } finally {
+    if (!initialBootCatalogReady) {
+      initialBootCatalogReady = true;
+      initialBootCatalogResolve();
+    }
   }
 }
 
@@ -2451,13 +2461,16 @@ function renderCustomerActiveOrders() {
   if (!state.user || !state.ordersLoadedFromSupabase) return '';
   const active = (state.orders || []).filter(o => !['Delivered','Rated','Cancelled'].includes(o.status));
   if (!active.length) return '';
-  return `<section class="section container"><div class="page-head"><div><h2>Your active orders</h2><p class="muted">Live updates for orders still in progress.</p></div><button class="btn btn--ghost btn--sm" data-enable-push>Enable phone alerts</button></div><div class="grid grid--3">${active.map(o => `<article class="card"><div class="row row--between"><b>Order #${esc(o.id)}</b><span class="badge badge--info">${esc(activeOrderLabel(o))}</span></div><p class="small muted mt-1">${esc(orderVendorNames(o))}</p><div class="row row--between mt-2"><span>${money(o.final_order_total ?? o.total)}</span><a class="btn btn--soft btn--sm" href="#/track/${encodeURIComponent(o.id)}">Track order</a></div>${Number(o.additional_amount_due || 0) > 0 ? `<a class="btn btn--block btn--sm mt-1" data-replacement-pay="${esc(o.dbId)}">Pay ${money(o.additional_amount_due)} difference</a>` : ''}</article>`).join('')}</div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h2>Your active orders</h2><p class="muted">Live updates for orders still in progress.</p></div></div><div class="grid grid--3">${active.map(o => `<article class="card"><div class="row row--between"><b>Order #${esc(o.id)}</b><span class="badge badge--info">${esc(activeOrderLabel(o))}</span></div><p class="small muted mt-1">${esc(orderVendorNames(o))}</p><div class="row row--between mt-2"><span>${money(o.final_order_total ?? o.total)}</span><a class="btn btn--soft btn--sm" href="#/track/${encodeURIComponent(o.id)}">Track order</a></div>${Number(o.additional_amount_due || 0) > 0 ? `<a class="btn btn--block btn--sm mt-1" data-replacement-pay="${esc(o.dbId)}">Pay ${money(o.additional_amount_due)} difference</a>` : ''}</article>`).join('')}</div></section>`;
 }
 
 function vapidBytes(value) { const raw = atob(String(value).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); }
 async function enableDropzyyPush() {
   if (!state.user || !window.DROPZYY_VAPID_PUBLIC_KEY || !('PushManager' in window) || !('serviceWorker' in navigator)) { toast('Phone alerts are not configured on this device.', 'info'); return; }
-  const permission = await Notification.requestPermission();
+  const existing = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+  if (existing) { toast('Phone alerts are already enabled.', 'info'); return; }
+  if (Notification.permission === 'denied') { toast('Notifications are blocked in this browser. Update your browser permissions to enable them.', 'info'); return; }
+  const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
   if (permission !== 'granted') { toast('Notification permission was not granted.', 'info'); return; }
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes(window.DROPZYY_VAPID_PUBLIC_KEY) });
@@ -2472,7 +2485,7 @@ async function deactivateDropzyyPush() {
 
 function home() {
   const vcount = data().vendors.length;
-  return `${catalogBanner()}${renderCustomerActiveOrders()}
+  return `${catalogBanner()}
 <section class="dropzyy-hero">
   <div class="container dropzyy-hero__inner">
     <div class="dropzyy-hero__copy hero-text">
@@ -4634,7 +4647,7 @@ function profile() {
         <div class="field"><label>Hostel / Residence</label><input class="input" name="hostel" value="${esc(hostel)}" placeholder="e.g. Adams Hall"></div>
         <button class="btn btn--block" type="submit">Save changes</button>
       </form>
-      <div class="stack"><div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div><div class="card"><div class="card__head"><h3>Refund Bank Account</h3><span class="badge badge--${state.refundRecipient?.recipient_status === 'verified' ? 'success' : 'warn'}">${state.refundRecipient?.recipient_status === 'verified' ? 'Verified' : 'Not set up'}</span></div>${state.refundRecipient?.recipient_status === 'verified' ? `<p class="small">${esc(state.refundRecipient.bank_name || 'Nigerian bank')} · ${esc(state.refundRecipient.account_name || '')}</p><p class="muted small">••••••${esc(state.refundRecipient.account_number_last4 || '')}</p>` : '<p class="muted small">Set up a verified destination for future reimbursements.</p>'}<form id="refundRecipientForm" class="stack mt-1"><select class="input" name="bank_code" required><option value="">Select bank</option>${state.refundBanks.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select><input class="input" name="account_number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit account number" required><button class="btn btn--block" type="submit">Verify refund account</button></form></div></div>
+      <div class="stack"><div class="card"><div class="card__head"><h3>Account summary</h3></div><div class="stack"><div><span class="muted small">Role</span><div><b>${esc(u.role || 'user')}</b></div></div><div><span class="muted small">Vendor</span><div><b>${u.vendor_id ? esc((vendor(u.vendor_id) || { name: u.vendor_id }).name) : 'Not assigned'}</b></div></div></div></div><div class="card"><div class="card__head"><h3>Order alerts</h3></div><p class="muted small">Get important order updates on this device, including rider progress and unavailable-item decisions.</p><button class="btn btn--soft btn--sm" data-enable-push>Enable device alerts</button></div><div class="card"><div class="card__head"><h3>Refund Bank Account</h3><span class="badge badge--${state.refundRecipient?.recipient_status === 'verified' ? 'success' : 'warn'}">${state.refundRecipient?.recipient_status === 'verified' ? 'Verified' : 'Not set up'}</span></div>${state.refundRecipient?.recipient_status === 'verified' ? `<p class="small">${esc(state.refundRecipient.bank_name || 'Nigerian bank')} · ${esc(state.refundRecipient.account_name || '')}</p><p class="muted small">••••••${esc(state.refundRecipient.account_number_last4 || '')}</p>` : '<p class="muted small">Set up a verified destination for future reimbursements.</p>'}<form id="refundRecipientForm" class="stack mt-1"><select class="input" name="bank_code" required><option value="">Select bank</option>${state.refundBanks.map(b => `<option value="${esc(b.code)}">${esc(b.name)}</option>`).join('')}</select><input class="input" name="account_number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" placeholder="10-digit account number" required><button class="btn btn--block" type="submit">Verify refund account</button></form></div></div>
     </div>
   </section>`;
 }
@@ -5767,8 +5780,7 @@ async function render() {
   // redirected before getSession/profile restoration completes.
   if (!initialAuthReady && !earlyParts.length) {
     setDocumentTitle(earlyParts);
-    $('#app').innerHTML = home();
-    initVendorCarousel();
+    $('#app').innerHTML = '<section class="section container"><div class="card center"><p role="status">Loading Dropzyy…</p></div></section>';
     updateChrome();
     return;
   }
@@ -5940,12 +5952,11 @@ function initReplacementDecisionUi(parts) {
 // succeeded. Each rider action:
 //   - guards against duplicate submissions while a request is in flight
 //   - keeps the local UI state consistent with the server result
-//   - retries once for transient failures, then shows a persistent Retry
+//   - retries once only for transient failures, then shows a persistent Retry
 //   - surfaces user-friendly errors only — raw DB/RLS errors are logged and
 //     never shown to the rider
-// The server-side race protection (RLS claim policy, order-status transition
-// trigger) and all RPC/DB logic are UNTOUCHED — this is frontend error
-// handling only.
+// The server-side race protection is enforced by update_rider_order_status and
+// the existing order-status transition/settlement triggers.
 // ============================================
 
 function riderOrderByDbId(dbId) {
@@ -5986,6 +5997,22 @@ async function riderReconcileOrder(dbId, prevStatus, nextStatus) {
   return 'other';
 }
 
+function riderStatusErrorIsRetryable(error) {
+  if (!error) return false;
+  const status = Number(error.status || error.code);
+  if ([400, 401, 403, 404].includes(status)) return false;
+  if (['400','401','403','404','42501','P0001'].includes(String(error.code))) return false;
+  return status >= 500 || !status;
+}
+
+function riderStatusErrorMessage(error, orderId, nextStatus) {
+  const status = Number(error && error.status);
+  if ([400,401,403,404].includes(status) || ['42501','P0001'].includes(String(error && error.code))) {
+    return `Order #${orderId} could not be marked as ${riderStatusLabel(nextStatus)} because you are not permitted to make that update.`;
+  }
+  return `We could not mark Order #${orderId} as ${riderStatusLabel(nextStatus)} because the service is temporarily unavailable. Tap Retry to try again.`;
+}
+
 // Core pickup / on-the-way / delivered sync. Applies the optimistic local
 // update (preserving the existing workflow), then persists to Supabase with ONE
 // safe retry (same-status updates are a server-side no-op, so a retry can never
@@ -6015,14 +6042,14 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
   render();
 
   let ok = false;
+  let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt === 1) await new Promise(r => setTimeout(r, 600));
-    const { error } = await supabase
-      .from('orders')
-      .update({ status: nextStatus })
-      .eq('id', dbId);
+    const { error } = await supabase.rpc('update_rider_order_status', { p_order_id: dbId, p_status: nextStatus });
     if (!error) { ok = true; break; }
+    lastError = error;
     console.error(`Rider status update failed (attempt ${attempt + 1} of 2):`, error);
+    if (!riderStatusErrorIsRetryable(error)) break;
   }
 
   if (!ok) {
@@ -6052,7 +6079,7 @@ async function runRiderStatusUpdate(order, nextStatus, opts) {
     dbId,
     orderId,
     nextStatus,
-    message: `We could not mark Order #${orderId} as ${riderStatusLabel(nextStatus)}. This may be a network or server problem — tap Retry below to try again.`
+    message: riderStatusErrorMessage(lastError, orderId, nextStatus)
   };
   render();
   return false;
@@ -6834,6 +6861,9 @@ function applyPathRouteBootstrap() {
 let initialAuthReady = false;
 let authProfileError = null;
 let loginRoutePending = false;
+let initialBootCatalogReady = false;
+let initialBootCatalogResolve;
+const initialBootCatalog = new Promise(resolve => { initialBootCatalogResolve = resolve; });
 function clearPrivateAuthState() {
   // Detach the old object: in-flight loaders retain only their old account's state.
   const previous = state;
@@ -6918,10 +6948,12 @@ const authLifecycle = createAuthLifecycle({
       loginRoutePending = false;
       location.hash = consumeLoginReturnRoute();
     }
-    render();
-    if (!result.ready || !result.profile) return;
+    if (!result.ready || !result.profile) {
+      Promise.resolve(initialBootCatalog).then(() => render());
+      return;
+    }
     const ticket = result.generation;
-    Promise.all([loadRiderFromSupabase(), loadOrdersFromSupabase(),
+    Promise.all([initialBootCatalog, loadRiderFromSupabase(), loadOrdersFromSupabase(),
       loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
       if (ticket !== authLifecycle.generation) return;
       subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime();

@@ -6,6 +6,45 @@ const {parseHTML}=require('linkedom');
 const root=path.resolve(__dirname,'../..');
 const appSource=fs.readFileSync(path.join(root,'assets/js/app.js'),'utf8');
 const adminSource=fs.readFileSync(path.join(root,'assets/js/admin.js'),'utf8');
+const swSource=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+const dispatcherSource=fs.readFileSync(path.join(root,'supabase/functions/push-dispatcher/index.ts'),'utf8');
+const shellSource=fs.readFileSync(path.join(root,'assets/html/index.html'),'utf8');
+const netlifyConfig=fs.readFileSync(path.join(root,'netlify.toml'),'utf8');
+
+assert.match(appSource,/rpc\(['"]update_rider_order_status['"]/);
+assert.doesNotMatch(appSource,/from\(['"]orders['"]\)\s*\.update\(\{ status: nextStatus \}\)/);
+assert.match(appSource,/\[400,401,403,404\]\.includes\(status\)/);
+assert.match(swSource,/dropzyy-static-v2/);
+assert.match(swSource,/u\.pathname === '\/assets\/js\/app\.js'/);
+assert.match(swSource,/k\.startsWith\('dropzyy-static-'/);
+assert.match(appSource,/DROPZYY_BUILD_ID/);
+assert.match(appSource,/initialBootCatalog/);
+assert.doesNotMatch(appSource,/Enable phone alerts/);
+assert.match(appSource,/function renderCustomerActiveOrders\(\)[\s\S]*?Your active orders/);
+assert.match(shellSource,/id="notifList"/);
+assert.match(shellSource,/id="notifCount"/);
+assert.match(appSource,/Order alerts/);
+assert.match(appSource,/data-enable-push/);
+assert.match(dispatcherSource,/order_number/);
+assert.match(dispatcherSource,/target_url/);
+assert.match(dispatcherSource,/replacement\|unavailable\|payment/);
+assert.match(swSource,/showNotification/);
+assert.match(swSource,/notificationclick/);
+assert.match(swSource,/target_url/);
+const unavailableMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270129_unavailable_push_notification.sql'),'utf8');
+assert.match(unavailableMigration,/Dropzyy — Item unavailable/);
+assert.match(unavailableMigration,/order_number/);
+assert.match(unavailableMigration,/trg_queue_notification_push|20270125/);
+const fallbackAt=netlifyConfig.indexOf('from = "/*"');
+assert.notEqual(fallbackAt,-1);
+for (const blocked of ['/.env','/.env.*','/.git/*','/supabase/*','/scripts/*','/tests/*','/package.json','/package-lock.json','/netlify.toml','/*.bak','/*.old','/*.backup','/*.tmp','/*.sql','/*.ps1','/*.yml','/*.yaml']) {
+  const ruleAt=netlifyConfig.indexOf(`from = "${blocked}"`);
+  assert.ok(ruleAt !== -1 && ruleAt < fallbackAt, `sensitive path is not blocked before SPA fallback: ${blocked}`);
+}
+assert.match(netlifyConfig,/from = "\/assets\/\*"[\s\S]*?status = 200/);
+assert.match(netlifyConfig,/from = "\/\*"[\s\S]*?to = "\/assets\/html\/index\.html"[\s\S]*?status = 200/);
+const gitignore=fs.readFileSync(path.join(root,'.gitignore'),'utf8');
+for (const ignored of ['*.bak','*.old','*.backup','*.tmp','*.dump','*.sql.dump','*.sql.gz']) assert.ok(gitignore.split(/\r?\n/).includes(ignored), `missing gitignore rule: ${ignored}`);
 
 function sourceBetween(start,end){
   const a=appSource.indexOf(start),b=appSource.indexOf(end,a);
@@ -13,6 +52,17 @@ function sourceBetween(start,end){
   assert.notEqual(b,-1,`missing source marker: ${end}`);
   return appSource.slice(a,b);
 }
+const homeSource=sourceBetween('function home()', 'function browse()');
+assert.doesNotMatch(homeSource,/renderCustomerActiveOrders\(\)/);
+assert.doesNotMatch(homeSource,/Your active orders/);
+assert.doesNotMatch(homeSource,/Live updates for orders still in progress\./);
+assert.match(homeSource,/Caf 2 is far\./);
+assert.match(appSource,/function renderCustomerActiveOrders\(\)/);
+assert.match(appSource,/function orders\(/);
+assert.match(appSource,/function orderView\(/);
+assert.match(appSource,/function track\(/);
+assert.match(appSource,/update_rider_order_status/);
+assert.match(appSource,/record_product_availability_check/);
 function adminBetween(start,end){
   const a=adminSource.indexOf(start),b=adminSource.indexOf(end,a);
   assert.notEqual(a,-1,`missing admin source marker: ${start}`);
