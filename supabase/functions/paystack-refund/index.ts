@@ -115,7 +115,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // ---- Load the refund record ----
     const { data: refund, error: refundErr } = await supabase
       .from("refunds")
-      .select("id, payment_id, order_id, amount, status, reason")
+      .select("id, payment_id, order_id, amount, status, reason, refund_kind")
       .eq("id", refundId)
       .single();
     if (refundErr || !refund) {
@@ -191,7 +191,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Validate the payment is in a refundable state
-    if (payment.status !== "success") {
+    const partialRefundOnPreviouslyPartiallyRefundedPayment =
+      refund.refund_kind === "replacement_adjustment" && payment.status === "refunded";
+    if (payment.status !== "success" && !partialRefundOnPreviouslyPartiallyRefundedPayment) {
       return json(req, 409, { error: "Payment is not in a refundable state" });
     }
     if (!payment.transaction_id) {

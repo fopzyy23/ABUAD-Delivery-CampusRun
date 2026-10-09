@@ -579,7 +579,18 @@ function toast(message, kind = 'success') {
 window.toast = toast;
 const handleAppError = (error, options) => window.DropzyyErrors?.handleAppError(error, options);
 window.DropzyyErrors?.installGlobalErrorCapture();
-function addCart(id) { const p = product(id); if (!p || p.active === false) { toast('That item is currently unavailable — please choose another.', 'error'); return; } const line = state.cart.find(x => x.id === p.id); if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 }); save(); toast(`${p.name} added to your cart`); }
+function addCart(id) {
+  const p = product(id);
+  if (!p || p.active === false) { toast('That item is currently unavailable — please choose another.', 'error'); return; }
+  const existingRestaurant = state.cart.map(line => product(line.id)).find(item => item && !isVendorProduct(item));
+  if (!isVendorProduct(p) && existingRestaurant && existingRestaurant.vendor !== p.vendor) {
+    toast('Your cart already contains items from another restaurant. Complete that order or clear your cart before ordering from this restaurant.', 'error');
+    return;
+  }
+  const line = state.cart.find(x => x.id === p.id);
+  if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 });
+  save(); toast(`${p.name} added to your cart`);
+}
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
 function cartTotal() { return cartItems().reduce((n, x) => n + x.price * x.qty, 0); }
 function isVendorProduct(item) {
@@ -597,6 +608,21 @@ function isVendorProduct(item) {
 const DELIVERY_FEE = 1500;
 const RIDER_DELIVERY_SHARE = 1000;
 const COMPANY_DELIVERY_SHARE = 500;
+const PACKAGING_MAX_QUANTITY = 10;
+let checkoutPackagingQuantity = 1;
+let foodPackagingUnitPrice = 200;
+let foodPackagingSettingsLoaded = false;
+
+function loadFoodPackagingSettings() {
+  if (foodPackagingSettingsLoaded || typeof supabase === 'undefined' || !supabase) return;
+  foodPackagingSettingsLoaded = true;
+  supabase.rpc('get_public_food_packaging_settings').then(({ data, error }) => {
+    if (!error && Array.isArray(data) && data[0]?.food_packaging_unit_price != null) {
+      foodPackagingUnitPrice = Number(data[0].food_packaging_unit_price) || 200;
+      if (location.hash === '#/checkout') render();
+    }
+  }).catch(() => { foodPackagingSettingsLoaded = false; });
+}
 
 // Rider earnings for a single delivery (authoritative fixed share).
 function riderShareAmount() {
@@ -1195,8 +1221,24 @@ async function loadOrdersForUser(userId, loadSequence) {
     const customerFinalProducts = await finalProductNames(orderItemsData);
     if (!await stillCurrent()) return false;
 
+    const resolutionCompleteByOrder = {};
+    orderItemsData.forEach(item => {
+      if (!resolutionCompleteByOrder[item.order_id]) resolutionCompleteByOrder[item.order_id] = true;
+      const resolved = item.final_removed === true
+        || item.availability_state === 'available'
+        || item.availability_state === 'replaced'
+        || ['available', 'replaced', 'removed'].includes(item.final_resolution);
+      resolutionCompleteByOrder[item.order_id] = resolutionCompleteByOrder[item.order_id] && resolved;
+    });
+
     // 3. Group order_items by order_id
     const itemsByOrder = {};
+    const allItemsRemovedByOrder = {};
+    orderItemsData.forEach(item => {
+      if (allItemsRemovedByOrder[item.order_id] === undefined) allItemsRemovedByOrder[item.order_id] = true;
+      allItemsRemovedByOrder[item.order_id] = allItemsRemovedByOrder[item.order_id]
+        && item.final_removed === true && item.final_resolution === 'removed';
+    });
     orderItemsData.forEach(item => {
       if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
       const resolved = resolvedItem(item, customerFinalProducts);
@@ -1207,7 +1249,7 @@ async function loadOrdersForUser(userId, loadSequence) {
     //    rider_id / rider_name / rider_phone are resolved below so the tracking
     //    page can show the actual assigned rider (name + phone during an active
     //    delivery) instead of a hardcoded name.
-    const mapOrder = (o, itemsMap, riderNames, riderPhones) => ({
+    const mapOrder = (o, itemsMap, riderNames, riderPhones, resolutionMap) => ({
       id: o.order_number,
       dbId: o.id,
       items: (itemsMap && itemsMap[o.id]) || [],
@@ -1221,6 +1263,9 @@ async function loadOrdersForUser(userId, loadSequence) {
       promotion_source_id: o.promotion_source_id || null,
       promotion_discount: o.promotion_discount != null ? o.promotion_discount : 0,
       credit_used: o.credit_used != null ? o.credit_used : 0,
+      packaging_quantity: o.packaging_quantity != null ? o.packaging_quantity : 0,
+      packaging_unit_price: o.packaging_unit_price != null ? o.packaging_unit_price : 0,
+      packaging_amount: o.packaging_amount != null ? o.packaging_amount : 0,
       promotion_reservation_id: o.promotion_reservation_id || null,
       team_share_before_promotion: o.team_share_before_promotion != null ? o.team_share_before_promotion : null,
       status: o.status || 'Order confirmed',
@@ -1247,7 +1292,9 @@ async function loadOrdersForUser(userId, loadSequence) {
       rider_name: (o.rider_id && riderNames && riderNames[o.rider_id]) || null,
       rider_phone: (o.rider_id && riderPhones && riderPhones[o.rider_id]) || null,
       created: formatOrderCreated(o.created_at),
-      createdAt: o.created_at || null
+      createdAt: o.created_at || null,
+      final_resolution_complete: Boolean((resolutionMap || resolutionCompleteByOrder)[o.id]),
+      all_items_removed: Boolean(allItemsRemovedByOrder[o.id])
     });
 
         // Resolve rider details (name + phone) for orders that already have an
@@ -1279,7 +1326,7 @@ async function loadOrdersForUser(userId, loadSequence) {
       // Fallback: if batch RPC unavailable, leave rider names as null (fail-safe)
     }
 
-        const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder, riderNames, riderPhones));
+    const supabaseOrders = (ordersData || []).map(o => mapOrder(o, itemsByOrder, riderNames, riderPhones, resolutionCompleteByOrder));
 
     // 4b. If the user is an approved rider, also load the rider delivery pool:
     //     unassigned rider-delivery orders (status = 'Order confirmed',
@@ -1319,13 +1366,21 @@ async function loadOrdersForUser(userId, loadSequence) {
 
         const poolItemsByOrder = {};
         const riderFinalProducts = await finalProductNames(poolItems || []);
+        const poolResolutionCompleteByOrder = {};
         (poolItems || []).forEach(item => {
           if (!poolItemsByOrder[item.order_id]) poolItemsByOrder[item.order_id] = [];
           const resolved = resolvedItem(item, riderFinalProducts);
           if (resolved) poolItemsByOrder[item.order_id].push(resolved);
+          if (!poolResolutionCompleteByOrder[item.order_id]) poolResolutionCompleteByOrder[item.order_id] = true;
+          poolResolutionCompleteByOrder[item.order_id] = poolResolutionCompleteByOrder[item.order_id] && (
+            item.final_removed === true
+            || item.availability_state === 'available'
+            || item.availability_state === 'replaced'
+            || ['available', 'replaced', 'removed'].includes(item.final_resolution)
+          );
         });
 
-        poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames)));
+        poolRows.forEach(o => poolOrders.push(mapOrder(o, poolItemsByOrder, riderNames, undefined, poolResolutionCompleteByOrder)));
       }
       // Also fetch rider details for pool orders that have riders assigned
       const poolOrdersWithRider = poolRows.filter(o => o.rider_id);
@@ -1408,7 +1463,7 @@ async function loadRefundsFromSupabase() {
     }
     const { data, error } = await supabase
       .from('refunds')
-      .select('id, order_id, amount, status, reason, refund_kind, gateway_refund_id, created_at, updated_at')
+      .select('id, order_id, amount, status, reason, refund_kind, adjustment_kind, source_order_item_id, gateway_refund_id, created_at, updated_at')
       .order('created_at', { ascending: false });
     if (error) throw error;
     state.refunds = data || [];
@@ -1461,6 +1516,11 @@ function orderAdjustmentUi(o) {
   if (!adjustments.length) return '';
   const lines = adjustments.map(r => {
     const status = r.status === 'processed' ? 'completed' : r.status === 'processing' ? 'processing' : r.status === 'failed' ? 'failed' : r.status === 'rejected' ? 'rejected' : ['requested','approved','pending'].includes(r.status) ? 'pending' : 'status unknown';
+    if (r.adjustment_kind === 'removed_item') {
+      if (status === 'failed') return `<div class="small muted">${money(r.amount)} removed-item refund failed</div>`;
+      if (status === 'rejected') return `<div class="small muted">${money(r.amount)} removed-item refund rejected</div>`;
+      return `<div class="small muted">${money(r.amount)} refund ${status} for removed item</div>`;
+    }
     return `<div class="small muted">${money(r.amount)} refund ${status} for replacement item</div>`;
   }).join('');
   return `<div class="small muted mt-1">${adjustments.length > 1 ? 'Refund adjustments' : 'Item adjustment refund'}</div>${lines}`;
@@ -1487,7 +1547,7 @@ function neutralRefundStatusLabel(status) {
 async function refreshCustomerOrderRefunds(orderDbId) {
   if (!orderDbId || typeof supabase === 'undefined' || !supabase) return false;
   const { data, error } = await supabase.from('refunds')
-    .select('id, order_id, amount, status, reason, refund_kind, gateway_refund_id, created_at, updated_at')
+    .select('id, order_id, amount, status, reason, refund_kind, adjustment_kind, source_order_item_id, gateway_refund_id, created_at, updated_at')
     .eq('order_id', orderDbId).order('created_at', { ascending: true });
   if (error) throw error;
   state.refunds = state.refunds.filter(r => r.order_id !== orderDbId).concat(data || []);
@@ -2926,6 +2986,9 @@ async function saveOrderToSupabase(order) {
   order.subtotal = Number(data.order.subtotal);
   order.fee = Number(data.order.fee);
   order.total = Number(data.order.total);
+  order.packaging_quantity = Number(data.order.packaging_quantity || 0);
+  order.packaging_unit_price = Number(data.order.packaging_unit_price || 0);
+  order.packaging_amount = Number(data.order.packaging_amount || 0);
   order.status = data.order.status || order.status;
   order.payment_status = data.order.payment_status || 'pending';
   order.createdAt = data.order.created_at || order.createdAt || null;
@@ -2972,6 +3035,7 @@ async function requestOrderAdmission(order, lines, operation) {
         items: lines,
         spot: order.spot,
         vendor_request: operation === 'create_vendor_order_request',
+        packaging_quantity: operation === 'create_vendor_order_request' ? 0 : Number(order.packaging_quantity ?? 1),
         idempotency_key: key
       })
     });
@@ -3043,6 +3107,9 @@ async function saveVendorOrderRequestToSupabase(order) {
   order.subtotal = Number(data.order.subtotal);
   order.fee = Number(data.order.fee);
   order.total = Number(data.order.total);
+  order.packaging_quantity = Number(data.order.packaging_quantity || 0);
+  order.packaging_unit_price = Number(data.order.packaging_unit_price || 0);
+  order.packaging_amount = Number(data.order.packaging_amount || 0);
   order.status = data.order.status || order.status;
   order.payment_status = data.order.payment_status || 'pending_vendor';
   order.request_type = data.order.request_type;
@@ -4031,6 +4098,11 @@ function vendorDashboard() {
   </section>`;
 }
 
+function packagingSelectorHtml() {
+  const amount = checkoutPackagingQuantity * foodPackagingUnitPrice;
+  return `<div class="card mt-1" data-packaging-selector><div class="row row--between"><div><b>Food packaging</b><p class="muted small mb-0">Adjust the number of food packs you need.</p></div><div class="row" style="gap:8px"><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="-1" aria-label="Decrease packaging quantity">−</button><b>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'}</b><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="1" aria-label="Increase packaging quantity">+</button></div></div><div class="row row--between mt-1"><span>${checkoutPackagingQuantity === 0 ? 'No packaging' : `Packaging: ${checkoutPackagingQuantity} × ${money(foodPackagingUnitPrice)}`}</span><b>${money(amount)}</b></div></div>`;
+}
+
 function checkout() {
   if (!state.cart.length) { location.hash = '#/cart'; return ''; }
   // Require the user to be logged in before placing an order
@@ -4039,6 +4111,7 @@ function checkout() {
     redirectToLoginWithReturnRoute();
     return '';
   }
+  loadFoodPackagingSettings();
   const checkoutItems = cartItems();
   const vendorOnly = checkoutItems.length > 0 && checkoutItems.every(isVendorProduct);
   if (vendorOnly) {
@@ -4049,14 +4122,16 @@ function checkout() {
     const restaurantItems = checkoutItems.filter(item => !isVendorProduct(item));
     const vendorItems = checkoutItems.filter(isVendorProduct);
     const restaurantSubtotal = restaurantItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-    const restaurantTotal = restaurantSubtotal + DELIVERY_FEE;
+    const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
+    const restaurantTotal = restaurantSubtotal + packagingAmount + DELIVERY_FEE;
     const renderCheckoutItem = x => `<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`;
-    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
+    return `<section class="section container"><div class="page-head"><div><h1>Checkout & vendor requests</h1><p>Your cart contains two separate flows.</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Restaurant</h3><span class="badge badge--success">Customer payment</span></div>${restaurantItems.map(renderCheckoutItem).join('')}${packagingSelectorHtml()}<p class="muted small">These items use normal Dropzyy checkout. Customer payment applies here.</p><div class="totals"><div><span>Restaurant total</span><span>${money(restaurantTotal)}</span></div></div><div class="divider"></div><div class="card__head"><h3>Vendor requests</h3><span class="badge badge--info">No Dropzyy product payment</span></div>${vendorItems.map(renderCheckoutItem).join('')}<p class="muted small">These items are requests only. The vendor will contact you directly, and product payment is handled privately with the vendor. Any later vendor delivery is paid by the vendor.</p><div class="divider"></div><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(restaurantTotal)} & send vendor requests</button><p class="muted xs center mb-0">Only restaurant items are paid through Dropzyy. Vendor items create requests only.</p></form></div></section>`;
   }
   const fee = DELIVERY_FEE;
-  const total = cartTotal()+fee;
+  const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
+  const total = cartTotal()+packagingAmount+fee;
   queuePromotionCheckoutUi();
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div><div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack to complete payment securely.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div>${packagingSelectorHtml()}<div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack. Packaging remains optional and separate from delivery.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 // F18: lightweight skeleton card for async views. Uses the existing shimmer
@@ -4103,16 +4178,20 @@ async function orders() {
     // a successful payment + no existing/terminal refund. Request amount is NEVER
     // sent from the client — the backend is authoritative.
     const existingRefund = getOrderRefund(o.dbId);
+    const automaticAdjustmentPending = o.final_financial_status === 'overpaid_pending_resolution';
     const refundUi = existingRefund
       ? orderCardRefundUi(o)
-      : (o.payment_status === 'success'
+      : (o.payment_status === 'success' && !automaticAdjustmentPending
           ? `<br><button class="link-btn small" data-refund-request="${esc(o.dbId)}">Request Refund</button>`
-          : '');
+          : (automaticAdjustmentPending ? '<br><span class="muted small">Item refund will be created after final product confirmation</span>' : ''));
     const adjustmentUi = orderAdjustmentUi(o);
+    const packagingUi = o.request_type !== 'vendor_request'
+      ? `<div class="small muted">Packaging: ${Number(o.packaging_quantity || 0)} × ${money(o.packaging_unit_price || 0)} = ${money(o.packaging_amount || 0)}</div>`
+      : '';
     if (vendorDelivery) {
-      return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} product value</b>${adjustmentUi}<br>${vendorDeliveryStatusMessage(o)}<a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+      return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} product value</b>${packagingUi}${adjustmentUi}<br>${vendorDeliveryStatusMessage(o)}<a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
     }
-    return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b><b class="price price--lg">${money(o.total)}</b>${adjustmentUi}<br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
+    return `<article class="card"><div class="row row--between row--wrap"><div>${customerOrderStatusBadge(o)}<h3 class="mt-1">Order #${o.id}</h3><p class="muted small mb-0">${esc(vnames)} · ${(o.items||[]).length} item${(o.items||[]).length>1?'s':''} · ${o.created}</p><p class="muted small mb-0">📍 ${esc(o.spot||'No delivery location')}${riderLine}</p></div><div class="right"><b class="price price--lg">${money(o.subtotal)} + ${money(o.fee)} delivery</b>${packagingUi}<b class="price price--lg">${money(o.total)}</b>${adjustmentUi}<br><a class="link-btn small" href="#/order/${o.id}">Details</a> · <a class="link-btn small" href="#/track/${o.id}">Track order →</a>${o.payment_status==='pending' && o.status==='Order confirmed' ? ` · <a class="link-btn small" href="#/pay/${o.id}">Pay →</a>` : ''}${refundUi}${reorderBtn}${cancelBtn}</div></div><div class="divider"></div>${items}</article>`;
 }).join('');
   return `<section class="section container"><div class="page-head"><div><h1>My orders</h1><p>Track everything you've ordered on campus.</p></div><a class="btn btn--ghost btn--sm" href="#/browse">Order again</a></div><div class="stack">${cards}</div></section>`;
 }
@@ -4296,10 +4375,91 @@ function subscribeRiderOrdersRealtime() {
   }).catch(() => { riderOrdersSubscriptionStarting = false; riderOrdersRealtimeConnected = false; startRiderOrdersPoll(); });
 }
 
+async function loadAssignedOrderEnriched(dbId) {
+  const current = currentAppState();
+  if (typeof supabase === 'undefined' || !supabase || !dbId || !current.rider) return false;
+  const previous = [...current.orders, ...current.riderPool].find(order => order.dbId === dbId);
+  if (!previous) return false;
+
+  const { data: riderRow, error: riderError } = await supabase
+    .from('riders').select('id').eq('user_id', current.user?.id).eq('status', 'approved').maybeSingle();
+  if (riderError || !riderRow?.id) return false;
+
+  const { data: orderRow, error: orderError } = await supabase
+    .from('orders').select('*').eq('id', dbId).eq('rider_id', riderRow.id).maybeSingle();
+  if (orderError || !orderRow) return false;
+  const { data: itemRows, error: itemError } = await supabase
+    .from('order_items').select('*').eq('order_id', dbId);
+  if (itemError) throw itemError;
+
+  const replacementIds = [...new Set((itemRows || [])
+    .filter(item => !item.final_removed && item.final_product_id && item.final_product_id !== item.product_id)
+    .map(item => item.final_product_id))];
+  let replacementNames = {};
+  if (replacementIds.length) {
+    const { data: products, error: productError } = await supabase
+      .from('products').select('id,name,icon').in('id', replacementIds);
+    if (productError) throw productError;
+    replacementNames = Object.fromEntries((products || []).map(product => [String(product.id), product]));
+  }
+
+  const items = (itemRows || []).filter(item => !item.final_removed).map(item => {
+    const replacement = item.final_product_id && item.final_product_id !== item.product_id;
+    const product = replacement ? replacementNames[String(item.final_product_id)] : null;
+    return {
+      id: replacement ? item.final_product_id : item.product_id,
+      orderItemId: item.id,
+      vendor: item.vendor_id,
+      name: replacement ? (product?.name || `Replacement product #${item.final_product_id}`) : item.name,
+      price: item.final_price != null ? item.final_price : item.price,
+      icon: replacement ? (product?.icon || '🛒') : item.icon,
+      desc: '', category: '', qty: item.qty,
+      availability_state: item.availability_state || 'unconfirmed',
+      final_resolution: item.final_resolution || null
+    };
+  });
+  const finalResolutionComplete = itemRows.length > 0 && itemRows.every(item =>
+    item.final_removed === true
+    || item.availability_state === 'available'
+    || item.availability_state === 'replaced'
+    || ['available', 'replaced', 'removed'].includes(item.final_resolution)
+  );
+  const candidate = {
+    ...previous,
+    id: orderRow.order_number || previous.id,
+    dbId: orderRow.id,
+    items,
+    total: orderRow.total,
+    final_order_total: orderRow.final_order_total,
+    subtotal: orderRow.subtotal != null ? orderRow.subtotal : previous.subtotal,
+    fee: orderRow.customer_delivery_charge != null ? orderRow.customer_delivery_charge : (orderRow.fee ?? previous.fee),
+    status: orderRow.status || previous.status,
+    payment_status: orderRow.payment_status || previous.payment_status,
+    product_availability_status: orderRow.product_availability_status || 'not_started',
+    purchase_funding_status: orderRow.purchase_funding_status || 'not_required',
+    cancellation_stage: orderRow.cancellation_stage || 'none',
+    additional_amount_due: orderRow.additional_amount_due || 0,
+    overpaid_amount: orderRow.overpaid_amount || 0,
+    packaging_quantity: orderRow.packaging_quantity || 0,
+    packaging_unit_price: orderRow.packaging_unit_price || 0,
+    packaging_amount: orderRow.packaging_amount || 0,
+    final_financial_status: orderRow.final_financial_status || null,
+    final_resolution_complete: finalResolutionComplete,
+    all_items_removed: itemRows.length > 0 && itemRows.every(item => item.final_removed === true && item.final_resolution === 'removed'),
+    createdAt: orderRow.created_at || previous.createdAt,
+    created: formatOrderCreated(orderRow.created_at || previous.createdAt)
+  };
+  const canonical = mergeOrderFreshness(previous, candidate);
+  current.orders = current.orders.map(order => order.dbId === dbId ? canonical : order);
+  current.riderPool = current.riderPool.map(order => order.dbId === dbId ? canonical : order);
+  return true;
+}
+
 async function patchOrderInState(dbId) {
   if (typeof supabase === 'undefined' || !supabase || !dbId) return;
   try {
-    await refreshEnrichedOrder(dbId, 'realtime');
+    const targeted = await loadAssignedOrderEnriched(dbId);
+    if (!targeted) return;
     if (location.hash.startsWith('#/rider')) render();
   } catch (err) {
     console.error('Enriched order refresh failed:', err);
@@ -4641,7 +4801,7 @@ async function orderView(id) {
     ${o.request_type === 'vendor_request' ? vendorDeliveryStatusMessage(o, true) : ''}
     ${vendorPromotionUi}
     <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>${o.request_type === 'vendor_request' ? (o.delivery_method === 'vendor_self' ? 'Delivery: Vendor self-delivery — no Dropzyy delivery fee' : 'Vendor delivery fee — ₦1,500 (paid by vendor)') : 'Delivery fee'}</span><span>${o.request_type === 'vendor_request' ? '' : money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
+    <div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div>${o.request_type !== 'vendor_request' ? `<div><span>Packaging: ${Number(o.packaging_quantity || 0)} × ${money(o.packaging_unit_price || 0)}</span><span>${money(o.packaging_amount || 0)}</span></div>` : ''}<div><span>${o.request_type === 'vendor_request' ? (o.delivery_method === 'vendor_self' ? 'Delivery: Vendor self-delivery — no Dropzyy delivery fee' : 'Vendor delivery fee — ₦1,500 (paid by vendor)') : 'Delivery fee'}</span><span>${o.request_type === 'vendor_request' ? '' : money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div>
     <p class="muted xs mb-0">Prices shown are what you paid at order time. “Now” notes highlight where today's catalog price has changed.</p>
     ${refundUi}
   </div>
@@ -4827,22 +4987,33 @@ function riderOrderItemsHtml(o) {
   const items = Array.isArray(o.items) ? o.items : [];
   if (!items.length) return '';
   const lines = items.map(it => `<div class="line"><span class="line__thumb">${esc(it.icon || '🛒')}</span><span class="line__main"><b>${esc(it.name || 'Item')}</b><small class="line__sub">× ${it.qty || 0}</small></span><b>${money((Number(it.price) || 0) * (it.qty || 0))}</b></div>`).join('');
-  return `<div class="stack mt-1" style="gap:4px">${lines}<div class="divider"></div><div class="row row--between"><span class="muted small">Order total</span><b>${money(o.final_order_total ?? o.total)}</b></div></div>`;
+  const foodAmount = items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
+  const packagingAmount = Math.max(0, Number(o.packaging_amount) || 0);
+  const restaurantPurchaseAmount = foodAmount > 0 ? foodAmount + packagingAmount : 0;
+  const restaurantPurchase = `<div class="divider"></div><div class="small"><b>Restaurant purchase</b><div class="row row--between"><span class="muted">Food</span><span>${money(foodAmount)}</span></div>${packagingAmount > 0 ? `<div class="row row--between"><span class="muted">Packaging</span><span>${money(packagingAmount)}</span></div>` : ''}<div class="row row--between"><span class="muted">Total to restaurant</span><b>${money(restaurantPurchaseAmount)}</b></div></div>`;
+  return `<div class="stack mt-1" style="gap:4px">${lines}${restaurantPurchase}<div class="row row--between"><span class="muted small">Order total</span><b>${money(o.final_order_total ?? o.total)}</b></div></div>`;
 }
 
 function riderAvailabilityHtml(o) {
   const items = Array.isArray(o.items) ? o.items : [];
-  if (!items.length || !['Rider assigned','Picked up','On the Way'].includes(o.status)) return '';
+  const allItemsRemoved = o.all_items_removed === true;
+  const finalResolutionComplete = o.final_resolution_complete === true;
+  if ((!items.length && !finalResolutionComplete) || !['Rider assigned','Picked up','On the Way'].includes(o.status)) return '';
   const stateLabel = o.product_availability_status === 'confirmed' ? 'All products confirmed' : o.product_availability_status === 'needs_customer_decision' ? 'Customer decision required' : o.product_availability_status === 'in_progress' ? 'Check in progress' : 'Check products';
-  const ready = items.every(it => ['available','replaced'].includes(it.availability_state))
+  const ready = finalResolutionComplete && items.every(it => ['available','replaced'].includes(it.availability_state))
     && Number(o.additional_amount_due || 0) === 0
-    && !['additional_payment_required','overpaid_pending_resolution'].includes(o.final_financial_status);
+    && (allItemsRemoved || !['additional_payment_required','overpaid_pending_resolution'].includes(o.final_financial_status));
   const guidance = o.product_availability_status === 'confirmed'
     ? '<p class="muted small">Products confirmed. Purchase funding is authorized; wait for confirmed transfer before buying.</p>'
-    : ready ? '<p class="muted small">Final products are resolved. Confirm them to request purchase funding.</p>'
+    : ready ? (allItemsRemoved
+      ? '<p class="muted small">Every food item was removed. Confirm the resolution to cancel the order and start the customer reimbursement.</p>'
+      : '<p class="muted small">Final products are resolved. Confirm them to request purchase funding.</p>')
     : '<p class="muted small">Check every product. Wait for the customer to resolve unavailable items and complete any additional payment before confirming.</p>';
   const lines = items.map(it => `<div class="row row--between row--wrap availability-line" style="gap:8px"><span><b>${esc(it.name || 'Item')}</b> <span class="muted small">× ${it.qty || 0}</span></span><span class="badge badge--${['available','replaced'].includes(it.availability_state) ? 'success' : it.availability_state === 'unavailable' ? 'danger' : 'warn'}">${it.availability_state === 'available' ? 'Available' : it.availability_state === 'replaced' ? 'Replacement confirmed' : it.availability_state === 'unavailable' ? 'Unavailable' : 'Not checked'}</span></div>`).join('');
-  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div>${guidance}${o.product_availability_status !== 'confirmed' ? `<div class="row row--wrap mt-1" style="gap:6px">${items.filter(it => !it.final_resolution || it.final_resolution === 'available').map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>` : ''}${ready && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">Confirm products & request funding</button>` : ''}</div>`;
+  const emptyResolutionNotice = !items.length && finalResolutionComplete
+    ? '<p class="muted small">All items were removed. Confirm product resolution to cancel the order and issue the customer reimbursement; no purchase funding will be requested.</p>'
+    : '';
+  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div>${emptyResolutionNotice}${guidance}${o.product_availability_status !== 'confirmed' ? `<div class="row row--wrap mt-1" style="gap:6px">${items.filter(it => !it.final_resolution || it.final_resolution === 'available').map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>` : ''}${ready && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">${allItemsRemoved ? 'Confirm product resolution' : 'Confirm products & request funding'}</button>` : ''}</div>`;
 }
 
 function rider() {
@@ -6228,6 +6399,12 @@ document.addEventListener('click', async e=>{
   if(e.target.id==='vendorProductClear'){ resetVendorProductForm(); }
   const vpImgRemove=e.target.closest('#vendorProductImageRemove'); if(vpImgRemove){ dropVendorProductImageSelection(); }
   const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
+  const packaging=e.target.closest('[data-packaging-delta]'); if(packaging){
+    const next=checkoutPackagingQuantity+Number(packaging.dataset.packagingDelta);
+    checkoutPackagingQuantity=Math.max(0,Math.min(PACKAGING_MAX_QUANTITY,next));
+    render();
+    return;
+  }
   const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
     // Client-side mirror of the server-enforced 2-active cap (DB trigger is
@@ -6297,6 +6474,7 @@ document.addEventListener('click', async e=>{
     })();
   }}
   const pickup=e.target.closest('[data-pickup]'); if(pickup){const o=state.riderPool.find(x=>x.id===pickup.dataset.pickup); if(o){
+    if (o.final_resolution_complete === true && !(o.items || []).length) { toast('No products remain; this order cannot be picked up.', 'error'); return; }
     runRiderStatusUpdate(o,'Picked up',{
       successToast:'Order marked as picked up',
       onSuccess:()=>addNotification('Order picked up',`Order #${o.id} has been picked up and is on its way.`)
@@ -6406,7 +6584,9 @@ document.addEventListener('click', async e=>{
     const orderId=confirmProducts.dataset.confirmProducts; confirmProducts.disabled=true;
     try {
       const result=await supabaseEdgeFunctionRequest('paystack-transfer',{order_id:(state.riderPool.find(x=>x.id===orderId)||{}).dbId});
-      if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
+      if(result && result.flow === 'all_items_unavailable') toast('All items unavailable; customer reimbursement is being processed');
+      else if(result && result.status === 'no_funding_required') toast('Products resolved; no purchase funding is required');
+      else if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
       else toast('Purchase funding request submitted');
       await refreshEnrichedOrder((state.riderPool.find(x=>x.id===orderId)||{}).dbId, 'confirm-products');
     } catch (error) { void handleAppError(error,{action:'release_purchase_funding',source:'payment',financial:true,orderId:o.dbId}); }
@@ -6792,9 +6972,11 @@ document.addEventListener('submit', e=>{
         if (restaurantItems.length > 0) {
           const subtotal = restaurantItems.reduce((n, x) => n + x.price * x.qty, 0);
           const fee = DELIVERY_FEE;
-          const total = subtotal + fee;
+          const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
+          const total = subtotal + packagingAmount + fee;
           const order = {
             id: null, items: restaurantItems, subtotal, fee, total,
+            packaging_quantity: checkoutPackagingQuantity,
             status: 'Order confirmed', payment_status: 'pending',
             spot, created: 'Just now', delivery_method: 'rider',
             idempotency_key: getOrCreateOrderAttempt('place_order', restaurantItems.map(item => ({ id: String(item.id), qty: Number(item.qty) })), spot, userId).key
@@ -6812,6 +6994,7 @@ document.addEventListener('submit', e=>{
             anySuccess = true;
             if (!firstOrderId) firstOrderId = order.id;
             state.orders.unshift(order);
+            checkoutPackagingQuantity = 1;
           } else {
             void handleAppError(new Error(state.lastOrderError||'Order creation failed'),{action:'create_restaurant_order',source:'order',userMessage:'We could not place your restaurant order. Please try again.'});
           }
