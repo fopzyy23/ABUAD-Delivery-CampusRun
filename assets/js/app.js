@@ -1226,7 +1226,7 @@ async function loadOrdersForUser(userId, loadSequence) {
         name: replacement ? (p?.name || `Replacement product #${item.final_product_id}`) : item.name,
         price: item.final_price != null ? item.final_price : item.price,
         icon: replacement ? (p?.icon || '🛒') : item.icon,
-        desc: '', category: '', qty: item.qty,
+        desc: '', category: '', qty: item.final_quantity != null ? item.final_quantity : item.qty,
         availability_state: item.availability_state || 'unconfirmed',
         final_resolution: item.final_resolution || null
       };
@@ -2641,6 +2641,16 @@ function renderCustomerOrderNotes(o) {
   return `<div class="card mt-2"><div class="card__head"><h3>Order updates</h3></div><div class="stack" style="gap:10px">${notes.map(n => `<div class="small"><div class="row row--between"><b>${esc(n.note_type === 'availability' ? 'Product update' : n.note_type === 'replacement' ? 'Replacement update' : 'Rider update')}</b><span class="muted xs">${esc(n.created_at ? formatFullDate(n.created_at) : '')}</span></div><div class="muted mt-1">${esc(n.message)}</div></div>`).join('')}</div></div>`;
 }
 
+function unavailableReplacementChoices(item, choices, suggestions = '') {
+  const originalQty = Math.max(1, Number(item.qty) || 1);
+  return `<div class="card mt-1"><b>Item unavailable: ${esc(item.name || 'Item')}</b>${suggestions}<p class="muted small mb-1">Choose how many of the ${originalQty} unavailable unit${originalQty === 1 ? '' : 's'} to replace. Any remainder is removed.</p>${choices.map(p => {
+    const qtyOptions = Array.from({ length: originalQty }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join('');
+    const delta = (Number(p.price) || 0) * originalQty - (Number(item.price) || 0) * originalQty;
+    const estimate = delta > 0 ? `Estimated maximum extra payment ${money(delta)}` : delta < 0 ? `Estimated maximum refund ${money(Math.abs(delta))}` : 'No maximum price change';
+    return `<div class="card mt-1" data-replacement-choice><div class="row row--between row--wrap"><b>${esc(p.name)}</b><span class="small muted">${money(p.price)} each</span></div><div class="row row--wrap mt-1" style="gap:6px;align-items:end"><label class="small">Units to replace<select class="input" data-replacement-quantity aria-label="Units of ${esc(item.name || 'item')} to replace">${qtyOptions}</select></label><button class="btn btn--soft btn--sm" data-confirm-replace="${esc(item.orderItemId || '')}" data-replacement-product="${esc(p.id)}">Confirm replacement</button></div><div class="muted xs mt-1">${estimate}; the server calculates the exact final amount.</div></div>`;
+  }).join('')}<button class="btn btn--ghost btn--sm mt-1" data-remove-unavailable="${esc(item.orderItemId || '')}">Remove all unavailable units</button></div>`;
+}
+
 function activeOrderLabel(o) {
   if (o.final_financial_status === 'overpaid_pending_resolution') return 'Partial refund processing';
   if (o.final_financial_status === 'additional_payment_required' || Number(o.additional_amount_due || 0) > 0) return 'Additional payment required';
@@ -3230,7 +3240,7 @@ async function loadVendorDataFromSupabase() {
         icon: item.icon,
         desc: '',
         category: '',
-        qty: item.qty
+        qty: item.final_quantity != null ? item.final_quantity : item.qty
       });
     });
 
@@ -4438,7 +4448,7 @@ async function loadAssignedOrderEnriched(dbId) {
       name: replacement ? (product?.name || `Replacement product #${item.final_product_id}`) : item.name,
       price: item.final_price != null ? item.final_price : item.price,
       icon: replacement ? (product?.icon || '🛒') : item.icon,
-      desc: '', category: '', qty: item.qty,
+      desc: '', category: '', qty: item.final_quantity != null ? item.final_quantity : item.qty,
       availability_state: item.availability_state || 'unconfirmed',
       final_resolution: item.final_resolution || null
     };
@@ -4720,7 +4730,7 @@ async function track(id) {
   const replacementChoices = unavailableItems.map(it => {
     const choices = (state.catalog || []).filter(p => p.active !== false && p.vendor === it.vendor).slice(0, 8);
     const suggestions = availabilitySuggestions.length ? `<div class="card mt-1"><b>Rider suggestion</b>${availabilitySuggestions.map(note => `<div class="small mt-1">${esc(note.message)}</div>`).join('')}</div>` : '';
-    return `<div class="card mt-1"><b>Item unavailable: ${esc(it.name || 'Item')}</b>${suggestions}<div class="row row--wrap mt-1" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(it.orderItemId || '')}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(it.orderItemId || '')}">Remove item</button></div></div>`;
+    return unavailableReplacementChoices(it, choices, suggestions);
   }).join('');
 
   // Rider rating: only for the customer's own DELIVERED order that had an
@@ -4783,9 +4793,9 @@ async function orderView(id) {
   const items = o.items || [];
   const vnames = orderVendorNames(o);
   const canReorder = ['Delivered','Rated'].includes(o.status);
-  const subtotal = o.subtotal != null ? o.subtotal : items.reduce((n,it)=>n+(it.price||0)*(it.qty||0),0);
+  const subtotal = o.final_product_total != null ? o.final_product_total : (o.subtotal != null ? o.subtotal : items.reduce((n,it)=>n+(it.price||0)*(it.qty||0),0));
   const fee = o.fee != null ? o.fee : DELIVERY_FEE;
-  const total = o.total != null ? o.total : subtotal + fee;
+  const total = o.final_order_total != null ? o.final_order_total : (o.total != null ? o.total : subtotal + fee);
   const placedAt = o.createdAt ? formatFullDate(o.createdAt) : (o.created || '—');
   const rows = items.length ? items.map(it => {
     const p = product(it.id);
@@ -6313,7 +6323,7 @@ function initReplacementDecisionUi(parts) {
   const box = document.createElement('div'); box.className = 'card mt-2';
   box.innerHTML = '<h3>Customer decision required</h3>' + unavailable.map(i => {
     const choices = (state.catalog || []).filter(p => p.active !== false && p.vendor === i.vendor).slice(0, 8);
-    return `<div class="stack mt-1"><b>Item unavailable: ${esc(i.name || 'Item')}</b><div class="row row--wrap" style="gap:6px">${choices.map(p => `<button class="btn btn--soft btn--sm" data-replace-unavailable="${esc(i.orderItemId)}" data-replacement-product="${esc(p.id)}">Replace with ${esc(p.name)} · ${money(p.price)}</button>`).join('')}<button class="btn btn--ghost btn--sm" data-remove-unavailable="${esc(i.orderItemId)}">Remove item</button></div></div>`;
+    return unavailableReplacementChoices(i, choices);
   }).join('') + (Number(order.additional_amount_due) > 0 ? `<button class="btn btn--block mt-1" data-replacement-pay="${esc(order.dbId)}">Pay additional amount ${money(order.additional_amount_due)}</button>` : '');
   const split = document.querySelector('.split'); if (split) split.prepend(box);
 }
@@ -6612,10 +6622,17 @@ document.addEventListener('click', async e=>{
     const { error }=await supabase.rpc('customer_remove_unavailable_item',{p_order_item_id:removeUnavailable.dataset.removeUnavailable});
     if(error) toast('This item could not be removed.','error'); else { if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'remove-unavailable'); toast('Item removed from the final order'); render(); }
   }
-  const replaceUnavailable=e.target.closest('[data-replace-unavailable]'); if(replaceUnavailable){
-    const affected = [...state.orders, ...state.riderPool].find(o=>(o.items||[]).some(i=>String(i.orderItemId || i.dbId || i.id)===String(replaceUnavailable.dataset.replaceUnavailable)));
-    const { data, error }=await supabase.rpc('customer_replace_unavailable_item',{p_order_item_id:replaceUnavailable.dataset.replaceUnavailable,p_replacement_product_id:replaceUnavailable.dataset.replacementProduct});
-    if(error) toast('Replacement could not be selected.','error'); else { if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'replacement'); if(data?.requires_payment) toast('Additional payment is required.'); else toast('Replacement confirmed'); render(); }
+  const confirmReplace=e.target.closest('[data-confirm-replace]'); if(confirmReplace){
+    e.preventDefault();
+    const itemId = confirmReplace.dataset.confirmReplace;
+    const choice = confirmReplace.closest('[data-replacement-choice]');
+    const quantity = Number(choice?.querySelector('[data-replacement-quantity]')?.value || 0);
+    if (!itemId || !Number.isInteger(quantity) || quantity < 1) { toast('Choose a valid replacement quantity.','error'); return; }
+    const affected = [...state.orders, ...state.riderPool].find(o=>(o.items||[]).some(i=>String(i.orderItemId || i.dbId || i.id)===String(itemId)));
+    confirmReplace.disabled = true;
+    const { data, error }=await supabase.rpc('customer_replace_unavailable_item',{p_order_item_id:itemId,p_replacement_product_id:confirmReplace.dataset.replacementProduct,p_replacement_quantity:quantity});
+    if(error) { confirmReplace.disabled = false; toast('Replacement could not be selected.','error'); }
+    else { if (affected?.dbId) await refreshEnrichedOrder(affected.dbId, 'replacement'); if(data?.requires_payment) toast('Additional payment is required.'); else toast('Replacement confirmed'); render(); }
   }
   const replacementPay=e.target.closest('[data-replacement-pay]'); if(replacementPay){
     startPaystackCheckout(replacementPay.dataset.replacementPay,replacementPay,'Redirecting to Paystack…','replacement');
