@@ -164,6 +164,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border-radius: 4px;
 }
 [hidden] { display: none !important; }
+/* Keep the static shell neutral until startup has a complete route/auth
+   snapshot, so anonymous chrome and placeholders never flash first. */
+body.startup-pending .bottomnav { visibility: hidden; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

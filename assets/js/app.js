@@ -106,7 +106,8 @@
 // TODO: Replace both placeholder values with the real Dropzyy
 // support email and WhatsApp Channel invite link. They are used by
 // homeReachUs() (WhatsApp / Email cards) — change them here only.
-const DROPZYY_SUPPORT_EMAIL = 'zyy.work.zyy@gmail.com'; // ← PASTE EMAIL HERE
+// The static footer is the single source of truth for this public address.
+const DROPZYY_SUPPORT_EMAIL = document.getElementById('footerEmail')?.textContent?.trim() || '';
 const DROPZYY_WHATSAPP_CHANNEL = 'https://whatsapp.com/channel/0029Vb95rgV4tRrjXoGl1I1E'; // ← PASTE WHATSAPP CHANNEL LINK HERE
 const DROPZYY_BUILD_ID = '20261007-rider-rpc-startup-v2';
 window.DROPZYY_BUILD_ID = DROPZYY_BUILD_ID;
@@ -432,6 +433,8 @@ const data = () => {
 // truth for the customer-facing catalog. If the request fails, we keep the
 // existing localStorage catalog as a temporary fallback.
 async function loadCatalogFromSupabase() {
+  const measuringInitialCatalog = !initialBootCatalogReady;
+  if (measuringInitialCatalog) startupMark('catalog-start');
   try {
     const [vendorsRes, productsRes] = await Promise.all([
       supabase.from('vendors').select('*').eq('active', true),
@@ -464,11 +467,15 @@ async function loadCatalogFromSupabase() {
     store('catalog_v3', catalog);
     // During initial boot the coordinator owns the single final render. Later
     // catalog refreshes may redraw the active route as a targeted data update.
-    if (catalogChanged && initialBootCatalogReady) render();
+    if (catalogChanged && initialBootCatalogReady && routeNeedsCatalog(currentRouteParts())) render();
   } catch (err) {
     console.error('Supabase catalog load failed — using localStorage fallback:', err);
     state.catalogLoadError = true;
   } finally {
+    if (measuringInitialCatalog) {
+      startupMark('catalog-ready');
+      startupMeasure('catalog-duration', 'catalog-start');
+    }
     if (!initialBootCatalogReady) {
       initialBootCatalogReady = true;
       initialBootCatalogResolve();
@@ -5981,23 +5988,22 @@ const maintenanceRealtimeChannel = supabase
 
 async function loadMaintenanceGate() {
   const requestState = currentAppState();
-  if (maintenanceGate.checked) return maintenanceGate;
+  const generation = typeof authLifecycle !== 'undefined' ? authLifecycle.generation : 0;
+  if (maintenanceGate.checked && maintenanceGate.generation === generation) return maintenanceGate;
   let isAdmin = false;
   try {
-    const [{ data: settings, error: settingsError }, { data: sessionData }] = await Promise.all([
-      supabase.rpc('get_public_site_settings'),
-      supabase.auth.getSession()
-    ]);
-    const session = sessionData && sessionData.session;
-    if (session && session.user) {
+    startupMark('maintenance-start');
+    const settingsPromise = supabase.rpc('get_public_site_settings');
+    const authReady = typeof authLifecycle !== 'undefined' && authLifecycle.ready;
+    const session = authReady ? authLifecycle.session : (await supabase.auth.getSession()).data?.session;
+    if (authReady) isAdmin = state.user?.role === 'admin';
+    else if (session?.user) {
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .maybeSingle();
+        .from('profiles').select('role').eq('id', session.user.id).maybeSingle();
       if (profileError) throw profileError;
-      isAdmin = profile && profile.role === 'admin';
+      isAdmin = profile?.role === 'admin';
     }
+    const { data: settings, error: settingsError } = await settingsPromise;
     if (settingsError) throw settingsError;
     const publicSettings = Array.isArray(settings) ? settings[0] : settings;
     if (requestState !== currentAppState()) return { enabled: true, isAdmin: false, checkFailed: true };
@@ -6005,15 +6011,18 @@ async function loadMaintenanceGate() {
       checked: true,
       enabled: Boolean(publicSettings && publicSettings.maintenance_mode),
       isAdmin,
-      checkFailed: false
+      checkFailed: false,
+      generation
     };
     deliverySettings = publicSettings || null;
+    startupMark('maintenance-ready');
+    startupMeasure('maintenance-duration', 'maintenance-start');
   } catch (err) {
     // A settings read failure must not grant normal site access.
     if (requestState !== currentAppState()) return { enabled: true, isAdmin: false, checkFailed: true };
     // Server-side order/request enforcement is handled separately.
     console.error('Maintenance mode check failed:', err);
-    maintenanceGate = { checked: true, enabled: false, isAdmin, checkFailed: true };
+    maintenanceGate = { checked: true, enabled: false, isAdmin, checkFailed: true, generation };
   }
   return maintenanceGate;
 }
@@ -6023,7 +6032,8 @@ function invalidateMaintenanceGate() {
     checked: false,
     enabled: false,
     isAdmin: false,
-    checkFailed: false
+    checkFailed: false,
+    generation: null
   };
 }
 
@@ -6131,28 +6141,26 @@ async function render() {
   const renderGeneration = authLifecycle.generation;
   const [path] = location.hash.slice(1).split('?');
   const earlyParts = path.split('/').filter(Boolean);
-  // Public home content is independent of session restoration. Paint it
-  // immediately and let the auth lifecycle enrich it when the session is ready.
-  // Protected routes retain an explicit wait so a valid session is never
-  // redirected before getSession/profile restoration completes.
-  if (!initialAuthReady && !earlyParts.length) {
+  // The startup coordinator owns the first committed route. Until its
+  // route-critical snapshot is ready, keep the app area stable instead of
+  // replacing it with a full-page loading message.
+  if (!startupRouteReady || !initialAuthReady) {
     setDocumentTitle(earlyParts);
-    $('#app').innerHTML = '<section class="section container"><div class="card center"><p role="status">Loading Dropzyy…</p></div></section>';
-    updateChrome();
-    return;
-  }
-  if (!initialAuthReady) {
-    $('#app').innerHTML = '<section class="container"><p role="status">Loading…</p></section>';
+    if (!document.querySelector('#app .startup-skeleton')) {
+      $('#app').innerHTML = '<section class="section container startup-skeleton" aria-busy="true" aria-label="Loading Dropzyy"></section>';
+    }
     return;
   }
   if (authProfileError) {
     $('#app').innerHTML = '<section class="container"><h1>Account unavailable</h1><p>Your profile could not be loaded. Reload to retry, or sign out.</p><button id="logoutBtn" class="btn">Sign out</button></section>';
     updateChrome();
+    markStartupPainted();
     return;
   }
   if (state.user?.account_status === 'suspended') {
     $('#app').innerHTML = '<section class="section container"><div class="card"><h1>Account suspended</h1><p>Your Dropzyy account is currently suspended. Contact support if you believe this is an error.</p><button id="logoutBtn" class="btn" type="button">Sign out</button></div></section>';
     updateChrome();
+    markStartupPainted();
     return;
   }
   const parts = path.split('/').filter(Boolean);
@@ -6164,6 +6172,7 @@ async function render() {
     $('#app').innerHTML = accountAuth('login', auth('login'));
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
+    markStartupPainted();
     return;
   }
   if (isRecoveryRoute) {
@@ -6172,6 +6181,7 @@ async function render() {
     $('#app').innerHTML = passwordReset();
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
+    markStartupPainted();
     return;
   }
   const gate = await loadMaintenanceGate();
@@ -6181,6 +6191,7 @@ async function render() {
     $('#app').innerHTML = gate.checkFailed ? maintenanceUnavailableView() : maintenanceView();
     document.title = gate.checkFailed ? 'Temporarily unavailable · Dropzyy' : 'Maintenance · Dropzyy';
     window.scrollTo({ top: 0, behavior: 'instant' });
+    markStartupPainted();
     return;
   }
   setMaintenanceChrome(false);
@@ -6289,6 +6300,7 @@ async function render() {
   playWaybill();
   initVendorCarousel();
   updateChrome();
+  markStartupPainted();
        window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -7257,7 +7269,9 @@ document.addEventListener('error', (e) => {
   if (e.target && e.target.nodeName === 'IMG') e.target.remove();
 }, true);
 
-applyTheme(localStorage.getItem('campusrun_theme')||'light'); $('#year').textContent=new Date().getFullYear();
+applyTheme(localStorage.getItem('campusrun_theme')||'light');
+const yearNode = $('#year');
+if (yearNode && !yearNode.textContent.trim()) yearNode.textContent = String(new Date().getFullYear());
 // Footer support email — kept in sync with the single DROPZYY_SUPPORT_EMAIL
 // constant so the address is pasted/changed in one place only.
 const footerEmailLink=$('#footerEmail'); if(footerEmailLink){ const em=String(DROPZYY_SUPPORT_EMAIL||'').trim(); if(em){ footerEmailLink.textContent=em; footerEmailLink.href='mailto:'+em; } }
@@ -7307,6 +7321,56 @@ let loginRoutePending = false;
 let initialBootCatalogReady = false;
 let initialBootCatalogResolve;
 const initialBootCatalog = new Promise(resolve => { initialBootCatalogResolve = resolve; });
+let startupRouteReady = false;
+let initialRouteCommitted = false;
+let startupRenderPromise = null;
+const startupTiming = { start: performance.now(), marks: {} };
+function startupMark(name) {
+  startupTiming.marks[name] = performance.now();
+  if (typeof performance.mark === 'function') performance.mark(`dropzyy-${name}`);
+}
+function startupMeasure(name, from) {
+  const start = startupTiming.marks[from];
+  if (typeof start === 'number') startupTiming.marks[name] = performance.now() - start;
+}
+function currentRouteParts() {
+  const [path] = location.hash.slice(1).split('?');
+  return path.split('/').filter(Boolean);
+}
+function routeNeedsCatalog(parts) {
+  return !parts.length || ['browse', 'vendors', 'product', 'cart', 'checkout'].includes(parts[0]);
+}
+function routeNeedsOrders(parts) {
+  return ['orders', 'order', 'track', 'refund', 'pay'].includes(parts[0]);
+}
+function routeNeedsRider(parts) {
+  return parts[0] === 'rider';
+}
+function routeNeedsWithdrawals(parts) {
+  return parts[0] === 'rider' && parts[1] !== 'apply';
+}
+function markStartupPainted() {
+  const firstCommit = !initialRouteCommitted;
+  if (firstCommit) {
+    initialRouteCommitted = true;
+    startupMark('first-final-render');
+    startupMeasure('route-critical-readiness', 'startup-route-critical-start');
+  }
+  document.body.classList.remove('startup-pending');
+  if (!firstCommit) return;
+  const debug = new URLSearchParams(location.search).get('startup_debug') === '1';
+  if (debug || /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+    const m = startupTiming.marks;
+    console.info('[Dropzyy startup]', {
+      totalMs: Math.round(m['first-final-render'] - startupTiming.start),
+      getSessionMs: Math.round(m['get-session-duration'] || 0),
+      profileMs: Math.round(m['profile-duration'] || 0),
+      catalogMs: Math.round(m['catalog-duration'] || 0),
+      maintenanceMs: Math.round(m['maintenance-duration'] || 0),
+      routeCriticalMs: Math.round(m['route-critical-duration'] || 0)
+    });
+  }
+}
 function clearPrivateAuthState() {
   // Detach the old object: in-flight loaders retain only their old account's state.
   const previous = state;
@@ -7331,6 +7395,7 @@ function clearPrivateAuthState() {
 }
 async function syncAuthenticatedUser(session) {
   const user = session.user;
+  const expectedUserId = user.id;
   let newCustomerProfile = false;
   let { data: profile, error } = await supabase.from('profiles')
     .select('full_name, role, vendor_id, account_status').eq('id', user.id).maybeSingle();
@@ -7348,12 +7413,20 @@ async function syncAuthenticatedUser(session) {
     profile = fetched.data;
   }
   if (!profile) throw new Error('Profile unavailable');
-  const referralCodeResult = await supabase.rpc('ensure_referral_code');
-  if (referralCodeResult.error) console.error('Referral code provisioning failed:', referralCodeResult.error);
-  if (newCustomerProfile && profile.role === 'user') {
-    const reward = await supabase.rpc('issue_customer_signup_reward', { p_referral_code: referralCodeForSignup() || null });
-    if (reward.error) console.error('Signup reward issuance failed:', reward.error);
-  }
+  // Referral provisioning and signup rewards are deliberately post-readiness:
+  // neither result is required to authorize or render the current route. The
+  // RPCs remain authoritative and idempotent, and failures stay isolated from
+  // normal startup rendering.
+  void (async () => {
+    const currentSession = (await supabase.auth.getSession()).data?.session;
+    if (currentSession?.user?.id !== expectedUserId) return;
+    const referralCodeResult = await supabase.rpc('ensure_referral_code');
+    if (referralCodeResult.error) console.error('Referral code provisioning failed:', referralCodeResult.error);
+    if (newCustomerProfile && profile.role === 'user') {
+      const reward = await supabase.rpc('issue_customer_signup_reward', { p_referral_code: referralCodeForSignup() || null });
+      if (reward.error) console.error('Signup reward issuance failed:', reward.error);
+    }
+  })().catch(error => console.error('Referral startup work failed:', error));
   return { id: user.id, name: profile.full_name || user.email?.split('@')[0] || '',
     email: user.email, role: profile.role, vendor_id: profile.vendor_id || null, account_status: profile.account_status || 'active' };
 }
@@ -7375,6 +7448,70 @@ async function finishEmailConfirmation(session) {
     await render();
     void handleAppError(error, { action: 'finish_email_confirmation', source: 'auth', userMessage: 'Your email was confirmed, but the login page could not be prepared. Please reload before signing in.' });
   } finally { emailConfirmationFinalizing = false; }
+}
+
+async function coordinateRouteRender(generation = authLifecycle.generation) {
+  if (!initialAuthReady) {
+    startupRouteReady = false;
+    await render();
+    return;
+  }
+  const parts = currentRouteParts();
+  const routeKey = location.hash;
+  startupRouteReady = false;
+  void render();
+  const work = async () => {
+    startupMark('startup-route-critical-start');
+    const critical = [loadMaintenanceGate()];
+    if (routeNeedsCatalog(parts)) critical.push(initialBootCatalog);
+    if (routeNeedsOrders(parts)) critical.push(loadOrdersFromSupabase());
+    if (routeNeedsRider(parts)) {
+      // The rider hub renders the live pool, active deliveries, earnings and
+      // withdrawal count together; all of those are route-critical there.
+      critical.push(loadRiderFromSupabase(), loadOrdersFromSupabase(), loadWithdrawalsFromSupabase());
+    }
+    await Promise.all(critical);
+    startupMeasure('route-critical-duration', 'startup-route-critical-start');
+    if (generation !== authLifecycle.generation || routeKey !== location.hash) return;
+    startupRouteReady = true;
+    await render();
+    if (generation !== authLifecycle.generation || routeKey !== location.hash) return;
+    startBackgroundLoaders(generation, parts);
+  };
+  if (startupRenderPromise && startupRenderPromise.key === `${generation}:${routeKey}`) return startupRenderPromise.promise;
+  const promise = work().catch(error => {
+    if (generation === authLifecycle.generation && routeKey === location.hash) {
+      console.error('Startup route coordination failed:', error);
+      startupRouteReady = true;
+      awaitRenderAfterCriticalFailure();
+    }
+  }).finally(() => {
+    if (startupRenderPromise?.promise === promise) startupRenderPromise = null;
+  });
+  startupRenderPromise = { key: `${generation}:${routeKey}`, promise };
+  return promise;
+}
+
+function awaitRenderAfterCriticalFailure() {
+  render().catch(error => console.error('Fallback route render failed:', error));
+}
+
+function startBackgroundLoaders(generation, parts) {
+  if (!state.user) return;
+  Promise.resolve().then(async () => {
+    if (generation !== authLifecycle.generation) return;
+    const current = currentAppState();
+    const jobs = [loadNotificationsFromSupabase()];
+    if (!current.ordersLoadedFromSupabase) jobs.push(loadOrdersFromSupabase());
+    if (!current.riderLoaded) jobs.push(loadRiderFromSupabase());
+    if (routeNeedsWithdrawals(parts) && !current.withdrawalsLoaded) jobs.push(loadWithdrawalsFromSupabase());
+    await Promise.allSettled(jobs);
+    if (generation !== authLifecycle.generation || current !== currentAppState()) return;
+    subscribeNotificationsRealtime();
+    subscribeRiderOrdersRealtime();
+    subscribeCustomerRefundsRealtime();
+    subscribeCustomerRewardsRealtime();
+  }).catch(error => console.error('Background startup loading failed:', error));
 }
 
 const authLifecycle = createAuthLifecycle({
@@ -7399,21 +7536,20 @@ const authLifecycle = createAuthLifecycle({
       loginRoutePending = false;
       location.hash = consumeLoginReturnRoute();
     }
-    if (!result.ready || !result.profile) {
-      Promise.resolve(initialBootCatalog).then(() => render());
+    if (!result.ready) {
+      startupRouteReady = false;
+      document.body.classList.add('startup-pending');
+      render();
       return;
     }
+    startupMark('profile-ready');
+    startupMeasure('profile-duration', 'get-session');
     const ticket = result.generation;
-    Promise.all([initialBootCatalog, loadRiderFromSupabase(), loadOrdersFromSupabase(),
-      loadNotificationsFromSupabase(), loadWithdrawalsFromSupabase()]).then(() => {
+    void coordinateRouteRender(ticket).then(() => {
       if (ticket !== authLifecycle.generation) return;
-subscribeNotificationsRealtime(); subscribeRiderOrdersRealtime(); subscribeCustomerRefundsRealtime(); subscribeCustomerRewardsRealtime();
-      render();
       handlePaystackReturn().catch(() => {
         if (ticket === authLifecycle.generation) toast('Payment verification is temporarily unavailable.', 'error');
       });
-    }).catch(() => {
-      if (ticket === authLifecycle.generation) toast('Some account data could not be loaded.', 'error');
     });
   }
 });
@@ -7436,8 +7572,11 @@ registerDropzyyServiceWorker();
 // INITIAL_SESSION is delayed or lost. The lifecycle's sameLogicalSession
 // deduplicates the INITIAL_SESSION that follows.
 async function bootstrapAuth() {
+  if (typeof startupMark === 'function') startupMark('get-session-start');
   try {
     const { data, error } = await supabase.auth.getSession();
+    if (typeof startupMark === 'function') startupMark('get-session');
+    if (typeof startupMeasure === 'function') startupMeasure('get-session-duration', 'get-session-start');
     if (error) {
       console.error('Auth bootstrap getSession error:', error);
       // Do not leave initialAuthReady=false forever. Treat as unauthenticated.
@@ -7476,18 +7615,18 @@ window.addEventListener('hashchange', () => {
   // The demo-card subscription only exists on the home route: tear it down
   // (channel + poll timer) as soon as the visitor navigates away.
   if (!['', '#', '#/'].includes(location.hash)) stopDemoTracking();
-  render().then(()=>{
+  coordinateRouteRender(authLifecycle.generation).then(()=>{
     // #app keeps tabindex="-1" so it can receive programmatic focus without
     // turning up in the tab order. preventScroll avoids a focus-induced scroll
     // jump on top of render()'s deliberate scrollTo-top.
     const main=document.getElementById('app');
     if(main && typeof main.focus==='function') main.focus({ preventScroll: true });
   });
-}); if(!location.hash) location.hash='#/'; else render();
+}); if(!location.hash) location.hash='#/'; else void coordinateRouteRender(authLifecycle.generation);
 
 window.addEventListener('dropzyy:maintenance-changed', event => {
   maintenanceGate.enabled = Boolean(event.detail && event.detail.enabled);
-  render();
+  void coordinateRouteRender(authLifecycle.generation);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -7495,7 +7634,7 @@ document.addEventListener('visibilitychange', () => {
   invalidateMaintenanceGate();
   // Re-entry refreshes the database role; TOKEN_REFRESHED itself stays lightweight.
   if (authLifecycle.session) void authLifecycle.receive('SIGNED_IN', authLifecycle.session);
-  else render();
+  else void coordinateRouteRender(authLifecycle.generation);
 });
 
 // Load the catalog from Supabase (falls back to localStorage on failure).

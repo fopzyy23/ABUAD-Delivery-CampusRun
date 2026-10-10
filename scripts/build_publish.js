@@ -29,6 +29,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'dist');
@@ -147,6 +148,29 @@ function listFiles(dir, base) {
   return out;
 }
 
+function deploymentBuildId() {
+  const external = process.env.DEPLOY_ID || process.env.COMMIT_REF || process.env.BUILD_ID;
+  const context = process.env.CONTEXT || process.env.NETLIFY_CONTEXT || process.env.DEPLOY_PRIME_URL || 'local';
+  if (external) {
+    const safeContext = String(context).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'local';
+    const safeExternal = String(external).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'build';
+    return `${safeContext}-${safeExternal}`;
+  }
+  const critical = ['assets/js/app.js', 'assets/js/auth-lifecycle.js', 'assets/js/config.js', 'assets/js/app-errors.js', 'assets/js/modal.js', 'assets/css/styles.css', 'assets/css/admin.css'];
+  const hash = crypto.createHash('sha256');
+  critical.forEach(rel => hash.update(fs.readFileSync(path.join(ROOT, rel))));
+  const safeContext = String(context).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'local';
+  return safeContext + '-' + hash.digest('hex').slice(0, 16);
+}
+
+function preparePublishedArtifacts() {
+  const swPath = path.join(OUT_DIR, 'sw.js');
+  const buildId = deploymentBuildId();
+  const sw = fs.readFileSync(swPath, 'utf8').replace(/__DROPZYY_BUILD_ID__/g, buildId);
+  fs.writeFileSync(swPath, sw);
+  console.log('  build id   : ' + buildId);
+}
+
 
 function main() {
   const config = getBuildConfig();
@@ -164,6 +188,7 @@ function main() {
       }
       copyRecursive(src, path.join(OUT_DIR, rel));
     }
+    preparePublishedArtifacts();
   } catch (err) {
     removeOutDir();
     fail(err && err.message ? err.message : String(err));
