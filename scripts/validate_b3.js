@@ -237,7 +237,7 @@ check("B3 documents external refund and transfer reconciliation scheduling", dep
 check("B3 documents both Paystack webhook endpoints", deployment.includes("/functions/v1/paystack-webhook") && deployment.includes("/functions/v1/paystack-transfer-webhook"));
 for (const [name, route] of [["paystack-initialize", "/orders"], ["paystack-initialize-delivery", "/vendor"]]) {
   const source = fs.readFileSync(path.join(root, "supabase/functions", name, "index.ts"), "utf8");
-  check(`B3 ${name} requires explicit callback configuration`, /Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)\s*\?\?\s*""/.test(source));
+  check(`B3 ${name} requires explicit callback configuration`, /Deno\.env\.get\("PAYSTACK_(?:PRODUCT|DELIVERY)_CALLBACK_URL"\)\s*\?\?\s*Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)/.test(source));
   check(`B3 ${name} requires an explicit deployment environment label`, /Deno\.env\.get\("DROPZYY_ENVIRONMENT"\)\s*\?\?\s*""/.test(source));
   check(`B3 ${name} uses shared isolated callback route ${route}`, source.includes("resolveTrustedCallbackUrl") && source.includes(`requiredPath: "${route}"`));
   check(`B3 ${name} contains no implicit production callback`, !/https:\/\/(?:www\.)?dropzyy\.com\//.test(source));

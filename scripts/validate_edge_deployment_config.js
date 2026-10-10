@@ -47,12 +47,12 @@ for (const name of ['automatic-cutoff-transfer', 'automatic-cutoff-worker', 'cle
   const source = fs.readFileSync(path.join(functionsDir, name, 'index.ts'), 'utf8');
   check(`${name} checks a dedicated worker secret`, /WORKER_SECRET|JOB_SECRET|RECONCILER_SECRET/.test(source) && /Unauthorized|authorized\(req\)/.test(source));
 }
-for (const secret of ['PAYSTACK_SECRET_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN', 'PAYSTACK_CALLBACK_URL', 'DROPZYY_ENVIRONMENT', 'AUTOMATIC_CUTOFF_WORKER_SECRET', 'CLEANUP_JOB_SECRET', 'REFUND_RECONCILIATION_WORKER_SECRET', 'TRANSFER_RECONCILIATION_WORKER_SECRET', 'PAYSTACK_RECONCILER_SECRET', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT', 'PUSH_DISPATCHER_SECRET']) {
+for (const secret of ['PAYSTACK_SECRET_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN', 'PAYSTACK_PRODUCT_CALLBACK_URL', 'PAYSTACK_DELIVERY_CALLBACK_URL', 'PAYSTACK_CALLBACK_URL', 'DROPZYY_ENVIRONMENT', 'AUTOMATIC_CUTOFF_WORKER_SECRET', 'CLEANUP_JOB_SECRET', 'REFUND_RECONCILIATION_WORKER_SECRET', 'TRANSFER_RECONCILIATION_WORKER_SECRET', 'PAYSTACK_RECONCILER_SECRET', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT', 'PUSH_DISPATCHER_SECRET']) {
   check(`deployment documentation names ${secret}`, docs.includes(secret));
 }
 for (const [name, route] of [['paystack-initialize', '/orders'], ['paystack-initialize-delivery', '/vendor']]) {
   const source = fs.readFileSync(path.join(functionsDir, name, 'index.ts'), 'utf8');
-  check(`${name} requires explicit environment/callback config and uses the shared resolver`, source.includes('Deno.env.get("PAYSTACK_CALLBACK_URL") ?? ""') && source.includes('Deno.env.get("DROPZYY_ENVIRONMENT") ?? ""') && source.includes('resolveTrustedCallbackUrl'));
+  check(`${name} requires explicit environment/callback config and uses the shared resolver`, /Deno\.env\.get\("PAYSTACK_(?:PRODUCT|DELIVERY)_CALLBACK_URL"\) \?\? Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)/.test(source) && source.includes('Deno.env.get("DROPZYY_ENVIRONMENT") ?? ""') && source.includes('resolveTrustedCallbackUrl'));
   check(`${name} fixes its callback route to ${route}`, source.includes(`requiredPath: "${route}"`));
   check(`${name} has no production callback fallback`, !/https:\/\/(?:www\.)?dropzyy\.com\//.test(source));
 }

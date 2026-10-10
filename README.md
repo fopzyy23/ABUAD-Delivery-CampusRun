@@ -115,7 +115,9 @@ Set these in the Supabase Dashboard → **Edge Functions** → **Secrets**
 | `SUPABASE_URL` | all six | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | all six | Service-role key — server-side only; used to read/verify orders/payments before calling Paystack or applying results |
 | `ALLOWED_ORIGIN` | browser-facing functions | Explicit comma-separated CORS origin allowlist for this deployment. There is no implicit production/local default; absent configuration does not approve browser origins. The two Paystack webhooks do **not** use `ALLOWED_ORIGIN` (server-to-server). |
-| `PAYSTACK_CALLBACK_URL` | `paystack-initialize`, `paystack-initialize-delivery` | Required explicit route on an origin in `ALLOWED_ORIGIN`; product/replacement uses `/orders`, vendor delivery uses `/vendor`. Invalid/missing configuration prevents initialization. |
+| `PAYSTACK_PRODUCT_CALLBACK_URL` | `paystack-initialize` | Required explicit `/orders` route on an origin in `ALLOWED_ORIGIN`; falls back to legacy `PAYSTACK_CALLBACK_URL` only for backward compatibility. |
+| `PAYSTACK_DELIVERY_CALLBACK_URL` | `paystack-initialize-delivery` | Required explicit `/vendor` route on an origin in `ALLOWED_ORIGIN`; falls back to legacy `PAYSTACK_CALLBACK_URL` only for backward compatibility. |
+| `PAYSTACK_CALLBACK_URL` | both Paystack initializers | Legacy callback fallback only; use the route-specific variables for new deployments. |
 | `DROPZYY_ENVIRONMENT` | `paystack-initialize`, `paystack-initialize-delivery` | Required server-side label `production`, `staging`, or `development`; callback routes and origins are checked against it. |
 
 > **No secret value is stored in this repository.** The Edge Functions

@@ -55,7 +55,7 @@ async function lifecycleTests() {
   assert.ok(!/https:\/\/(?:www\.)?dropzyy\.com|127\.0\.0\.1:5500/.test(http), 'shared CORS has no implicit production/local allowlist');
   for (const [source, route, label] of [[init, '/orders', 'product/replacement'], [deliveryInit, '/vendor', 'vendor delivery']]) {
     assert.match(source, /import\s*\{\s*resolveTrustedCallbackUrl\s*\}\s*from\s*["']\.\.\/_shared\/callback\.mjs/);
-    assert.match(source, /Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)\s*\?\?\s*""/);
+    assert.match(source, /Deno\.env\.get\("PAYSTACK_(?:PRODUCT|DELIVERY)_CALLBACK_URL"\)\s*\?\?\s*Deno\.env\.get\("PAYSTACK_CALLBACK_URL"\)/);
     assert.match(source, /Deno\.env\.get\("DROPZYY_ENVIRONMENT"\)\s*\?\?\s*""/);
     assert.match(source, new RegExp(`requiredPath:\\s*["']${route}["']`));
     assert.ok(!/https:\/\/(?:www\.)?dropzyy\.com\//.test(source), `${label} has no production callback fallback`);
@@ -191,7 +191,10 @@ async function lifecycleTests() {
   const oldState = { user: { id: 'a', role: 'admin' }, orders: ['private-a'], notifications: ['private-a'], cart: ['public-cart'], catalog: [] };
   const cleanupScope = { state: oldState, initialPrivateState: { orders: [], notifications: [] }, structuredClone,
     riderLoadPromises: new Map(), ordersLoadPromises: new Map(),
-    invalidateMaintenanceGate() {}, resetVendorSessionState() {}, clearRiderOrdersSubscription() {}, clearTrackSubscription() {},
+    invalidateMaintenanceGate() {}, resetVendorSessionState() {}, clearRiderOrdersSubscription() {},
+clearCustomerRefundsSubscription() {},
+clearCustomerRewardsSubscription() {},
+clearTrackSubscription() {},
     window: {}, save() {} };
   vm.createContext(cleanupScope); vm.runInContext(privateClearCode, cleanupScope);
   cleanupScope.clearPrivateAuthState();

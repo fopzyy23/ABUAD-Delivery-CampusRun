@@ -81,8 +81,8 @@ Do not add a staging origin to the production configuration as a workaround.
 
 | Environment | Browser/project selection | CSP and server configuration |
 | --- | --- | --- |
-| Production | Checked-in production frontend label, `DROPZYY_ENVIRONMENT=production`, dropzyy.com/www origins and production public project/key | Explicit production `ALLOWED_ORIGIN` + `PAYSTACK_CALLBACK_URL`; production HTTPS/WSS/img CSP; verify deployed settings |
-| Staging | REQUIRED: chosen isolated origin, browser staging label, `DROPZYY_ENVIRONMENT=staging`, separate Supabase URL/public key | REQUIRED: matching netlify.toml connect-src/img-src HTTPS/WSS, staging-only `ALLOWED_ORIGIN`, staging `PAYSTACK_CALLBACK_URL`, Auth Site URL/exact Redirect URLs |
+| Production | Checked-in production frontend label, `DROPZYY_ENVIRONMENT=production`, dropzyy.com/www origins and production public project/key | Explicit production `ALLOWED_ORIGIN` + route-specific Paystack callbacks (`/orders` and `/vendor`); production HTTPS/WSS/img CSP; verify deployed settings |
+| Staging | REQUIRED: chosen isolated origin, browser staging label, `DROPZYY_ENVIRONMENT=staging`, separate Supabase URL/public key | REQUIRED: matching netlify.toml connect-src/img-src HTTPS/WSS, staging-only `ALLOWED_ORIGIN`, route-specific staging callback URLs, Auth Site URL/exact Redirect URLs |
 | Development | REQUIRED: explicit local origin/port, browser development label, `DROPZYY_ENVIRONMENT=development`, non-production Supabase URL/public key | Match local host CSP where served; explicit localhost-only `ALLOWED_ORIGIN`/callback and Auth redirects |
 
 Never use connect-src *. All six environment-specific settings (origin,
@@ -230,7 +230,8 @@ database was changed as part of this repository repair.
    production unintentionally.
 2. Configure the staging frontend URL/key/CSP and staging Edge environment,
    including `DROPZYY_ENVIRONMENT=staging`, Paystack TEST, explicit
-   `ALLOWED_ORIGIN`, and explicit `PAYSTACK_CALLBACK_URL`. Do not provision
+   `ALLOWED_ORIGIN`, explicit route-specific Paystack callback URLs, and the
+   legacy `PAYSTACK_CALLBACK_URL` only when backward compatibility is needed. Do not provision
    scheduler Vault values yet.
 3. Confirm the hosted project provides Vault, Storage, `pg_cron`, and `pg_net`.
    The migration history enables `pg_cron`/`pg_net`; availability of those
@@ -283,7 +284,9 @@ missing. The repository-owned jobs are
 | `TRANSFER_RECONCILIATION_WORKER_SECRET` | transfer reconciliation worker | Yes before external invocation | Authenticates trusted reconciliation invoker |
 | `PAYSTACK_RECONCILER_SECRET` | payout-cost reconciliation worker | Yes before external invocation | Authenticates trusted reconciliation invoker |
 | `ALLOWED_ORIGIN` | browser-facing functions | Yes | CORS allowlist |
-| `PAYSTACK_CALLBACK_URL` | payment initialization functions | Yes | Approved payment return URL |
+| `PAYSTACK_PRODUCT_CALLBACK_URL` | `paystack-initialize` | Yes | Approved `/orders` payment return URL |
+| `PAYSTACK_DELIVERY_CALLBACK_URL` | `paystack-initialize-delivery` | Yes | Approved `/vendor` payment return URL |
+| `PAYSTACK_CALLBACK_URL` | legacy fallback only | Optional during migration | Backward-compatible callback fallback |
 | `DROPZYY_ENVIRONMENT` | payment initialization functions | Yes | Exact deployment label: `production`, `staging`, or `development`; server-side callback isolation policy |
 
 `paystack-refund-reconcile`, `paystack-transfer-reconcile`, and
@@ -432,8 +435,9 @@ with that environment's endpoints and key mode; a TEST/LIVE key mismatch, or a
 staging URL pointing at production, is a release-blocking operator error.
 
 `DROPZYY_ENVIRONMENT` is required by both payment initializers and must match
-the deployed project. `PAYSTACK_CALLBACK_URL` is mandatory in every environment
-and must be a valid fixed-route URL whose origin is explicitly in that
+the deployed project. `PAYSTACK_PRODUCT_CALLBACK_URL` and
+`PAYSTACK_DELIVERY_CALLBACK_URL` are mandatory in every environment and must be
+valid fixed-route URLs whose origins are explicitly in that
 deployment's `ALLOWED_ORIGIN`. Product/replacement payments return to `/orders`;
 vendor delivery payments return to `/vendor`. The request Origin must itself be
 allowlisted. Staging callbacks must use the same staging origin as the request;
@@ -445,7 +449,8 @@ Deployed callbacks require HTTPS; HTTP is allowed only for localhost. No
 initializer infers production from a fallback or silently selects a production
 URL.
 
-**Never leave `PAYSTACK_CALLBACK_URL` unset expecting a production default.**
+**Never leave the route-specific Paystack callback variables unset expecting a
+production default.**
 Missing, malformed, untrusted, or cross-environment environment/callback/origin
 configuration returns a sanitized configuration error before a payment
 obligation/payment record is created or Paystack is called.
