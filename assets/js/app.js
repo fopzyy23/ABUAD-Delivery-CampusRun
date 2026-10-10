@@ -503,12 +503,12 @@ function safeLoadOrderAttempts() {
 function safeStoreOrderAttempts(attempts) {
   try { store(ORDER_ATTEMPT_STORAGE_KEY, attempts); return true; } catch (_) { return false; }
 }
-function orderAttemptIntent(operation, lines, spot) {
+function orderAttemptIntent(operation, lines, spot, packagingQuantity = 0) {
   const items = (lines || []).map(line => ({
     id: String(line.id).trim(),
     qty: Number(line.qty)
   })).sort((a, b) => a.id.localeCompare(b.id) || a.qty - b.qty);
-  return JSON.stringify({ operation, items, spot: String(spot ?? '').trim() });
+  return JSON.stringify({ operation, items, spot: String(spot ?? '').trim(), packaging_quantity: Number(packagingQuantity) || 0 });
 }
 function loadOrderAttempts() {
   const now = Date.now();
@@ -522,8 +522,8 @@ function loadOrderAttempts() {
   if (active.length !== attempts.length) safeStoreOrderAttempts(active);
   return active;
 }
-function getOrCreateOrderAttempt(operation, lines, spot, userId) {
-  const intent = orderAttemptIntent(operation, lines, spot);
+function getOrCreateOrderAttempt(operation, lines, spot, userId, packagingQuantity = 0) {
+  const intent = orderAttemptIntent(operation, lines, spot, packagingQuantity);
   const attempts = loadOrderAttempts();
   const namespace = String(userId || 'anonymous');
   const existing = attempts.find(a => a.user === namespace && a.operation === operation && a.intent === intent);
@@ -533,8 +533,8 @@ function getOrCreateOrderAttempt(operation, lines, spot, userId) {
   safeStoreOrderAttempts(orderAttemptMemory);
   return attempt;
 }
-function clearOrderAttempt(operation, lines, spot, key, userId) {
-  const intent = orderAttemptIntent(operation, lines, spot);
+function clearOrderAttempt(operation, lines, spot, key, userId, packagingQuantity = 0) {
+  const intent = orderAttemptIntent(operation, lines, spot, packagingQuantity);
   const namespace = String(userId || 'anonymous');
   const remaining = loadOrderAttempts().filter(a => !(a.user === namespace && a.operation === operation && a.intent === intent && (!key || a.key === key)));
   orderAttemptMemory = remaining;
@@ -596,6 +596,7 @@ function addCart(id) {
   }
   const line = state.cart.find(x => x.id === p.id);
   if (line) line.qty++; else state.cart.push({ id: p.id, qty: 1 });
+  syncAutoPackagingQuantity();
   save(); toast(`${p.name} added to your cart`);
 }
 function cartItems() { return state.cart.map(x => ({ ...product(x.id), qty: x.qty })); }
@@ -615,16 +616,41 @@ function isVendorProduct(item) {
 const DELIVERY_FEE = 1500;
 const RIDER_DELIVERY_SHARE = 1000;
 const COMPANY_DELIVERY_SHARE = 500;
-const PACKAGING_MAX_QUANTITY = 10;
+const PACKAGING_MAX_QUANTITY = 100;
 const PACKAGING_STORAGE_KEY = 'food_packaging_quantity';
+const PACKAGING_MODE_STORAGE_KEY = 'food_packaging_mode';
 function normalizePackagingQuantity(value) {
   const n = Number(value);
-  return Number.isInteger(n) ? Math.max(0, Math.min(PACKAGING_MAX_QUANTITY, n)) : 1;
+  return Number.isInteger(n) ? Math.max(0, Math.min(PACKAGING_MAX_QUANTITY, n)) : 0;
 }
-let checkoutPackagingQuantity = normalizePackagingQuantity(load(PACKAGING_STORAGE_KEY, 1));
+let checkoutPackagingQuantity = normalizePackagingQuantity(load(PACKAGING_STORAGE_KEY, 0));
+let checkoutPackagingMode = load(PACKAGING_MODE_STORAGE_KEY, 'auto') === 'manual' ? 'manual' : 'auto';
 let foodPackagingUnitPrice = 200;
 let foodPackagingSettingsLoaded = false;
 function persistPackagingQuantity() { store(PACKAGING_STORAGE_KEY, checkoutPackagingQuantity); }
+function persistPackagingMode() { store(PACKAGING_MODE_STORAGE_KEY, checkoutPackagingMode); }
+function restaurantCartQuantity(items = cartItems()) {
+  return (items || []).filter(item => !isVendorProduct(item)).reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
+}
+function syncAutoPackagingQuantity(items = cartItems()) {
+  if (!items.length) {
+    checkoutPackagingMode = 'auto';
+    checkoutPackagingQuantity = 0;
+    persistPackagingMode();
+    persistPackagingQuantity();
+    return;
+  }
+  if (checkoutPackagingMode !== 'manual') {
+    checkoutPackagingQuantity = normalizePackagingQuantity(restaurantCartQuantity(items));
+    persistPackagingQuantity();
+  }
+}
+function setManualPackagingQuantity(value) {
+  checkoutPackagingQuantity = normalizePackagingQuantity(value);
+  checkoutPackagingMode = 'manual';
+  persistPackagingQuantity();
+  persistPackagingMode();
+}
 
 function loadFoodPackagingSettings() {
   if (foodPackagingSettingsLoaded || typeof supabase === 'undefined' || !supabase) return;
@@ -2903,6 +2929,7 @@ function productView(id) {
 
 function cart() {
   const items = cartItems();
+  syncAutoPackagingQuantity(items);
   if (items.some(item => !isVendorProduct(item))) loadFoodPackagingSettings();
   const subtotal = cartTotal(), fee = items.length ? DELIVERY_FEE : 0;
   const vendorOnly = items.length > 0 && items.every(isVendorProduct);
@@ -2924,7 +2951,9 @@ function cart() {
   const checkoutBtn = unavailable.length
     ? `<button class="btn btn--block mt-2" disabled title="Remove the unavailable item(s) to continue">Checkout · ${money(checkoutTotal)}</button><p class="muted xs center mt-1 mb-0">Remove the unavailable item(s) to checkout.</p>`
     : `<a class="btn btn--block mt-2" href="#/checkout">Checkout · ${money(checkoutTotal)}</a><p class="muted xs center mt-1 mb-0">Secure payment in Nigerian Naira</p>`;
-  const packagingUi = `<div class="card mt-2" data-cart-packaging><div class="row row--between"><div><b>Food packaging</b><p class="muted small mb-0">Adjust the number of food packs you need.</p></div><div class="row" style="gap:8px"><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="-1" aria-label="Decrease packaging quantity">−</button><b>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'}</b><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="1" aria-label="Increase packaging quantity">+</button></div></div><div class="row row--between mt-1"><span>Packaging: ${checkoutPackagingQuantity} × ${money(foodPackagingUnitPrice)}</span><b>${money(packagingAmount)}</b></div></div>`;
+  const packagingLabel = checkoutPackagingMode === 'manual' ? 'Your packaging choice' : `Suggested: ${restaurantCartQuantity(items)} pack${restaurantCartQuantity(items) === 1 ? '' : 's'}`;
+  const packagingValue = checkoutPackagingQuantity === 0 ? 'None' : `${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'} × ${money(foodPackagingUnitPrice)}`;
+  const packagingUi = `<div class="card mt-2" data-cart-packaging><div class="row row--between"><div><b>Food packaging</b><p class="muted small mb-0">${packagingLabel}</p></div><div class="row" style="gap:8px"><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="-1" aria-label="Decrease packaging quantity">−</button><b>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'}</b><button class="btn btn--ghost btn--sm" type="button" data-packaging-delta="1" aria-label="Increase packaging quantity">+</button></div></div><div class="row row--between mt-1"><span>Packaging: ${packagingValue}</span><b>${money(packagingAmount)}</b></div><button class="link-btn small mt-1" type="button" data-packaging-zero>No packaging</button><p class="muted xs mb-0">Packaging is suggested automatically. Reduce or remove it if your order doesn't need extra packs.</p></div>`;
   return `<section class="section container"><div class="page-head"><div><h1>Your cart</h1><p>${items.length ? 'Review your items before checkout.' : 'Your next campus find awaits.'}</p></div></div>${!items.length ? empty('🛒','Your cart is empty','Explore campus vendors and add what you need.','<a class="btn mt-1" href="#/browse">Browse items</a>') : `<div class="split"><div><div class="card">${lines}</div>${packagingUi}</div><aside class="card sticky-side"><div class="card__head"><h3>Order summary</h3></div><div class="totals"><div><span>Subtotal</span><span>${money(subtotal)}</span></div><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery fee</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(checkoutTotal)}</span></div></div>${checkoutBtn}</aside></div>`}</section>`;
 }
 
@@ -3029,7 +3058,7 @@ async function saveOrderToSupabase(order) {
     });
   }
 
-  clearOrderAttempt('place_order', lines, order.spot, order.idempotency_key, order.user_id);
+  clearOrderAttempt('place_order', lines, order.spot, order.idempotency_key, order.user_id, order.packaging_quantity);
 
   return data.order;
 }
@@ -4134,12 +4163,15 @@ function vendorDashboard() {
 }
 
 function packagingSnapshotHtml() {
+  syncAutoPackagingQuantity();
   const amount = checkoutPackagingQuantity * foodPackagingUnitPrice;
-  return `<div class="card mt-1" data-packaging-snapshot><div class="row row--between"><b>Packaging</b><span>${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'} × ${money(foodPackagingUnitPrice)}</span><b>${money(amount)}</b></div><a class="link-btn small" href="#/cart">Edit cart</a></div>`;
+  const label = checkoutPackagingQuantity === 0 ? 'None' : `${checkoutPackagingQuantity} pack${checkoutPackagingQuantity === 1 ? '' : 's'} × ${money(foodPackagingUnitPrice)}`;
+  return `<div class="card mt-1" data-packaging-snapshot><div class="row row--between"><b>Packaging</b><span>${label}</span><b>${money(amount)}</b></div><a class="link-btn small" href="#/cart">Edit cart</a></div>`;
 }
 
 function checkout() {
   if (!state.cart.length) { location.hash = '#/cart'; return ''; }
+  syncAutoPackagingQuantity();
   // Require the user to be logged in before placing an order
   if (!state.user) {
     toast('Please sign in to place an order', 'info');
@@ -6527,15 +6559,19 @@ document.addEventListener('click', async e=>{
   const star=e.target.closest('[data-star-order]'); if(star){ const orderId=star.dataset.starOrder; document.querySelectorAll(`[data-star-order="${orderId}"]`).forEach(b=>{ b.classList.toggle('is-on', Number(b.dataset.rating)<=Number(star.dataset.rating)); }); }
   if(e.target.id==='vendorProductClear'){ resetVendorProductForm(); }
   const vpImgRemove=e.target.closest('#vendorProductImageRemove'); if(vpImgRemove){ dropVendorProductImageSelection(); }
-  const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); save(); render();}
-  const packaging=e.target.closest('[data-packaging-delta]'); if(packaging){
-    const next=checkoutPackagingQuantity+Number(packaging.dataset.packagingDelta);
-    checkoutPackagingQuantity=Math.max(0,Math.min(PACKAGING_MAX_QUANTITY,next));
-    persistPackagingQuantity();
+  const q=e.target.closest('[data-qty]'); if(q){const line=state.cart.find(x=>x.id===Number(q.dataset.qty)); if(!line)return; line.qty+=Number(q.dataset.delta); if(line.qty<1) state.cart=state.cart.filter(x=>x!==line); syncAutoPackagingQuantity(); save(); render();}
+  const packagingZero=e.target.closest('[data-packaging-zero]'); if(packagingZero){
+    setManualPackagingQuantity(0);
     render();
     return;
   }
-  const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); save(); render(); toast('Item removed from your cart','info'); }
+  const packaging=e.target.closest('[data-packaging-delta]'); if(packaging){
+    const next=checkoutPackagingQuantity+Number(packaging.dataset.packagingDelta);
+    setManualPackagingQuantity(next);
+    render();
+    return;
+  }
+  const rm=e.target.closest('[data-remove]'); if(rm){ state.cart=state.cart.filter(x=>x.id!==Number(rm.dataset.remove)); syncAutoPackagingQuantity(); save(); render(); toast('Item removed from your cart','info'); }
   const accept=e.target.closest('[data-accept]'); if(accept){const o=state.riderPool.find(x=>x.id===accept.dataset.accept); if(o && state.rider && state.rider.id){
     // Client-side mirror of the server-enforced 2-active cap (DB trigger is
     // final): block a third Accept attempt with a clear message instead of a
@@ -7117,7 +7153,7 @@ document.addEventListener('submit', e=>{
             packaging_quantity: checkoutPackagingQuantity,
             status: 'Order confirmed', payment_status: 'pending',
             spot, created: 'Just now', delivery_method: 'rider',
-            idempotency_key: getOrCreateOrderAttempt('place_order', restaurantItems.map(item => ({ id: String(item.id), qty: Number(item.qty) })), spot, userId).key
+            idempotency_key: getOrCreateOrderAttempt('place_order', restaurantItems.map(item => ({ id: String(item.id), qty: Number(item.qty) })), spot, userId, checkoutPackagingQuantity).key
           };
           order.user_id = userId;
           const saved = await saveOrderToSupabase(order);
@@ -7132,7 +7168,9 @@ document.addEventListener('submit', e=>{
             anySuccess = true;
             if (!firstOrderId) firstOrderId = order.id;
             state.orders.unshift(order);
-            checkoutPackagingQuantity = 1;
+            checkoutPackagingMode = 'auto';
+            checkoutPackagingQuantity = 0;
+            persistPackagingMode();
             persistPackagingQuantity();
           } else {
             checkoutErrorNotified = true;

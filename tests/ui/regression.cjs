@@ -244,6 +244,10 @@ assert.match(appSource,/Your cart already contains items from another restaurant
 assert.match(appSource,/PACKAGING_MAX_QUANTITY/);
 assert.match(appSource,/function packagingSnapshotHtml\(\)/);
 assert.match(appSource,/function persistPackagingQuantity\(\)/);
+assert.match(appSource,/PACKAGING_MODE_STORAGE_KEY/);
+assert.match(appSource,/function syncAutoPackagingQuantity\(/);
+assert.match(appSource,/data-packaging-zero/);
+assert.match(appSource,/Your packaging choice/);
 assert.match(appSource,/data-cart-packaging/);
 assert.match(appSource,/data-packaging-snapshot/);
 assert.match(appSource,/data-copy-referral/);
@@ -253,7 +257,9 @@ const packagingMigration=fs.readFileSync(path.join(root,'supabase/migrations/202
 const packagingFundingMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270211_packaging_purchase_funding.sql'),'utf8');
 assert.match(packagingMigration,/food_packaging_unit_price numeric/);
 assert.match(packagingMigration,/packaging_quantity integer/);
-assert.match(packagingMigration,/packaging_quantity >= 0 AND packaging_quantity <= 10/);
+const packagingQuantityMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270218_quantity_aware_packaging.sql'),'utf8');
+assert.match(packagingQuantityMigration,/packaging_quantity >= 0 AND packaging_quantity <= 100/);
+assert.match(packagingQuantityMigration,/p_packaging_quantity < 0 OR p_packaging_quantity > 100/);
 assert.match(packagingMigration,/packaging_amount=p_packaging_quantity\*v_unit_price/);
 assert.match(packagingMigration,/total=subtotal\+COALESCE\(packaging_amount,0\)\+fee-discount/);
 assert.match(packagingMigration,/recalculate_final_order_financials/);
@@ -279,12 +285,12 @@ assert.doesNotMatch(riderPurchaseCard({items:[],packaging_amount:200}),/Total to
 const packagingFns=sourceBetween('function packagingSnapshotHtml()', 'function checkout()');
 const packagingContext=vm.createContext({
   money:value=>`₦${Number(value||0).toLocaleString('en-NG')}`, esc:value=>String(value??''),
-  checkoutPackagingQuantity:1, foodPackagingUnitPrice:200, Number, String
+  checkoutPackagingQuantity:1, foodPackagingUnitPrice:200, syncAutoPackagingQuantity:()=>{}, Number, String
 });
 vm.runInContext(packagingFns,packagingContext);
 assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/1 pack/);
 packagingContext.checkoutPackagingQuantity=0;
-assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/0 pack/);
+assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/None/);
 assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/₦0/);
 packagingContext.checkoutPackagingQuantity=2;
 assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/₦400/);
@@ -292,7 +298,7 @@ packagingContext.checkoutPackagingQuantity=10;
 assert.match(vm.runInContext('packagingSnapshotHtml()',packagingContext),/₦2,000/);
 const admissionSource=fs.readFileSync(path.join(root,'supabase/functions/order-admission/index.ts'),'utf8');
 assert.match(admissionSource,/packaging_quantity/);
-assert.match(admissionSource,/packagingQuantity < 0 \|\| packagingQuantity > 10/);
+assert.match(admissionSource,/packagingQuantity < 0 \|\| packagingQuantity > 100/);
 assert.match(appSource,/function refreshEnrichedOrder\(dbId/);
 assert.match(appSource,/const orderRefreshGenerations = new Map\(\)/);
 assert.match(appSource,/await loadAssignedOrderEnriched\(dbId\)/);

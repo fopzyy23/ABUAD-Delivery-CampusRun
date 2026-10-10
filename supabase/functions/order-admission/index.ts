@@ -68,8 +68,8 @@ Deno.serve(async (req) => {
   if (new TextEncoder().encode(JSON.stringify(body)).byteLength > MAX_BODY_BYTES) return json(req, 413, { error: "Request body too large" });
   if (!Array.isArray(body.items) || typeof body.spot !== "string") return json(req, 400, { error: "items and spot are required" });
   const packagingQuantity = body.vendor_request === true ? 0 : Number(body.packaging_quantity ?? 1);
-  if (!Number.isInteger(packagingQuantity) || packagingQuantity < 0 || packagingQuantity > 10) {
-    return json(req, 400, { error: "packaging_quantity must be an integer between 0 and 10" });
+  if (!Number.isInteger(packagingQuantity) || packagingQuantity < 0 || packagingQuantity > 100) {
+    return json(req, 400, { error: "packaging_quantity must be an integer between 0 and 100" });
   }
   const requestKey = typeof body.idempotency_key === "string" ? body.idempotency_key : "";
   if (requestKey.length < 16 || requestKey.length > 256) return json(req, 400, { error: "idempotency_key is required" });
