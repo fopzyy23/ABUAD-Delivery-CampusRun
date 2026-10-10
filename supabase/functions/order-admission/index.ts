@@ -22,6 +22,7 @@ async function fingerprint(operation: string, items: unknown[], spot: string, pa
 }
 
 Deno.serve(async (req) => {
+  try {
   const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
   const logStep = (stage: string, outcome: "success" | "failure", error?: unknown) => {
     const details = error && typeof error === "object"
@@ -152,4 +153,14 @@ Deno.serve(async (req) => {
   }
   logStep(rpcName, "success");
   return json(req, 200, { order });
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "order_admission",
+      stage: "unexpected_error",
+      outcome: "failure",
+      error_code: error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "unexpected_error") : "unexpected_error",
+      error_message: error instanceof Error ? error.message.slice(0, 500) : "unexpected server error",
+    }));
+    return json(req, 500, { error: "Order admission temporarily unavailable" });
+  }
 });
