@@ -90,6 +90,69 @@ async function main() {
       console.log('Applied corrective migration '+file);
     }
     const riderCall=(userId,sql,params=[])=>asUser(db,userId,'aal1',tx=>tx.query(sql,params));
+    await q(`INSERT INTO vendors(id,name,type,open) VALUES('refund-test-vendor','Refund Test Vendor','Restaurant',true) ON CONFLICT (id) DO NOTHING`);
+    await q(`INSERT INTO products(id,vendor_id,name,price,active) VALUES
+      (991001,'refund-test-vendor','Original ₦1000',1000,true),
+      (991002,'refund-test-vendor','Replacement ₦700',700,true),
+      (991003,'refund-test-vendor','Replacement ₦900',900,true),
+      (991004,'refund-test-vendor','Replacement ₦1200',1200,true),
+      (991005,'refund-test-vendor','Original ₦500',500,true),
+      (991006,'refund-test-vendor','Original ₦2600',2600,true)
+      ON CONFLICT (id) DO NOTHING`);
+    await check('replacement adjustment is recalculated and invalidated by the authoritative decision',async()=>{
+      const oid=await order({status:'Rider assigned'});
+      const pid=await payment(oid);
+      const item=(await q(`INSERT INTO order_items(order_id,product_id,qty,price,name,vendor_id) VALUES($1,991001,1,1000,'Original ₦1000','refund-test-vendor') RETURNING id`,[oid]))[0].id;
+      await q(`UPDATE order_items SET availability_state='unavailable' WHERE id=$1`,[item]);
+      await asUser(db,customer,'aal1',tx=>tx.query('SELECT customer_replace_unavailable_item($1,$2,$3)',[item,'991002',1]));
+      assert.equal(Number((await q(`SELECT amount FROM refunds WHERE order_id=$1 AND source_order_item_id=$2 AND status='approved'`,[oid,item]))[0].amount),300);
+      await asUser(db,customer,'aal1',tx=>tx.query('SELECT customer_replace_unavailable_item($1,$2,$3)',[item,'991003',1]));
+      assert.equal(Number((await q(`SELECT amount FROM refunds WHERE order_id=$1 AND source_order_item_id=$2 AND status='approved'`,[oid,item]))[0].amount),100);
+      await asUser(db,customer,'aal1',tx=>tx.query('SELECT customer_replace_unavailable_item($1,$2,$3)',[item,'991001',1]));
+      assert.equal((await q(`SELECT count(*) AS n FROM refunds WHERE order_id=$1 AND source_order_item_id=$2 AND status NOT IN ('failed','rejected')`,[oid,item]))[0].n,0);
+      const expensive=await asUser(db,customer,'aal1',tx=>tx.query('SELECT customer_replace_unavailable_item($1,$2,$3) AS result',[item,'991004',1]));
+      assert.equal(Number(expensive.rows[0].result.additional_amount_due),200);
+      assert.equal((await q(`SELECT count(*) AS n FROM refunds WHERE order_id=$1 AND source_order_item_id=$2 AND status NOT IN ('failed','rejected')`,[oid,item]))[0].n,0);
+      const independent=await order({status:'Rider assigned'});
+      await payment(independent);
+      const independentItems=(await q(`INSERT INTO order_items(order_id,product_id,qty,price,name,vendor_id) VALUES
+        ($1,991005,1,500,'Original â‚¦500','refund-test-vendor'),
+        ($1,991006,1,2600,'Original â‚¦2600','refund-test-vendor') RETURNING id`,[independent])).map(row=>row.id);
+      await service(`SELECT sync_replacement_adjustment_refund($1,$2,100)`,[independent,independentItems[0]]);
+      await service(`SELECT sync_replacement_adjustment_refund($1,$2,200)`,[independent,independentItems[1]]);
+      assert.equal((await q(`SELECT count(*) AS n FROM refunds WHERE order_id=$1 AND refund_kind='replacement_adjustment' AND status='approved'`,[independent]))[0].n,2);
+      assert.ok(pid);
+    });
+    async function cancellationRefundFixture(mode) {
+      const oid=await order({status:'Rider assigned'});
+      const pid=(await q(`INSERT INTO payments(order_id,reference,amount,status,payment_type) VALUES($1,$2,3100,'success','product') RETURNING id`,[oid,'refund-cancel-'+mode+'-'+randomUUID()]))[0].id;
+      const first=(await q(`INSERT INTO order_items(order_id,product_id,qty,price,name,vendor_id) VALUES($1,991005,1,500,'Original ₦500','refund-test-vendor') RETURNING id`,[oid]))[0].id;
+      const second=(await q(`INSERT INTO order_items(order_id,product_id,qty,price,name,vendor_id) VALUES($1,991006,1,2600,'Original ₦2600','refund-test-vendor') RETURNING id`,[oid]))[0].id;
+      await service(`SELECT sync_replacement_adjustment_refund($1,$2,500)`,[oid,first]);
+      const rid=(await q(`SELECT id FROM refunds WHERE order_id=$1 AND source_order_item_id=$2`,[oid,first]))[0].id;
+      if(mode==='processed') {
+        await service(`SELECT apply_refund_result($1,true,'gw-${mode}',NULL)`,[rid]);
+        await service(`SELECT apply_refund_result($1,true,'gw-${mode}',NULL)`,[rid]);
+        assert.equal((await q(`SELECT status,amount FROM refunds WHERE id=$1`,[rid]))[0].status,'processed');
+      }
+      if(mode==='failed') await service(`SELECT apply_refund_result($1,false,NULL,'provider failed')`,[rid]);
+      if(mode==='processing') await service(`SELECT claim_refund_for_execution($1)`,[rid]);
+      await q(`UPDATE order_items SET final_removed=true,final_resolution='removed',final_quantity=0,final_price=0,final_resolved_at=now(),availability_state='available' WHERE id IN ($1,$2)`,[first,second]);
+      const result=(await asUser(db,riderUser,'aal1',tx=>tx.query(`SELECT resolve_all_items_unavailable($1) AS result`,[oid]))).rows[0].result;
+      const retry=(await asUser(db,riderUser,'aal1',tx=>tx.query(`SELECT resolve_all_items_unavailable($1) AS result`,[oid]))).rows[0].result;
+      assert.equal(retry.already_exists,true);
+      const c=(await q(`SELECT stage,reimbursement_amount FROM cancellations WHERE id=$1`,[result.cancellation_id]))[0];
+      return {oid,pid,stage:c.stage,amount:Number(c.reimbursement_amount||0)};
+    }
+    await check('processed partial adjustment is subtracted from later full cancellation',async()=>{
+      const x=await cancellationRefundFixture('processed'); assert.equal(x.stage,'eligible_for_reimbursement'); assert.equal(x.amount,2600);
+    });
+    await check('failed partial adjustment remains refundable during later full cancellation',async()=>{
+      const x=await cancellationRefundFixture('failed'); assert.equal(x.stage,'eligible_for_reimbursement'); assert.equal(x.amount,3100);
+    });
+    await check('in-flight partial adjustment blocks simultaneous full reimbursement',async()=>{
+      const x=await cancellationRefundFixture('processing'); assert.equal(x.stage,'admin_resolution_required'); assert.equal(x.amount,3100);
+    });
     await check('rider status RPC returns JSON across the complete delivery lifecycle',async()=>{
       const rpcOrder=await order({status:'Rider assigned'});
       await q(`UPDATE orders SET rider_id=$2, product_availability_status='confirmed', purchase_funding_status='authorized' WHERE id=$1`,[rpcOrder,rider]);
@@ -100,9 +163,20 @@ async function main() {
         assert.equal(result.order.status,status);
         return result;
       };
+      await assert.rejects(call('Picked up'),/purchase funding must be transferred/);
+      await q(`UPDATE orders SET purchase_funding_status='transferred' WHERE id=$1`,[rpcOrder]);
       await call('Picked up');
       await call('On the Way');
       await call('Delivered');
+    });
+    await check('vendor-request rider pickup does not require restaurant purchase funding',async()=>{
+      const oid=randomUUID();
+      await q(`INSERT INTO orders(id,order_number,user_id,total,subtotal,fee,status,payment_status,delivery_method,request_type,
+        vendor_delivery_requested,delivery_payment_status,rider_id)
+        VALUES($1,$2,$3,1000,1000,1500,'Rider assigned','pending_vendor','rider','vendor_request',true,'success',$4)`,
+        [oid,'VENDOR-RIDER-'+oid,customer,rider]);
+      const result=(await riderCall(riderUser,'SELECT update_rider_order_status($1,$2) AS result',[oid,'Picked up'])).rows[0].result;
+      assert.equal(result.status,'Picked up');
     });
     const claimOrder=async(userId,orderId)=>(await riderCall(userId,'SELECT claim_order($1) AS result',[orderId])).rows[0].result;
     const claimUser=await user(), claimRider=randomUUID();

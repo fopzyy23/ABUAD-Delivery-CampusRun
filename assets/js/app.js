@@ -5078,6 +5078,7 @@ function riderOrderItemsHtml(o) {
 }
 
 function riderAvailabilityHtml(o) {
+  if (o.request_type === 'vendor_request') return '';
   const items = Array.isArray(o.items) ? o.items : [];
   const allItemsRemoved = o.all_items_removed === true;
   const finalResolutionComplete = o.final_resolution_complete === true;
@@ -5087,16 +5088,48 @@ function riderAvailabilityHtml(o) {
     && Number(o.additional_amount_due || 0) === 0
     && (allItemsRemoved || !['additional_payment_required','overpaid_pending_resolution'].includes(o.final_financial_status));
   const guidance = o.product_availability_status === 'confirmed'
-    ? '<p class="muted small">Products confirmed. Purchase funding is authorized; wait for confirmed transfer before buying.</p>'
+    ? '<p class="muted small">Products confirmed. Use the primary action below to request or await purchase funding.</p>'
     : ready ? (allItemsRemoved
-      ? '<p class="muted small">Every food item was removed. Confirm the resolution to cancel the order and start the customer reimbursement.</p>'
-      : '<p class="muted small">Final products are resolved. Confirm them to request purchase funding.</p>')
+      ? '<p class="muted small">Every food item was removed. Use the primary action below to cancel the order and start customer reimbursement.</p>'
+      : '<p class="muted small">Final products are resolved. Use the primary action below to request purchase funding.</p>')
     : '<p class="muted small">Check every product. Wait for the customer to resolve unavailable items and complete any additional payment before confirming.</p>';
   const lines = items.map(it => `<div class="row row--between row--wrap availability-line" style="gap:8px"><span><b>${esc(it.name || 'Item')}</b> <span class="muted small">× ${it.qty || 0}</span></span><span class="badge badge--${['available','replaced'].includes(it.availability_state) ? 'success' : it.availability_state === 'unavailable' ? 'danger' : 'warn'}">${it.availability_state === 'available' ? 'Available' : it.availability_state === 'replaced' ? 'Replacement confirmed' : it.availability_state === 'unavailable' ? 'Unavailable' : 'Not checked'}</span></div>`).join('');
   const emptyResolutionNotice = !items.length && finalResolutionComplete
     ? '<p class="muted small">All items were removed. Confirm product resolution to cancel the order and issue the customer reimbursement; no purchase funding will be requested.</p>'
     : '';
-  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div>${emptyResolutionNotice}${guidance}${o.product_availability_status !== 'confirmed' ? `<div class="row row--wrap mt-1" style="gap:6px">${items.filter(it => !it.final_resolution || it.final_resolution === 'available').map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>` : ''}${ready && o.product_availability_status !== 'confirmed' ? `<button class="btn btn--block mt-1" data-confirm-products="${esc(o.id)}">${allItemsRemoved ? 'Confirm product resolution' : 'Confirm products & request funding'}</button>` : ''}</div>`;
+  return `<div class="card mt-1"><div class="row row--between"><b>Product availability</b><span class="badge badge--info">${stateLabel}</span></div><div class="stack mt-1" style="gap:6px">${lines}</div>${emptyResolutionNotice}${guidance}${o.product_availability_status !== 'confirmed' ? `<div class="row row--wrap mt-1" style="gap:6px">${items.filter(it => !it.final_resolution || it.final_resolution === 'available').map(it => `<button class="btn btn--soft btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="true">Available: ${esc(it.name || 'item')}</button><button class="btn btn--ghost btn--sm" data-availability="${esc(it.orderItemId || '')}" data-available="false">Unavailable: ${esc(it.name || 'item')}</button>`).join('')}</div>` : ''}</div>`;
+}
+
+function riderPrimaryActionHtml(o) {
+  const busy = state.riderSubmitting[o.id];
+  const disabled = busy ? ' disabled' : '';
+  const busyLabel = busy ? 'Updating…' : '';
+  if (o.status === 'Picked up') return `<button class="btn btn--block" data-onway="${esc(o.id)}"${disabled}>${busyLabel || 'On the way'}</button>`;
+  if (o.status === 'On the Way') return `<button class="btn btn--block" data-delivered="${esc(o.id)}"${disabled}>${busyLabel || 'Mark delivered'}</button>`;
+  if (o.status !== 'Rider assigned') return o.status === 'Delivered' ? '<p class="muted small center">Delivery completed.</p>' : '';
+
+  // Vendor-request deliveries do not use restaurant purchase funding.
+  if (o.request_type === 'vendor_request') return `<button class="btn btn--block" data-pickup="${esc(o.id)}"${disabled}>${busyLabel || 'Mark as picked up'}</button>`;
+
+  const allItemsRemoved = o.all_items_removed === true;
+  const resolved = o.final_resolution_complete === true;
+  const needsCustomerDecision = o.product_availability_status === 'needs_customer_decision'
+    || (o.items || []).some(item => item.availability_state === 'unavailable' && !item.final_resolution);
+  if (allItemsRemoved && resolved) {
+    return `<button class="btn btn--block" data-confirm-products="${esc(o.id)}"${disabled}>${busyLabel || 'Confirm product resolution'}</button>`;
+  }
+  if (!resolved) return '<button class="btn btn--block" disabled title="Complete the product availability check first">Complete product check</button>';
+  if (needsCustomerDecision) return '<button class="btn btn--block" disabled>Waiting for customer</button><p class="muted xs center mb-0">Replacement or removal is still pending.</p>';
+  if (Number(o.additional_amount_due || 0) > 0 || o.final_financial_status === 'additional_payment_required') {
+    return '<button class="btn btn--block" disabled>Waiting for customer payment</button>';
+  }
+  if (o.purchase_funding_status === 'transferred') return `<button class="btn btn--block" data-pickup="${esc(o.id)}"${disabled}>${busyLabel || 'Mark as picked up'}</button>`;
+  if (o.purchase_funding_status === 'authorized' || o.purchase_funding_status === 'processing') {
+    return '<button class="btn btn--block" disabled>Funding processing…</button><p class="muted xs center mb-0">Wait until the purchase funds are confirmed before buying the items.</p>';
+  }
+  if (o.purchase_funding_status === 'failed') return '<button class="btn btn--block" disabled>Funding failed — requires resolution</button>';
+  if (o.purchase_funding_status === 'reversed') return '<button class="btn btn--block" disabled>Funding requires resolution</button>';
+  return `<button class="btn btn--block" data-confirm-products="${esc(o.id)}"${disabled}>${busyLabel || 'Request purchase funding'}</button>`;
 }
 
 function rider() {
@@ -5194,7 +5227,7 @@ function rider() {
       ? `<div class="empty"><div class="empty__icon">🌙</div><b>You're offline</b><span>Go online above to see available deliveries.</span></div>`
       : `<div class="empty"><div class="empty__icon">🛵</div><b>Become a rider first</b><span>Submit an application to unlock deliveries.</span><a class="btn mt-1" href="#/rider/apply">Apply now</a></div>`;
   const activeHtml = active.length
-    ? `<div class="stack">${active.map(o => { const busy = state.riderSubmitting[o.id]; const b = busy ? 'disabled' : ''; const action = o.status === 'Rider assigned' ? `<button class="btn btn--block" data-pickup="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark as picked up'}</button>` : o.status === 'Picked up' ? `<button class="btn btn--block" data-onway="${o.id}" ${b}>${busy ? 'Updating…' : 'On the way'}</button>` : `<button class="btn btn--block" data-delivered="${o.id}" ${b}>${busy ? 'Updating…' : 'Mark delivered'}</button>`; const hasUnavailable = (o.items || []).some(item => item.availability_state === 'unavailable'); const noteForm = hasUnavailable ? `<form class="row row--wrap mt-1" data-order-note="${esc(o.dbId)}" data-note-type="availability"><label class="small" style="width:100%">Suggest an available replacement</label><input class="input" name="message" maxlength="1000" placeholder="e.g. Chicken Large and Turkey are currently available"><button class="btn btn--ghost btn--sm" type="submit">Send suggestion</button></form>` : ''; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}${noteForm}${action}</article>`; }).join('')}</div>`
+    ? `<div class="stack">${active.map(o => { const hasUnavailable = (o.items || []).some(item => item.availability_state === 'unavailable'); const noteForm = hasUnavailable ? `<form class="row row--wrap mt-1" data-order-note="${esc(o.dbId)}" data-note-type="availability"><label class="small" style="width:100%">Suggest an available replacement</label><input class="input" name="message" maxlength="1000" placeholder="e.g. Chicken Large and Turkey are currently available"><button class="btn btn--ghost btn--sm" type="submit">Send suggestion</button></form>` : ''; return `<article class="card"><div class="row row--between"><span class="badge badge--info">${o.status}</span><span class="small muted">Order #${o.id}</span></div><h3 class="mt-1">${pickupName(o)}</h3><p class="muted small">${(o.items || []).length} item${(o.items || []).length > 1 ? 's' : ''} · 📍 ${esc(o.spot || 'No location')} · ${money(riderShareAmount(o.fee))} rider earnings</p>${riderOrderItemsHtml(o)}${riderAvailabilityHtml(o)}${noteForm}${riderPrimaryActionHtml(o)}</article>`; }).join('')}</div>`
     : '<div class="empty"><div class="empty__icon">📭</div><b>No active deliveries</b><span>Accept an available delivery to get started.</span></div>';
   const historyHtml = done.length
     ? `<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Route</th><th>Rider earnings</th></tr></thead><tbody>${done.map(o => `<tr><td>#${esc(o.id)}</td><td>${pickupName(o)}</td><td><b>${money(riderShareAmount(o.fee))}</b></td></tr>`).join('')}</tbody></table></div>`
@@ -6693,7 +6726,7 @@ document.addEventListener('click', async e=>{
       else if(result && result.status === 'processing') toast('Purchase funding is processing. You will be notified when it is confirmed.');
       else toast('Purchase funding request submitted');
       await refreshEnrichedOrder((state.riderPool.find(x=>x.id===orderId)||{}).dbId, 'confirm-products');
-    } catch (error) { void handleAppError(error,{action:'release_purchase_funding',source:'payment',financial:true,orderId:o.dbId}); }
+    } catch (error) { void handleAppError(error,{action:'request_purchase_funding',source:'payment',financial:true,orderId:(state.riderPool.find(x=>x.id===orderId)||{}).dbId}); }
     render();
   }
   // Customer cancellation: only while the order is still cancellable
