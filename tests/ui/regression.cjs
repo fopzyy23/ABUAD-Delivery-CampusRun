@@ -10,8 +10,17 @@ const swSource=fs.readFileSync(path.join(root,'sw.js'),'utf8');
 const dispatcherSource=fs.readFileSync(path.join(root,'supabase/functions/push-dispatcher/index.ts'),'utf8');
 const shellSource=fs.readFileSync(path.join(root,'assets/html/index.html'),'utf8');
 const netlifyConfig=fs.readFileSync(path.join(root,'netlify.toml'),'utf8');
+const riderApplicationMigration=fs.readFileSync(path.join(root,'supabase/migrations/20270216_submit_rider_application_rpc.sql'),'utf8');
 
 assert.match(appSource,/rpc\(['"]update_rider_order_status['"]/);
+assert.match(appSource,/rpc\(['"]submit_rider_application['"]/);
+assert.doesNotMatch(appSource,/from\(['"]riders['"]\)\s*\.insert/);
+assert.match(riderApplicationMigration,/auth\.uid\(\)/);
+assert.match(riderApplicationMigration,/status = 'pending'/);
+assert.match(riderApplicationMigration,/status IN \('pending','approved','suspended'\)/);
+assert.match(riderApplicationMigration,/GRANT EXECUTE ON FUNCTION public\.submit_rider_application/);
+assert.match(riderApplicationMigration,/REVOKE INSERT ON public\.riders FROM PUBLIC, anon, authenticated/);
+assert.match(riderApplicationMigration,/DROP POLICY IF EXISTS [\"']riders_insert_own/);
 assert.doesNotMatch(appSource,/from\(['"]orders['"]\)\s*\.update\(\{ status: nextStatus \}\)/);
 assert.match(appSource,/\[400,401,403,404\]\.includes\(status\)/);
 assert.match(swSource,/dropzyy-static-__DROPZYY_BUILD_ID__/);

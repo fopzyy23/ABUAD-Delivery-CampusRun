@@ -785,26 +785,19 @@ async function submitRiderApplication(formData) {
     const phone = (formData.get('phone') || '').trim();
     if (!full_name || !matricNumber || !college || !department || !email || !phone) { toast('Please fill in all required fields', 'error'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('Please enter a valid email address', 'error'); return; }
-    const { data, error } = await supabase
-      .from('riders')
-      .insert({
-        user_id: session.user.id,
-        full_name: full_name,
-        matric_number: matricNumber,
-        college: college,
-        department: department,
-        email: email,
-        phone: phone,
-        status: 'pending',
-        available: false
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('submit_rider_application', {
+      p_full_name: full_name,
+      p_matric_number: matricNumber,
+      p_college: college,
+      p_department: department,
+      p_email: email,
+      p_phone: phone
+    });
     if (error) {
-      if (error.code === '23505' || (error.message && error.message.includes('duplicate'))) {
-        toast('You have already submitted an application', 'info');
+      if (error.code === '23505' || (error.message && /already exists|already submitted/i.test(error.message))) {
+        toast('You already have a rider application under review.', 'info');
       } else {
-        console.error('Rider application insert failed:', error);
+        console.error('Rider application submission failed:', error);
         void handleAppError(error,{action:'rider_application',source:'rider',userMessage:'We could not submit your rider application. Please try again.'});
       }
       return;

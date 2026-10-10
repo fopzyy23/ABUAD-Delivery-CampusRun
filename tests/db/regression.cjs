@@ -90,6 +90,20 @@ async function main() {
       console.log('Applied corrective migration '+file);
     }
     const riderCall=(userId,sql,params=[])=>asUser(db,userId,'aal1',tx=>tx.query(sql,params));
+    await check('rider application submission uses a pending row and protected approval',async()=>{
+      const applicant=await user();
+      const applicantCall=(sql,params=[])=>asUser(db,applicant,'aal1',tx=>tx.query(sql,params));
+      const submitted=(await applicantCall(`SELECT submit_rider_application($1,$2,$3,$4,$5,$6) AS result`,['Student Applicant','MAT-001','College','Department',applicant+'@test.invalid','08000000001'])).rows[0].result;
+      assert.equal(submitted.user_id,applicant);
+      assert.equal(submitted.status,'pending');
+      assert.equal(submitted.available,false);
+      await assert.rejects(applicantCall(`INSERT INTO riders(user_id,matric_number,phone,status,available) VALUES($1,'MAT-002','08000000002','pending',false)`,[applicant]),/permission denied|row-level security|duplicate/);
+      await assert.rejects(applicantCall(`SELECT submit_rider_application($1,$2,$3,$4,$5,$6)`,['Another','MAT-002','College','Department','another@test.invalid','08000000002']),/already exists/);
+      await assert.rejects(asUser(db,admin,'aal1',tx=>tx.query(`SELECT admin_set_rider_status($1,'approved')`,[submitted.id])),/AAL2|aal2|MFA/);
+      await adminCall(`SELECT admin_set_rider_status($1,'approved')`,[submitted.id]);
+      const approved=(await q('SELECT status,available FROM riders WHERE id=$1',[submitted.id]))[0];
+      assert.deepEqual(approved,{status:'approved',available:true});
+    });
     await check('rider status RPC returns JSON across the complete delivery lifecycle',async()=>{
       const rpcOrder=await order({status:'Rider assigned'});
       await q(`UPDATE orders SET rider_id=$2, product_availability_status='confirmed', purchase_funding_status='authorized' WHERE id=$1`,[rpcOrder,rider]);
