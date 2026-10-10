@@ -60,6 +60,7 @@ let state = {
   automaticCutoffClaimsLoading: false,
   automaticCutoffClaimsError: null,
   adminMetrics: null
+  ,coupons: [], couponsLoading: false, couponsError: null
   ,mfa: { factors: [], aal: null, enrollment: null, challenge: null, factorId: null, challengeRequired: false, loading: false, error: null }
 };
 
@@ -1459,6 +1460,7 @@ async function loadCoupons() {
 
 function renderAdminWorkspace() {
   if (!state.isAuthenticated) { renderLogin(); return; }
+  if (adminSection === 'coupons' && !state.couponsLoaded && !state.couponsLoading) { loadCoupons().then(() => renderAdminWorkspace()); return; }
   const vendors = state.catalog ? state.catalog.vendors : [];
   const products = state.catalog ? state.catalog.products : [];
   const orders = state.orders;
@@ -1482,7 +1484,8 @@ function renderAdminWorkspace() {
   // ---- Render ONLY the active section ----
   const shared = { vendors, products, orders, riders, totalOrders, activeOrders, completedOrders, cancelledOrders, orderValue: authoritativeOrderValue, filteredOrders };
   let view;
-  if (adminSection === 'dashboard') view = renderDashboardSection(shared);
+  if (adminSection === 'coupons') view = renderCouponsWorkspace();
+  else if (adminSection === 'dashboard') view = renderDashboardSection(shared);
   else if (adminSection === 'orders') view = renderOrdersSection(shared);
   else if (adminSection === 'deliveries') view = renderDeliveriesSection(shared);
   else if (adminSection === 'users') view = renderUsersWorkspace(shared);
@@ -2640,6 +2643,22 @@ function showAdminSupportDetail(title, record) {
 }
 
 function attachAdminEventListeners() {
+  document.getElementById('adminCouponForm')?.addEventListener('submit', async e => {
+    e.preventDefault(); if (!await ensureAdminAal2()) return;
+    const f = new FormData(e.currentTarget); const type=String(f.get('type')); const value=Number(f.get('value')); const couponId=String(f.get('coupon_id')||'');
+    const params = { p_type:type, p_value:value, p_starts_at:f.get('starts_at')||null, p_expires_at:f.get('expires_at')||null, p_usage_limit:f.get('usage_limit')?Number(f.get('usage_limit')):null, p_per_user_limit:Number(f.get('per_user_limit')||1), p_first_order_only:f.get('first_order_only')==='on', p_active:f.get('active')==='on' };
+    const result = couponId
+      ? await supabase.rpc('admin_update_coupon', { p_coupon_id:couponId, ...params })
+      : await supabase.rpc('admin_create_coupon', { p_code:String(f.get('code')), p_type:type, p_value:value, p_starts_at:params.p_starts_at, p_expires_at:params.p_expires_at, p_usage_limit:params.p_usage_limit, p_per_user_limit:params.p_per_user_limit, p_first_order_only:params.p_first_order_only });
+    if(result.error) toast(adminMfaMessage(result.error.message),'error'); else { toast(couponId ? 'Coupon updated' : 'Coupon created'); state.couponsLoaded=false; renderAdminWorkspace(); }
+  });
+  document.querySelectorAll('[data-coupon-edit]').forEach(btn=>btn.addEventListener('click',()=>{
+    const c=state.coupons.find(row=>String(row.coupon_id)===String(btn.dataset.couponEdit)); const form=document.getElementById('adminCouponForm'); if(!c||!form)return;
+    const set=(name,value)=>{const el=form.elements[name];if(el)el.value=value==null?'':String(value);};
+    set('coupon_id',c.coupon_id); set('code',c.code); set('type',c.coupon_type); set('value',c.value); set('starts_at',c.starts_at ? String(c.starts_at).slice(0,16) : ''); set('expires_at',c.expires_at ? String(c.expires_at).slice(0,16) : ''); set('usage_limit',c.usage_limit); set('per_user_limit',c.per_user_limit||1); form.elements.first_order_only.checked=Boolean(c.first_order_only); form.elements.active.checked=Boolean(c.active); form.elements.code.readOnly=true; form.querySelector('[data-coupon-submit]').textContent='Save coupon'; form.querySelector('[data-coupon-cancel]').hidden=false; form.scrollIntoView({behavior:'smooth',block:'start'});
+  }));
+  document.querySelector('[data-coupon-cancel]')?.addEventListener('click',()=>{const form=document.getElementById('adminCouponForm');if(!form)return;form.reset();form.elements.coupon_id.value='';form.elements.code.readOnly=false;form.elements.per_user_limit.value='1';form.querySelector('[data-coupon-submit]').textContent='Create coupon';form.querySelector('[data-coupon-cancel]').hidden=true;});
+  document.querySelectorAll('[data-coupon-toggle]').forEach(btn=>btn.addEventListener('click',async()=>{ if(!await ensureAdminAal2())return; const {error}=await supabase.rpc('admin_set_coupon_active',{p_coupon_id:btn.dataset.couponToggle,p_active:btn.dataset.active==='true'}); if(error)toast(adminMfaMessage(error.message),'error');else{state.couponsLoaded=false;renderAdminWorkspace();} }));
   document.querySelector('[data-error-refresh]')?.addEventListener('click',async()=>{await loadErrorLogsFromSupabase();renderAdminWorkspace();});
   document.querySelectorAll('[data-error-detail]').forEach(b=>b.addEventListener('click',()=>showErrorLogDetail(b.dataset.errorDetail)));
   document.querySelectorAll('[data-copy-error]').forEach(b=>b.addEventListener('click',()=>navigator.clipboard.writeText(b.dataset.copyError).then(()=>toast('Error reference copied'))));

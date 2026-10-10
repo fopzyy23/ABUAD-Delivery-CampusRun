@@ -5,21 +5,29 @@
 // across all browser-invoked Edge Functions.
 // ============================================================
 
-// No implicit production/local origin defaults. Each deployment must provide
-// its own explicit ALLOWED_ORIGIN value.
-const ALLOWED_ORIGINS: string[] = (
-  Deno.env.get("ALLOWED_ORIGIN") ?? ""
-)
+// Origins are matched exactly. Deployment configuration may add legitimate
+// environment-specific origins, but credentials/authorization are never sent
+// with a wildcard origin.
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://dropzyy-staging.netlify.app",
+  "https://dropzyy.com",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+const ALLOWED_ORIGINS: string[] = Array.from(new Set([
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...(Deno.env.get("ALLOWED_ORIGIN") ?? "")
   .split(",")
   .map((s) => s.trim())
-  .filter(Boolean);
+  .filter(Boolean),
+]));
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
+      "authorization, apikey, content-type, x-client-info, x-request-id",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
@@ -35,7 +43,7 @@ function json(req: Request, status: number, body: Record<string, unknown>): Resp
 }
 
 function handleOptions(req: Request): Response {
-  return new Response("ok", { headers: corsHeaders(req) });
+  return new Response(null, { status: 204, headers: corsHeaders(req) });
 }
 
 export { corsHeaders, json, handleOptions, ALLOWED_ORIGINS };

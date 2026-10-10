@@ -388,6 +388,7 @@ async function main(){
   assert.doesNotMatch(financialRenderer,/state\.(?:transfers|payments|withdrawals|cancellations)/);
   assert.match(admin,/admin_get_financial_resolution_queue/);
   await vendorProductDomRegression();
+  refundDisplayRegression();
   console.log('PASS overlapping modals settle the prior promise exactly once');
   console.log('PASS admin support filters use persistent state and restore controls');
   console.log('PASS admin control-center navigation, lifecycle actions, rider picker, details, and metrics are wired');

@@ -2563,29 +2563,29 @@ function homeReachUs() {
     <div class="dropzyy-reach__grid">
       ${hasWhatsAppChannel ? `<article class="dropzyy-reach__card dropzyy-reach__card--wa">
         <span class="dropzyy-reach__icon" aria-hidden="true">💬</span>
-        <h3>Join Our WhatsApp Channel</h3>
-        <p>Get updates, coupons, and offers on WhatsApp. Not for support.</p>
-        <a class="btn dropzyy-reach__btn" href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">Join WhatsApp Channel</a>
+        <h3>WhatsApp Updates</h3>
+        <p>Updates, coupons &amp; offers.</p>
+        <a class="btn dropzyy-reach__btn" href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">Join Channel</a>
       </article>` : ''}
 
       <article class="dropzyy-reach__card">
         <span class="dropzyy-reach__icon" aria-hidden="true">✉️</span>
         <h3>Email Us</h3>
-        <p>Questions or feedback? Send us an email.</p>
-        <a class="btn btn--ghost dropzyy-reach__btn" href="${esc(emailHref)}">Send us an Email</a>
+        <p>Questions or feedback?</p>
+        <a class="btn btn--ghost dropzyy-reach__btn" href="${esc(emailHref)}">Email Us</a>
       </article>
 
       <article class="dropzyy-reach__card dropzyy-reach__card--report">
         <span class="dropzyy-reach__icon" aria-hidden="true">🛠️</span>
         <h3>Report an Issue</h3>
-        <p>Something went wrong? Let us know.</p>
-        <a class="btn btn--accent dropzyy-reach__btn" href="#/report">Report an Issue</a>
+        <p>Something wrong? Tell us.</p>
+        <a class="btn btn--accent dropzyy-reach__btn" href="#/report">Report Issue</a>
       </article>
 
       <article class="dropzyy-reach__card">
         <span class="dropzyy-reach__icon" aria-hidden="true">❓</span>
         <h3>FAQs</h3>
-        <p>Quick answers on ordering, delivery, and riders.</p>
+        <p>Quick help with orders &amp; delivery.</p>
         <a class="btn btn--soft dropzyy-reach__btn" href="#/faqs">View FAQs</a>
       </article>
     </div>
@@ -2678,7 +2678,7 @@ function home() {
       <p class="dropzyy-hero__sub">Order food, drinks, or a late-night snack and have another student bring it to your hostel, lecture hall, or wherever you&rsquo;re posted. Track your rider the whole way.</p>
       <div class="dropzyy-hero__actions">
         <a class="btn btn--lg dropzyy-hero__cta" href="#/browse">Start an order</a>
-        <a class="btn btn--lg btn--ghost dropzyy-hero__cta-2" href="#/rider/apply">Ride with us &rarr;</a>
+        <a class="btn btn--lg btn--ghost dropzyy-hero__cta-2" href="#/rider/apply">Become a Rider</a>
       </div>
       <div class="dropzyy-hero__hinted">
         <span class="dropzyy-hero__hinted-label">Jump straight to:</span>
