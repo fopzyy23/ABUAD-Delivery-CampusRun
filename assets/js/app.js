@@ -580,7 +580,12 @@ function toast(message, kind = 'success') {
     dismiss.addEventListener('click', () => el.remove());
     el.appendChild(dismiss);
   }
-  $('#toastRoot').append(el);
+  const toastRoot = document.getElementById('toastRoot');
+  if (!toastRoot) {
+    console.warn('Dropzyy toast skipped because #toastRoot is unavailable.');
+    return;
+  }
+  toastRoot.append(el);
   setTimeout(() => el.remove(), kind === 'error' ? 9000 : 3400);
 }
 window.toast = toast;
@@ -4198,7 +4203,7 @@ function checkout() {
   const packagingAmount = checkoutPackagingQuantity * foodPackagingUnitPrice;
   const total = cartTotal()+packagingAmount+fee;
   queuePromotionCheckoutUi();
-  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div>${packagingSnapshotHtml()}<div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">You'll be redirected to Paystack. Packaging remains optional and separate from delivery.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
+  return `<section class="section container"><div class="page-head"><div><h1>Checkout</h1><p>Where should your order meet you?</p></div></div><div class="split"><form id="checkoutForm" class="card stack"><div class="card__head"><h3>Delivery details</h3><span class="badge badge--brand">Campus only</span></div><div class="form-grid"><div class="field"><label for="checkoutLocation">Hostel / Delivery location</label><select class="select" name="location" id="checkoutLocation" required><option value="" disabled selected>Select your hostel</option>${HOSTELS.map(g=>`<optgroup label="${esc(g.group)}">${g.items.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select></div><div class="field"><label for="checkoutSpot">Room, block or landmark</label><input required class="input" name="spot" id="checkoutSpot" placeholder="e.g. Room B12, block C"></div></div>${packagingSnapshotHtml()}<div class="divider"></div><div class="card__head"><h3>Pay securely</h3><span class="badge badge--success">🔒 Secure</span></div><div class="radio-cards"><label class="radio-card"><input type="radio" name="payment" checked> <span>💳 Card / Transfer</span></label><label class="radio-card"><input type="radio" name="wallet-soon" disabled> <span>👛 Campus wallet</span> <span class="muted small">Coming soon</span></label></div><button class="btn btn--block btn--lg mt-1" type="submit">Pay ${money(total)} & place order</button><p class="muted xs center mb-0">Pay securely in the Dropzyy popup. Packaging remains optional and separate from delivery.</p></form><aside class="card sticky-side"><h3>Your order</h3>${cartItems().map(x=>`<div class="line"><span class="line__thumb">${esc(x.icon)}</span><span class="line__main"><b>${esc(x.name)}</b><small class="line__sub">× ${x.qty}</small></span><b>${money(x.price*x.qty)}</b></div>`).join('')}<div class="totals mt-1"><div><span>Packaging</span><span>${money(packagingAmount)}</span></div><div><span>Delivery</span><span>${money(fee)}</span></div><div class="totals__grand"><span>Total</span><span>${money(total)}</span></div></div></aside></div></section>`;
 }
 
 // F18: lightweight skeleton card for async views. Uses the existing shimmer
@@ -5476,33 +5481,69 @@ const PAY_ERROR_BANNER_HTML =
 
 // Initialize the Paystack transaction for order id `tid` (the order's dbId —
 // never an amount or payment reference; the Edge Function prices the order
-// server-side) with full failure handling. Success → the browser is
-// redirected to Paystack (the button stays disabled during the handoff). Any
-// failure → the pay button is re-enabled with its original label, the inline
-// error banner is revealed, and both the pay button and the banner's Try
+// server-side) with full failure handling. Normal checkout uses the official
+// InlineJS V2 popup and its server-generated access_code. Any failure → the
+// pay button is re-enabled with its original label, the inline error banner is
+// revealed, and both the pay button and the banner's Try
 // ============================================
 // Unified Paystack Checkout Handler
 // Handles BOTH product payments (restaurant/vendor products) AND
 // vendor delivery payments (₦1,500 rider delivery fee)
 // ============================================
+async function verifyPaystackWithRetry(reference, attempts = 3) {
+  let result = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    result = await verifyPaymentWithPaystack(reference);
+    if (result?.verified && result.status === 'success') return result;
+    if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  return result;
+}
+
+async function finishPaystackPopupPayment(tid, reference, paymentType) {
+  const verification = await verifyPaystackWithRetry(reference);
+  if (!verification?.verified || verification.status !== 'success') {
+    throw new Error('Payment is still being confirmed. Please use Verify payment with Paystack shortly.');
+  }
+  const verifiedOrderId = String(verification.order_id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(verifiedOrderId)) throw new Error('Verified payment order could not be resolved.');
+  if (paymentType === 'vendor_delivery') {
+    const state = currentAppState();
+    state.vendorLoaded = false;
+    await ensureVendorLoaded();
+    toast('Payment successful — returning to your vendor dashboard.', 'success');
+    location.hash = '#/vendor';
+    render();
+    return;
+  }
+  await refreshEnrichedOrder(verifiedOrderId, 'paystack-popup-verified');
+  const state = currentAppState();
+  const verifiedOrder = [...state.orders, ...state.riderPool].find(order => order.dbId === verifiedOrderId);
+  if (!verifiedOrder) throw new Error('Payment verified, but the order could not be loaded yet.');
+  toast('Payment successful — opening your order…', 'success');
+  location.hash = `#/order/${encodeURIComponent(verifiedOrder.id)}`;
+  render();
+}
+
 async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'product') {
   const state = currentAppState();
   const banner = document.getElementById('payErrorBanner');
   const tryAgainBtn = document.getElementById('payTryAgain');
-  const originalLabel = payBtn.dataset.payLabel || payBtn.textContent;
-  payBtn.dataset.payLabel = originalLabel;
+  const control = payBtn || { disabled: false, textContent: '', dataset: {} };
+  const originalLabel = control.dataset.payLabel || control.textContent;
+  control.dataset.payLabel = originalLabel;
 
   const fail = (err) => {
-    console.error('Paystack initialization failed:', err);
-    payBtn.disabled = false;
-    payBtn.textContent = originalLabel;
+    console.error('Paystack checkout failed:', err);
+    control.disabled = false;
+    control.textContent = originalLabel;
     if (tryAgainBtn) tryAgainBtn.disabled = false;
     if (banner) banner.hidden = false;
-    toast(PAY_INIT_ERROR_TEXT, 'error');
+    toast(err?.message || PAY_INIT_ERROR_TEXT, 'error');
   };
 
-  payBtn.disabled = true;
-  payBtn.textContent = busyLabel;
+  control.disabled = true;
+  control.textContent = busyLabel;
   if (tryAgainBtn) tryAgainBtn.disabled = true;
   if (banner) banner.hidden = true;
 
@@ -5513,11 +5554,41 @@ async function startPaystackCheckout(tid, payBtn, busyLabel, paymentType = 'prod
       order_id: tid,
       email: state.user.email
     });
-    if (response && response.authorization_url) {
+    if (!response) { fail(new Error(PAY_INIT_ERROR_TEXT)); return; }
+    if (response.access_code && typeof window.PaystackPop === 'function') {
+      const popup = new window.PaystackPop();
+      let callbackHandled = false;
+      popup.resumeTransaction(response.access_code, {
+        onSuccess: transaction => {
+          if (callbackHandled) return;
+          callbackHandled = true;
+          const reference = transaction?.reference || response.reference;
+          if (!reference) { fail(new Error('Paystack returned no transaction reference')); return; }
+          void finishPaystackPopupPayment(tid, reference, paymentType).catch(fail);
+        },
+        onCancel: () => {
+          if (callbackHandled) return;
+          callbackHandled = true;
+          control.disabled = false;
+          control.textContent = originalLabel;
+          if (tryAgainBtn) tryAgainBtn.disabled = false;
+          toast('Payment was cancelled. You can try again.', 'info');
+        },
+        onError: error => {
+          if (callbackHandled) return;
+          callbackHandled = true;
+          fail(error instanceof Error ? error : new Error('Paystack popup could not be loaded.'));
+        }
+      });
+      return;
+    }
+    // Controlled hosted-checkout fallback for browsers where InlineJS V2 did
+    // not load. A normal successful path uses access_code above.
+    if (response.authorization_url && typeof window.PaystackPop !== 'function') {
       window.location.href = response.authorization_url;
       return;
     }
-    fail(new Error((response && (response.error || response.message)) || 'No authorization_url in Paystack initialization response'));
+    fail(new Error((response && (response.error || response.message)) || 'Paystack popup is unavailable'));
   } catch (err) {
     fail(err);
   }
@@ -6210,6 +6281,20 @@ function setDocumentTitle(parts) {
   else if (parts[0]==='rider') label = parts[1]==='apply' ? 'Apply as Rider' : 'Rider Hub';
   document.title = label ? `${label} · Dropzyy` : 'Dropzyy';
 }
+let missingAppRootReported = false;
+function appRoot() { return document.getElementById('app'); }
+function commitAppView(html) {
+  const root = appRoot();
+  if (!root) {
+    if (!missingAppRootReported) {
+      missingAppRootReported = true;
+      console.warn('Dropzyy render skipped because #app is unavailable.');
+    }
+    return false;
+  }
+  root.innerHTML = html;
+  return true;
+}
 
 async function render() {
   const state = currentAppState();
@@ -6222,18 +6307,18 @@ async function render() {
   if (!startupRouteReady || !initialAuthReady) {
     setDocumentTitle(earlyParts);
     if (!document.querySelector('#app .startup-skeleton')) {
-      $('#app').innerHTML = '<section class="section container startup-skeleton" aria-busy="true" aria-label="Loading Dropzyy"></section>';
+      commitAppView('<section class="section container startup-skeleton" aria-busy="true" aria-label="Loading Dropzyy"></section>');
     }
     return;
   }
   if (authProfileError) {
-    $('#app').innerHTML = '<section class="container"><h1>Account unavailable</h1><p>Your profile could not be loaded. Reload to retry, or sign out.</p><button id="logoutBtn" class="btn">Sign out</button></section>';
+    commitAppView('<section class="container"><h1>Account unavailable</h1><p>Your profile could not be loaded. Reload to retry, or sign out.</p><button id="logoutBtn" class="btn">Sign out</button></section>');
     updateChrome();
     markStartupPainted();
     return;
   }
   if (state.user?.account_status === 'suspended') {
-    $('#app').innerHTML = '<section class="section container"><div class="card"><h1>Account suspended</h1><p>Your Dropzyy account is currently suspended. Contact support if you believe this is an error.</p><button id="logoutBtn" class="btn" type="button">Sign out</button></div></section>';
+    commitAppView('<section class="section container"><div class="card"><h1>Account suspended</h1><p>Your Dropzyy account is currently suspended. Contact support if you believe this is an error.</p><button id="logoutBtn" class="btn" type="button">Sign out</button></div></section>');
     updateChrome();
     markStartupPainted();
     return;
@@ -6244,7 +6329,7 @@ async function render() {
   if (isLoginRoute && !state.user) {
     setMaintenanceChrome(false);
     setDocumentTitle(parts);
-    $('#app').innerHTML = accountAuth('login', auth('login'));
+    commitAppView(accountAuth('login', auth('login')));
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
     markStartupPainted();
@@ -6253,7 +6338,7 @@ async function render() {
   if (isRecoveryRoute) {
     setMaintenanceChrome(false);
     setDocumentTitle(parts);
-    $('#app').innerHTML = passwordReset();
+    commitAppView(passwordReset());
     updateChrome();
     window.scrollTo({ top: 0, behavior: 'instant' });
     markStartupPainted();
@@ -6263,7 +6348,7 @@ async function render() {
   if (renderGeneration !== authLifecycle.generation) return;
   if ((gate.enabled || gate.checkFailed) && !gate.isAdmin && !isLoginRoute) {
     setMaintenanceChrome(true);
-    $('#app').innerHTML = gate.checkFailed ? maintenanceUnavailableView() : maintenanceView();
+    commitAppView(gate.checkFailed ? maintenanceUnavailableView() : maintenanceView());
     document.title = gate.checkFailed ? 'Temporarily unavailable · Dropzyy' : 'Maintenance · Dropzyy';
     window.scrollTo({ top: 0, behavior: 'instant' });
     markStartupPainted();
@@ -6348,7 +6433,7 @@ async function render() {
       // Loading failed — show a small user-friendly error and stop.
       if (renderGeneration !== authLifecycle.generation) return;
       console.error('Admin module failed to load:', err);
-      $('#app').innerHTML = `<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center"><h1>⚠️ Admin panel unavailable</h1><p class="muted">The admin panel could not be loaded. This is probably a network problem — please try again.</p><a class="btn mt-2" href="#/">Back to home</a></div></div></section>`;
+      commitAppView(`<section class="section container"><div class="auth-wrap" style="max-width:640px"><div class="card center"><h1>⚠️ Admin panel unavailable</h1><p class="muted">The admin panel could not be loaded. This is probably a network problem — please try again.</p><a class="btn mt-2" href="#/">Back to home</a></div></div></section>`);
       updateChrome();
       window.scrollTo({ top: 0, behavior: 'instant' });
       return;
@@ -6366,7 +6451,7 @@ async function render() {
   }
   else view = notFound();
   if (renderGeneration !== authLifecycle.generation) return;
-  $('#app').innerHTML = view;
+  if (!commitAppView(view)) return;
   applyReferralSignupField();
   applyReferralProfileLink();
   initReplacementDecisionUi(parts);
@@ -6917,13 +7002,9 @@ document.addEventListener('click', async e=>{
       order.rider_delivery_share = data.rider_delivery_share;
       order.company_delivery_share = data.company_delivery_share;
       if (method === 'rider') {
-        const payment = await supabaseEdgeFunctionRequest('paystack-initialize-delivery', {
-          order_id: order.dbId
-        });
-        if (!payment || !payment.authorization_url) throw new Error('Vendor delivery payment could not be initialized');
         order.delivery_payment_status = 'pending';
         save();
-        window.location.href = payment.authorization_url;
+        await startPaystackCheckout(order.dbId, null, 'Opening Paystack…', 'vendor_delivery');
         return;
       }
       save();

@@ -8,19 +8,12 @@
 // Origins are matched exactly. Deployment configuration may add legitimate
 // environment-specific origins, but credentials/authorization are never sent
 // with a wildcard origin.
-const DEFAULT_ALLOWED_ORIGINS = [
-  "https://dropzyy-staging.netlify.app",
-  "https://dropzyy.com",
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-];
-const ALLOWED_ORIGINS: string[] = Array.from(new Set([
-  ...DEFAULT_ALLOWED_ORIGINS,
-  ...(Deno.env.get("ALLOWED_ORIGIN") ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean),
-]));
+const ALLOWED_ORIGINS: string[] = Array.from(new Set(
+  (Deno.env.get("ALLOWED_ORIGIN") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+));
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";

@@ -9,7 +9,8 @@
 //   SUPABASE_URL               Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY  Supabase service-role key (server-side ONLY)
 //   ALLOWED_ORIGIN             Explicit comma-separated CORS origin allowlist
-//   PAYSTACK_CALLBACK_URL      Explicit trusted HTTPS /vendor callback
+//   PAYSTACK_DELIVERY_CALLBACK_URL  Explicit trusted HTTPS /vendor callback
+//   PAYSTACK_CALLBACK_URL           Legacy fallback for delivery callback
 //   DROPZYY_ENVIRONMENT        Explicit production, staging, or development label
 //
 // Deploy:  supabase functions deploy paystack-initialize-delivery
@@ -27,12 +28,12 @@ const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_JSON_BODY_BYTES = 16 * 1024;
-const PAYSTACK_CALLBACK_URL = Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "";
+const PAYSTACK_DELIVERY_CALLBACK_URL = Deno.env.get("PAYSTACK_DELIVERY_CALLBACK_URL") ?? Deno.env.get("PAYSTACK_CALLBACK_URL") ?? "";
 const DROPZYY_ENVIRONMENT = Deno.env.get("DROPZYY_ENVIRONMENT") ?? "";
 
 function resolveCallbackUrl(req: Request, orderId: string): string {
   const url = new URL(resolveTrustedCallbackUrl({
-    configuredCallback: PAYSTACK_CALLBACK_URL,
+    configuredCallback: PAYSTACK_DELIVERY_CALLBACK_URL,
     requestOrigin: req.headers.get("Origin") ?? "",
     allowedOrigins: ALLOWED_ORIGINS,
     requiredPath: "/vendor",
